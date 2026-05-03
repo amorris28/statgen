@@ -81,6 +81,9 @@ use the same upstream contig naming mode, normally `genomatch` NCBI naming.
    inside interval `[start, end)` when `start <= p < end`. SNPs on chromosomes
    absent from the BED file receive `0`.
 
+Interval membership semantics are inherited from BED (`[start, end)`, 0-based
+start, 0-based exclusive end); `statgen` does not redefine BED coordinates.
+
 The result is a boolean or 0/1 vector in BIM row order, one entry per SNP.
 Complement masks are a user-space operation on the returned `annomat`; the
 annotation loader does not provide a negation option.
@@ -90,10 +93,10 @@ annotation loader does not provide a negation option.
 Implementations may use language-native containers. The object is tied to one
 reference panel: row order and SNP count correspond to the paired reference,
 and any cache is valid only for that reference.
-Internal representation should default to sparse storage. `annomat` may be
-exposed as dense or sparse depending on implementation heuristics (for example
-mask density), but semantics are identical. Implementations should avoid
-materializing dense `num_snp × num_annot` arrays unless explicitly requested.
+Internal representation should use sparse storage. `annomat` is exposed as a
+sparse binary matrix in both runtimes (`scipy.sparse.csr_matrix` in Python;
+MATLAB/Octave sparse matrix). Dense materialization is caller-driven and
+explicit (for example `toarray()`/`full(...)`).
 
 ## Panel-level accessors
 
@@ -102,12 +105,12 @@ accessors that concatenate across shards in reference panel order. Downstream
 code works with the resulting plain arrays natively.
 
 ```text
-AnnotationPanel.annomat    -> num_snp × num_annot binary matrix
+AnnotationPanel.annomat    -> num_snp × num_annot sparse binary matrix
 AnnotationPanel.annonames  -> num_annot string vector
 ```
 
 `annonames` is identical across shards and returned once. The `annomat` type
-follows the shard representation: `bool`, `uint8`, or sparse binary matrix.
+is a sparse binary matrix.
 
 ## API
 
@@ -118,7 +121,7 @@ load_annotations_cache(path, optional shards) -> AnnotationPanel
 create_annotations(reference, annomat, annonames) -> AnnotationPanel
 create_annotation(reference, annovec, annoname) -> AnnotationPanel
 
-AnnotationPanel.annomat -> num_snp × num_annot binary matrix
+AnnotationPanel.annomat -> num_snp × num_annot sparse binary matrix
 AnnotationPanel.annonames -> num_annot string vector
 AnnotationPanel.select_shards(shards) -> AnnotationPanel
 AnnotationPanel.select_annotations(names) -> AnnotationPanel

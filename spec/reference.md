@@ -100,6 +100,9 @@ Expected behavior:
 - Accessors are read-only, concatenate shard columns in reference panel order,
   and return plain language-native vectors or tables.
 - `shard_offsets` uses zero-based half-open intervals into genome-wide arrays.
+- `shard_offsets.start0`/`stop0` are cross-language coordinate metadata, not
+  direct language indices. MATLAB/Octave callers convert at use-site
+  (`start0 + 1 : stop0`).
 - `load_reference_cache` skips source-style row validation; `shards` subsetting
   applies against cached shard labels per
   [contigs-and-shards.md](contigs-and-shards.md).

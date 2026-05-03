@@ -43,8 +43,8 @@ Objects:
 1. [sumstats.md](sumstats.md): `SumstatsShard` / `Sumstats` —
    GWAS summary statistics for one trait/source.
 
-Each object spec should define what the object represents; its portable disk representation;
-its public API and behavioral invariants.
+Each object spec should define what the object represents, its disk
+representation, its public API, and behavioral invariants.
 
 ## API notation
 
@@ -115,6 +115,10 @@ Within each shard rows have shard-local SNP indices; across a panel they have
 global SNP indices. In memory, all panel-like objects are represented as ordered
 shard vectors.
 
+Unless a field is explicitly documented as portable-coordinate metadata (for
+example `start0`, `stop0`, or `index_base`), indexing semantics in code follow
+the host language (Python 0-based, MATLAB/Octave 1-based).
+
 Reference checksum construction is defined in [reference.md](reference.md).
 Reference-aligned objects store the paired `ReferenceShard` checksum in memory
 and in caches/metadata where applicable.
@@ -127,12 +131,16 @@ Portable object files should be language-agnostic. Use:
   shards;
 - BED for canonical annotation interval inputs;
 - `.tsv.gz` for portable non-sharded GWAS summary statistics;
-- JSON for manifests and small metadata;
-- raw little-endian binary arrays plus JSON metadata for LD triplets.
+- JSON for manifests and small metadata.
 
 Avoid pickle or MATLAB `.mat` as portable storage. Language-specific
 formats are allowed only as caches for performance or interoperability, and
 must be reproducible from portable source files.
+
+LD panels are the documented exception to this portable-storage policy: their
+distributed shard files are runtime-native sparse matrix artifacts, not caches.
+Python LD distributions use NumPy/SciPy `.npz`; MATLAB/Octave LD distributions
+use `.mat`. See [ld.md](ld.md) for the LD-specific distribution contract.
 
 ## Object scope and mutability
 
@@ -153,7 +161,7 @@ statistical genetics workflows:
 - **Underlying data access**: read-only accessors that return plain
   language-native arrays (numpy `ndarray`, MATLAB matrix/vector). For panel
   objects these concatenate shards transparently into genome-wide arrays.
-  Examples: `AnnotationPanel.annomat`, `Sumstats.zvec`, `LDPanel.mafvec`.
+  Examples: `AnnotationPanel.annomat`, `Sumstats.zvec`, `LDPanel.a1freq`.
 - **Object-specific operations**: defined in each object spec (for example
   `LDPanel.multiply_r2` and `fast_prune` in [ld.md](ld.md)).
 

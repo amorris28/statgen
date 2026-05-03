@@ -15,8 +15,9 @@ Canonical source fixtures under `tests/fixtures/` are committed (not generated
 at test time) so that:
 
 - `pytest` runs immediately in CI without a prerequisite step;
-- Python and Octave tests read the exact same on-disk bytes;
-- binary fixture contents (LD triplets, BIM files) are stable references that
+- Python and Octave tests read the exact same on-disk bytes for portable
+  formats and paired runtime-native files for LD;
+- binary fixture contents (LD distribution files, BIM files) are stable references that
   can be inspected independently of the test suite.
 
 To regenerate fixtures after a format change, run:
@@ -25,9 +26,9 @@ To regenerate fixtures after a format change, run:
 python tests/fixtures/generate.py
 ```
 
-Binary arrays in fixtures must be written with explicit little-endian dtypes
-(e.g. `numpy.dtype('<i4')`, `numpy.dtype('<f4')`) even on little-endian
-machines, so the intent is unambiguous.
+Binary arrays in fixtures must use explicitly documented dtypes and byte-order
+where the object format exposes them. For LD `.npz` fixtures this means the
+CSC component dtypes from [ld.md](ld.md).
 
 Session-scoped pytest fixtures in `conftest.py` may produce derived or computed
 outputs in a temporary directory. Tests may also generate on-the-fly temporary
@@ -87,19 +88,23 @@ setup and package resolution work end-to-end before any real logic is added.
 
 ## Cross-language consistency
 
-Python and Octave loaders should read the same portable source files and report
-matching:
+Python and Octave loaders should read the same portable source files where the
+object contract is portable. LD is runtime-native: Python reads `.npz`, and
+Octave reads converted `.mat` files derived from those `.npz` sources. Loaders
+should report matching:
 
 - dimensions;
 - vector values;
 - reference shard/panel ordering;
-- sparse LD triplets and materialized sparse matrices;
+- sparse LD matrices and aligned `a1freq` vectors;
 - genotype metadata; genotype slices only after the deferred genotype access
   contract is specified;
 - annotation masks and LD-weighted annotation arrays within numeric tolerance.
 
-Cache conversion tests should verify that native cache outputs match the
-portable source files, not that caches match each other directly.
+Cache conversion tests should verify that native cache outputs match portable
+source files, not that caches match each other directly. LD converter tests
+should verify that MATLAB/Octave `.mat` distributions match the Python `.npz`
+handoff files at the logical shard level.
 
 ## Edge cases and failures
 
@@ -108,8 +113,8 @@ Tests should also cover:
 - reference checksum computation and `ReferencePanel.is_object_compatible`
   mismatch reports;
 - cache invalidation when a supplied reference has different shard checksums;
-- little-endian LD triplet loading and binary array length validation;
-- chrX LD shard groups, including sex-specific default selection;
+- LD manifest/per-file metadata agreement and sparse payload validation;
+- chrX LD shard files, including sex-specific default selection;
 - sharded (`@` template) versus single-file loading behavior;
 - malformed source files with missing required columns;
 - summary-statistic `p` handling for missing values, `0`, negative values, and

@@ -7,6 +7,11 @@ to reduce repeated load/parse/transform cost while preserving object semantics.
 
 Caches are accelerators, not canonical data interchange formats.
 
+LD distribution artifacts are outside this cache contract. They are
+runtime-native sparse matrix files by design and are specified in
+[ld.md](ld.md). They are not considered cache files, and LD does not expose
+public cache save/load APIs.
+
 ## Normative requirements
 
 - Cache reads and writes MUST preserve the logical object contract defined in

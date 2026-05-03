@@ -38,8 +38,9 @@ Sharded paths use `@` as the shard-label placeholder.
 
 - **Reference and genotype loaders**: substitute `@` with canonical contig
   labels in order (no glob-based discovery) and load existing matches.
-- **LD loaders**: derive expected shard paths from the supplied `reference`
-  object rather than performing canonical substitution independently.
+- **LD loaders**: derive expected shard files from the supplied `reference`
+  object and resolve them through `ld_manifest.json` rather than performing
+  canonical substitution independently.
 
 Non-sharded single-file inputs are split by the `chr` column into
 per-chromosome shards in canonical order.
@@ -48,8 +49,8 @@ per-chromosome shards in canonical order.
 
 All panel objects expose `select_shards(shards)`.
 Cache loaders that operate without a required reference
-(`load_reference_cache`, `load_ld_cache`, `load_annotations_cache`,
-`load_sumstats_cache`) accept an optional `shards` parameter.
+(`load_reference_cache`, `load_annotations_cache`, `load_sumstats_cache`)
+accept an optional `shards` parameter.
 Source loaders that are defined around an explicit `reference` argument
 (`load_ld`, `load_annotations`, `load_sumstats`) use the supplied reference
 shard structure; subsetting is done via `select_shards`.

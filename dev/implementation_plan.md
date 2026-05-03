@@ -3,9 +3,10 @@
 This plan turns the object-centered specification in `spec/` into a
 working Python and MATLAB/Octave package. The guiding constraints are:
 
-- loaders create immutable, load-only objects from portable disk formats;
+- loaders create immutable, load-only objects from documented disk formats;
 - all per-SNP vectors and matrix rows align to `ReferencePanel` order;
-- portable storage stays language-agnostic;
+- portable storage stays language-agnostic except for LD, whose distribution
+  artifacts are runtime-native sparse matrix files by spec;
 - MATLAB/Octave and Python behavior is validated from the same fixtures;
 - genotype matrix access remains deferred until its contract is specified.
 
@@ -40,8 +41,8 @@ Implementation tasks:
     intervals;
   - one `.tsv.gz` sumstats file with finite, missing, `p == 0`, invalid, and
     absent-reference variants;
-  - minimal LD triplet directories, including a chrX shard group with
-    `combined`, `male`, and `female` shards;
+  - minimal LD `.npz` and converted `.mat` distribution files with manifests,
+    including chrX `male`, `female`, and optional `combined` shards;
   - tiny PLINK bfile metadata fixtures for genotype metadata loading.
 
 Tests and acceptance criteria:
@@ -115,10 +116,12 @@ From Phase 2 onward, tests should use:
 - Phase 3 (`Annotations`): checked-in canonical BED fixtures for overlap,
   adjacency, boundary, and exact chromosome-label behavior; on-the-fly
   permutation/stress boundary inputs.
-- Phase 4 (`LD`): checked-in canonical LD shards/shard-group fixtures for
-  parity and compatibility; on-the-fly binary/metadata corruption cases.
-- Phase 5 (LD build): on-the-fly synthetic PLINK-like tables for unit tests
-  and on-the-fly generated outputs for integration validation.
+- Phase 4 (`LD`): checked-in canonical LD `.npz` and `.mat` distribution
+  fixtures with manifests for parity and compatibility; on-the-fly
+  metadata/payload corruption cases.
+- Phase 5 (LD build/conversion): on-the-fly synthetic PLINK-like tables for
+  unit tests and on-the-fly generated `.npz`/`.mat` outputs for integration
+  validation.
 - Phase 6 (`Genotype` metadata): checked-in canonical bfile metadata fixtures;
   on-the-fly inconsistent/missing shard-file cases.
 - Phase 7 (workflow validation): default to checked-in canonical workflow
@@ -215,72 +218,88 @@ Tests and acceptance criteria:
   detect incompatible references for annotation caches;
 - complement masks and LD-weighted matrices are left to user-space arrays.
 
-## Phase 4: LD portable loader and numerical primitives
+## Phase 4: LD runtime-distribution loaders and numerical primitives
 
-Goal: load portable LD triplet directories, validate metadata, and expose the
-two public LD operations.
+Goal: load runtime-native LD distributions, validate manifest/metadata
+compatibility, and expose the two public LD operations.
 
 Implementation tasks:
 
-- implement metadata parsing for plain `ld_shard` directories and chrX
-  `ld_shard_group` directories;
-- load little-endian `ld_idx1.i32`, `ld_idx2.i32`, `ld_r.f32`, and
-  `mafvec.f32`, with explicit byte-order handling;
-- implement `load_ld(ld_dir, reference, chrX_default_sex=None)` discovery from
-  either a single shard directory or a panel root; for panel roots, derive
-  expected shard directories from `reference` shard labels as
-  `ld_dir/<shard_label>/`;
-- validate `num_snp`, `num_ld`, triplet lengths, `idx1 < idx2`, bounds, value
-  arrays, diagonal policy, and reference checksums;
-- implement sparse LD materialization in Python and MATLAB/Octave;
-- implement `LDPanel.mafvec(sex=None)` with chrX default-sex selection;
-- implement `LDPanel.multiply_r2(M, sex=None)` without building a dense
+- implement `ld_manifest.json` parsing for panel-root loads and per-file
+  metadata parsing for single-shard loads;
+- implement Python `.npz` shard loading for CSC32 arrays: `data`, `indices`,
+  `indptr`, `shape`, `a1freq`, and UTF-8 JSON `metadata`;
+- implement MATLAB/Octave `.mat` shard loading for native sparse `ld_r`,
+  `a1freq`, and metadata struct;
+- implement `load_ld(path, reference, default_chrX_sex=None)` from either a
+  single shard file or a panel root; for panel roots, derive required shard
+  files from `reference` shard labels and resolve them through the manifest;
+- validate schema/version, runtime format, manifest/per-file metadata
+  agreement, `num_snp`, `nnz`, shape/count fields, explicit chrX sex labels,
+  and exact reference checksum compatibility;
+- implement `validate_ld_distribution(path, check_payload_structure=False)`;
+  the default path validates file checksums and manifest/per-file agreement,
+  and the payload-structure path performs expensive sparse checks such as
+  bounds, diagonal, and symmetry;
+- keep Python `LDShard.ld_r` as SciPy CSC and MATLAB/Octave `LDShard.ld_r` as
+  native sparse double;
+- implement `LDPanel.a1freq(chrX_sex=None)` with chrX default-sex selection;
+- implement `LDPanel.multiply_r2(M, chrX_sex=None)` without building a dense
   genome-wide LD matrix;
 - implement `LDPanel.select_shards(shards)` returning a subset panel;
-- implement `fast_prune(logpvec, ld_panel, r2_threshold=0.2, sex=None)` with
-  stable significance ordering and per-shard pruning;
-- implement LD cache save/load in both languages: `load_ld_cache(path,
-  shards=None, chrX_default_sex=None)` does not require a reference object;
-  performs cache-internal validation only; supports optional `shards`
-  subsetting; stores per-shard checksums for post-load compatibility checking;
-  cache path-template convention: `@` replaced by shard label, `#` by chrX
-  sex label; autosomal cache paths omit the sex label.
+- implement `fast_prune(logpvec, ld_panel, r2_threshold=0.2,
+  chrX_sex=None)` with stable significance ordering and per-shard pruning;
+- do not implement LD-specific public cache APIs (`save_ld_cache` or
+  `load_ld_cache`); LD distribution artifacts are already the load-efficient
+  representation.
 
 Tests and acceptance criteria:
 
-- Python and Octave sparse matrices, `mafvec`, `multiply_r2`, and `fast_prune`
-  outputs match on fixtures within numeric tolerance;
-- chrX default sex is restored from cache and can be overridden by callers;
-- invalid metadata or binary array lengths fail clearly;
+- Python and Octave sparse matrices, `a1freq`, `multiply_r2`, and `fast_prune`
+  outputs match on paired `.npz`/`.mat` fixtures within numeric tolerance;
+- chrX default sex follows the loader default or caller override and is
+  validated against loaded chrX shards;
+- invalid manifests, metadata mismatches, missing required files, and malformed
+  sparse payloads fail clearly;
 - `multiply_r2` accepts both vectors and matrices and returns the same shape;
 - single-chromosome reference panels (one shard) load and work correctly.
 
-## Phase 5: LD build and conversion script
+## Phase 5: LD build and MATLAB/Octave conversion scripts
 
-Goal: create portable LD panels from PLINK bfiles using reproducible command
-metadata.
+Goal: create Python `.npz` LD distributions from PLINK bfiles, then convert
+them into MATLAB/Octave `.mat` distributions using reproducible metadata.
 
 Implementation tasks:
 
 - implement `script/statgen_build_ld.py`;
+- implement a MATLAB/Octave converter from LD `.npz` shard files to `.mat`
+  shard files, plus a batch converter for whole panel roots;
 - support sharded bfile input with `@` and non-sharded input;
 - for non-sharded input, split by chromosome;
 - run PLINK2 `--freq` and `--r` with `--keep-allele-order`;
 - default to a 10,000 kb LD window and `r2 >= 0.05` storage threshold, with
   command-line overrides recorded in metadata;
-- convert PLINK output into portable triplets and `mafvec`;
-- for chrX, build `combined`, `male`, and `female` shard-group outputs by
-  default using FAM sex codes, with `--no-sex-split` for combined-only output;
+- convert PLINK output into symmetric CSC32 signed-`r` `.npz` shards with
+  explicit unit diagonal, aligned `a1freq`, per-file metadata, and
+  `ld_manifest.json`;
+- for chrX, build `male` and `female` outputs by default using FAM sex codes;
+  `combined` output is opt-in and records the modeling rationale in metadata;
 - record build command, PLINK version if available, sample count, window,
-  threshold, and reference checksum in metadata.
+  threshold, reference checksum, and runtime/storage format in metadata;
+- converter reads only the limited `.npy` subset written by
+  `statgen_build_ld.py`, constructs native sparse matrices once, writes `.mat`
+  shards plus a MATLAB/Octave manifest, and validates metadata consistency
+  before writing.
 
 Tests and acceptance criteria:
 
-- unit-test conversion from synthetic PLINK-like LD/frequency tables to portable
-  triplets without requiring PLINK2;
+- unit-test conversion from synthetic PLINK-like LD/frequency tables to `.npz`
+  CSC arrays without requiring PLINK2;
+- unit-test `.npz` to `.mat` conversion under Octave when Octave is available;
 - integration tests that require PLINK2 are optional and skipped when PLINK2 is
   unavailable;
-- generated portable LD loads successfully through Phase 4 loaders;
+- generated `.npz` and converted `.mat` LD distributions load successfully
+  through Phase 4 loaders and agree at the logical shard level;
 - chrX sex splitting rejects missing FAM sex values unless `--no-sex-split` is
   used.
 
@@ -344,11 +363,11 @@ ld     = load_ld(ld_path, ref)
 annot  = load_annotations(bed_paths, ref)
 ss     = load_sumstats(sumstats_path, ref)
 
-mafvec = ld.mafvec
-sig2_i = 2 * mafvec * (1 - mafvec)
+a1freq = ld.a1freq
+sig2_i = 2 * a1freq * (1 - a1freq)
 annomat_ld = ld.multiply_r2(annot.annomat * sig2_i[:, None])
 
-mask = isfinite(ss.zvec) & isfinite(ss.nvec) & (mafvec > maf_threshold)
+mask = isfinite(ss.zvec) & isfinite(ss.nvec) & (a1freq > maf_threshold)
 randvec = uniform(0, 1, ref.num_snp)
 randvec[~mask] = NaN
 mask = mask & isfinite(fast_prune(randvec, ld, r2_threshold=0.1))
@@ -418,8 +437,9 @@ loaders and caches are stable.
 Python and MATLAB/Octave should implement the same public object contracts, but
 they should not be developed in lockstep while low-level details are still
 moving. Python should lead each implementation phase, and MATLAB/Octave should
-catch up at stable phase gates using the same portable fixtures and expected
-outputs.
+catch up at stable phase gates using the same portable fixtures where formats
+are portable, paired LD runtime distributions where LD is involved, and
+language-neutral expected outputs.
 
 Recommended sequencing:
 
@@ -431,13 +451,14 @@ Recommended sequencing:
    too far into higher-level object behavior.
 4. Keep Python roughly one phase ahead for sumstats and annotations, then add
    MATLAB/Octave parity before treating each phase as complete.
-5. Defer MATLAB/Octave LD implementation until the Python LD portable loader,
-   triplet validation, sparse matrix construction, and cache layout are stable.
-   LD has the highest risk of format churn and should not be implemented twice
-   while those details are changing.
+5. Implement Python LD `.npz` loading and validation first, then implement the
+   MATLAB/Octave `.mat` loader after the `.npz` handoff and converter contract
+   are stable. LD has the highest risk of format churn and should not be
+   implemented twice while those details are changing.
 6. Use cross-language tests as phase gates: a phase is not complete until
-   Python and MATLAB/Octave produce matching values from the same portable
-   fixtures, except for explicitly deferred genotype matrix access.
+   Python and MATLAB/Octave produce matching values from shared portable
+   fixtures or paired LD `.npz`/`.mat` fixtures, except for explicitly
+   deferred genotype matrix access.
 
 This is Python-first, not Python-only. MATLAB/Octave parity remains part of the
 acceptance criteria, but it should follow stable contracts instead of driving
@@ -450,5 +471,7 @@ early implementation choices before the storage and cache details are proven.
   checksum validation, not mirror Python internals.
 - Whether the Python package should be installable as part of the repository or
   via a nested `pyproject.toml` under `python`.
+- Exact implementation detail for MATLAB-compatible large `.mat` writing when
+  Octave cannot produce a target panel artifact.
 - How much of existing `ld/*` code should be mined for tests or conversion
   details after the clean LD implementation is underway.

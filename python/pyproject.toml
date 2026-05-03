@@ -7,7 +7,7 @@ name = "statgen"
 version = "0.1.0"
 description = "Statistical genetics data objects and loaders for Python and MATLAB/Octave."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "scipy",
