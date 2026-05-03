@@ -67,11 +67,9 @@ module at `WARNING` level for mismatches. They do not raise.
 
 - `numpy` and `scipy.sparse` are required for all numeric objects.
 - `pandas` is required for tabular loading paths.
-- `h5py` is required for Python-side handling of MATLAB v7.3 LD `.mat`
-  artifacts, because `scipy.io.loadmat` does not read HDF5-backed MAT-files.
-  The normal Python LD runtime distribution remains `.npz`; `h5py` is for
-  v7.3 `.mat` validation/inspection paths and any explicit cross-runtime
-  tooling that reads MATLAB distributions from Python.
+- Python LD loading and validation are limited to the Python `.npz`
+  distribution format. MATLAB/Octave `.mat` LD distributions are validated by
+  the MATLAB/Octave runtime.
 - Additional third-party dependencies may be added when they materially improve
   correctness, performance, or maintainability.
 - Dependencies that are not part of the default install should be declared as

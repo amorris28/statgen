@@ -59,7 +59,7 @@ function paths = coerce_bed_paths_(bed_paths)
         error('statgen:annotations', 'bed_paths must be a non-empty list of BED files');
     end
 
-    paths = statgen.ensure_cell_col(bed_paths);
+    paths = statgen.internal.ensure_cell_col(bed_paths);
     if isempty(paths)
         error('statgen:annotations', 'bed_paths must be a non-empty list of BED files');
     end
@@ -73,9 +73,9 @@ function intervals_map = parse_bed_intervals_(path)
     if n_rows == 0
         error('statgen:annotations', '%s: BED file is empty', path);
     end
-    chr_col = statgen.ensure_cell_col(cols{1});
-    start_raw = statgen.ensure_cell_col(cols{2});
-    end_raw = statgen.ensure_cell_col(cols{3});
+    chr_col = statgen.internal.ensure_cell_col(cols{1});
+    start_raw = statgen.internal.ensure_cell_col(cols{2});
+    end_raw = statgen.internal.ensure_cell_col(cols{3});
 
     bad_chr = cellfun('isempty', chr_col);
     if any(bad_chr)

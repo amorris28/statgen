@@ -55,7 +55,7 @@ classdef AnnotationPanel
             for i = 1:numel(obj.shards)
                 available{i} = obj.shards{i}.label;
             end
-            selected = statgen.validate_requested_shards(shards, available, 'AnnotationPanel.select_shards');
+            selected = statgen.internal.validate_requested_shards(shards, available, 'AnnotationPanel.select_shards');
             out_shards = cell(numel(selected), 1);
             for i = 1:numel(selected)
                 idx = find(strcmp(available, selected{i}), 1, 'first');
@@ -146,7 +146,7 @@ function out = ensure_names_(names)
         error('statgen:annotations', 'annotation names must be a non-empty list of unique strings');
     end
 
-    out = statgen.ensure_cell_col(names);
+    out = statgen.internal.ensure_cell_col(names);
     if isempty(out)
         error('statgen:annotations', 'annotation names must be a non-empty list of unique strings');
     end

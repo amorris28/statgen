@@ -16,7 +16,7 @@ function selected = validate_requested_shards(requested, available, where)
         error('statgen:shards', '%s: shards must be a non-empty list of unique canonical contig labels', where);
     end
 
-    canonical = statgen.canonical_labels();
+    canonical = statgen.internal.canonical_labels();
     canonical_idx = zeros(1, numel(requested));
     seen = {};
     for i = 1:numel(requested)

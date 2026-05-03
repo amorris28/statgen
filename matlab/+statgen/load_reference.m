@@ -23,7 +23,7 @@ end
 % ---------------------------------------------------------------------------
 
 function panel = load_sharded_(path, requested_shards)
-    canonical = statgen.canonical_labels();
+    canonical = statgen.internal.canonical_labels();
     available_labels = {};
     available_paths = {};
     for i = 1:numel(canonical)
@@ -39,7 +39,7 @@ function panel = load_sharded_(path, requested_shards)
         error('statgen:io', 'No BIM shards found matching template: %s', path);
     end
 
-    selected = statgen.validate_requested_shards(requested_shards, available_labels, 'load_reference');
+    selected = statgen.internal.validate_requested_shards(requested_shards, available_labels, 'load_reference');
     shards = cell(numel(selected), 1);
     for i = 1:numel(selected)
         label = selected{i};
@@ -51,7 +51,7 @@ function panel = load_sharded_(path, requested_shards)
 end
 
 function panel = load_split_by_chr_(bim, requested_shards)
-    canonical = statgen.canonical_labels();
+    canonical = statgen.internal.canonical_labels();
     available = {};
     for i = 1:numel(canonical)
         c = canonical{i};
@@ -60,7 +60,7 @@ function panel = load_split_by_chr_(bim, requested_shards)
         end
     end
 
-    selected = statgen.validate_requested_shards(requested_shards, available, 'load_reference');
+    selected = statgen.internal.validate_requested_shards(requested_shards, available, 'load_reference');
     shards = cell(numel(selected), 1);
     for ci = 1:numel(selected)
         c = selected{ci};
@@ -100,7 +100,7 @@ function bim = parse_bim_(path)
         error('statgen:bim', '%s:%d: chr-style labels (e.g., chr1/chrX) are not allowed', path, lineno);
     end
 
-    canonical = statgen.canonical_labels();
+    canonical = statgen.internal.canonical_labels();
     known = ismember(chr_out, canonical) | ismember(chr_out, {'Y', 'MT'});
     if ~all(known)
         lineno = find(~known, 1, 'first');
@@ -159,7 +159,7 @@ function validate_reference_sort_order_(chr_col, bp_col, a1_col, a2_col, path, l
         return
     end
 
-    canonical = statgen.canonical_labels();
+    canonical = statgen.internal.canonical_labels();
     [is_ok_chr, chr_rank] = ismember(chr_col, canonical);
     bad_chr = ~is_ok_chr;
     if any(bad_chr)
@@ -219,7 +219,7 @@ function [cols, n_rows] = read_bim_tabular_(path)
         n_rows = height(tbl);
         cols = cell(1, 6);
         for c = 1:6
-            cols{c} = statgen.ensure_cell_col(tbl{:, c});
+            cols{c} = statgen.internal.ensure_cell_col(tbl{:, c});
         end
         return
     end
@@ -240,7 +240,7 @@ function [cols, n_rows] = read_bim_tabular_(path)
 
     cols = cell(1, 6);
     for c = 1:6
-        cols{c} = statgen.ensure_cell_col(raw_cols{c});
+        cols{c} = statgen.internal.ensure_cell_col(raw_cols{c});
     end
     n_rows = numel(cols{1});
 end

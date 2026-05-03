@@ -12,8 +12,8 @@ function sumstats = load_sumstats_cache(path, shards)
         error('statgen:cache', 'Unsupported sumstats cache schema: %s', meta.schema);
     end
 
-    labels = statgen.ensure_cell_col(meta.shard_labels);
-    checksums = statgen.ensure_cell_col(meta.shard_checksums);
+    labels = statgen.internal.ensure_cell_col(meta.shard_labels);
+    checksums = statgen.internal.ensure_cell_col(meta.shard_checksums);
     if numel(labels) ~= numel(checksums)
         error('statgen:cache', 'Invalid sumstats cache: shard_labels and shard_checksums length mismatch');
     end
@@ -21,7 +21,7 @@ function sumstats = load_sumstats_cache(path, shards)
         error('statgen:cache', 'Invalid sumstats cache: cache_shards length does not match shard labels');
     end
 
-    selected = statgen.validate_requested_shards(shards, labels, 'load_sumstats_cache');
+    selected = statgen.internal.validate_requested_shards(shards, labels, 'load_sumstats_cache');
     out_shards = cell(numel(selected), 1);
     for i = 1:numel(selected)
         label = selected{i};

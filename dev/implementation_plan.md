@@ -248,9 +248,11 @@ Implementation tasks:
   agreement, `num_snp`, `nnz`, shape/count fields, sparse presence, explicit
   chrX sex labels, and exact reference checksum compatibility;
 - implement `validate_ld_distribution(path, check_payload_structure=False)`;
-  the default path validates file checksums and manifest/per-file agreement,
-  and the payload-structure path performs expensive sparse checks such as
-  bounds, diagonal, and symmetry;
+  each runtime validates only its native distribution format (Python `.npz`,
+  MATLAB/Octave `.mat`) and rejects the other runtime's manifest format; the
+  default path validates file checksums and manifest/per-file agreement, and
+  the payload-structure path performs expensive sparse checks such as bounds,
+  diagonal, and symmetry;
 - for MATLAB/Octave `.mat` shards, allow v5 sparse fixtures on load and in
   validation, but have `validate_ld_distribution` warn that v5 artifacts are
   for fixtures/local tests only and are not production distributions;
@@ -275,8 +277,9 @@ Tests and acceptance criteria:
 
 - Python and Octave load paired `.npz`/`.mat` fixtures into matching raw sparse
   matrices and shard-level `a1freq` vectors within numeric tolerance;
-- `validate_ld_distribution` is unit-tested and is usable by Phase 5a artifact
-  writer tests;
+- `validate_ld_distribution` is unit-tested per runtime and is usable by
+  Phase 5a artifact writer/converter tests: Python validates generated `.npz`
+  artifacts, and MATLAB/Octave validates converted `.mat` artifacts;
 - v5 sparse `.mat` fixtures load successfully, and
   `validate_ld_distribution` emits the non-production warning for them;
 - when MATLAB is available, v7.3 sparse `.mat` artifacts load and validate
@@ -310,17 +313,17 @@ Implementation tasks:
   MATLAB/Octave manifest, and validates metadata consistency before writing;
 - converter docs must state that Octave `.mat` output is not production
   distribution output;
-- generated `.npz` and converted `.mat` artifacts must pass Phase 4a
-  `validate_ld_distribution` and load successfully.
+- generated `.npz` and converted `.mat` artifacts must pass the corresponding
+  runtime's Phase 4a `validate_ld_distribution` and load successfully.
 
 Tests and acceptance criteria:
 
-- generated `.npz` artifacts validate and load through Phase 4a;
+- generated `.npz` artifacts validate and load through Python Phase 4a;
 - unit-test `.npz` to `.mat` conversion under Octave when Octave is available;
-- Octave-produced v5 fixture artifacts load and validate with the
+- Octave-produced v5 fixture artifacts load and validate under Octave with the
   non-production warning;
-- MATLAB-produced v7.3 artifacts validate without the v5 warning when MATLAB is
-  available;
+- MATLAB-produced v7.3 artifacts validate under MATLAB without the v5 warning
+  when MATLAB is available;
 - `.npz` and `.mat` converted artifacts agree on `ld_r` values within
   tolerance, `a1freq`, and metadata fields `chr`, `sex`, `num_snp`, `nnz`, and
   `reference_checksum`.
@@ -376,8 +379,9 @@ Tests and acceptance criteria:
 - integration tests that require PLINK2 are optional and skipped when PLINK2 is
   unavailable;
 - generated PLINK-backed `.npz` and converted `.mat` LD distributions pass
-  `validate_ld_distribution`, load successfully through Phase 4a/4b, and agree
-  on `ld_r` values within tolerance, `a1freq`, and key metadata fields;
+  their corresponding runtime validators, load successfully through Phase
+  4a/4b, and agree on `ld_r` values within tolerance, `a1freq`, and key
+  metadata fields;
 - chrX sex splitting rejects missing FAM sex values unless `--no-sex-split` is
   used.
 

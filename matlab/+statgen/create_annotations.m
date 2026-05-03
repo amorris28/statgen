@@ -47,7 +47,7 @@ function out = ensure_names_(names)
         error('statgen:annotations', 'annotation names must be a non-empty list of unique strings');
     end
 
-    out = statgen.ensure_cell_col(names);
+    out = statgen.internal.ensure_cell_col(names);
     if isempty(out)
         error('statgen:annotations', 'annotation names must be a non-empty list of unique strings');
     end

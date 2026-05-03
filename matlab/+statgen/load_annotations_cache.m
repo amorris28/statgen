@@ -13,8 +13,8 @@ function panel = load_annotations_cache(path, shards)
         error('statgen:cache', 'Unsupported annotations cache schema: %s', meta.schema);
     end
 
-    labels = statgen.ensure_cell_col(meta.shard_labels);
-    checksums = statgen.ensure_cell_col(meta.shard_checksums);
+    labels = statgen.internal.ensure_cell_col(meta.shard_labels);
+    checksums = statgen.internal.ensure_cell_col(meta.shard_checksums);
     if ~isfield(meta, 'n_shards') || ~isscalar(meta.n_shards) || meta.n_shards ~= numel(labels)
         error('statgen:cache', 'Invalid annotations cache: n_shards mismatch');
     end
@@ -26,7 +26,7 @@ function panel = load_annotations_cache(path, shards)
             'Invalid annotations cache: cache_shards length does not match shard labels');
     end
 
-    annonames = statgen.ensure_cell_col(meta.annonames);
+    annonames = statgen.internal.ensure_cell_col(meta.annonames);
     if isempty(annonames)
         error('statgen:cache', 'Invalid annotations cache: annonames must be non-empty');
     end
@@ -37,7 +37,7 @@ function panel = load_annotations_cache(path, shards)
         error('statgen:cache', 'Invalid annotations cache: annonames must be unique');
     end
 
-    selected = statgen.validate_requested_shards(shards, labels, 'load_annotations_cache');
+    selected = statgen.internal.validate_requested_shards(shards, labels, 'load_annotations_cache');
     out_shards = cell(numel(selected), 1);
     for i = 1:numel(selected)
         label = selected{i};

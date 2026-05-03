@@ -70,7 +70,7 @@ classdef Sumstats
             for i = 1:numel(obj.shards)
                 available{i} = obj.shards{i}.label;
             end
-            selected = statgen.validate_requested_shards(shards, available, 'Sumstats.select_shards');
+            selected = statgen.internal.validate_requested_shards(shards, available, 'Sumstats.select_shards');
             out_shards = cell(numel(selected), 1);
             for i = 1:numel(selected)
                 idx = find(strcmp(available, selected{i}), 1, 'first');

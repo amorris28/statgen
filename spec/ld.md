@@ -49,7 +49,10 @@ BED/FAM genotype source used to estimate LD and allele frequencies.
 
 The Python `.npz` format is also the documented build handoff format from
 `statgen_build_ld.py` into the MATLAB/Octave converter. MATLAB/Octave user
-loading reads `.mat`, not `.npz`.
+loading reads `.mat`, not `.npz`. Runtime validation follows the same boundary:
+Python validates Python `.npz` distributions, and MATLAB/Octave validates
+MATLAB/Octave `.mat` distributions. A runtime validator must reject the other
+runtime's manifest format rather than acting as the authority for it.
 
 ### Python `.npz` shard format
 
@@ -303,13 +306,16 @@ For a panel-root path, `load_ld` derives expected LD files from the supplied
 files are errors.
 
 `validate_ld_distribution` is an explicit distribution-QA path, not part of
-default loading. It validates manifest file MD5 checksums and manifest/per-file
-metadata agreement. When `check_payload_structure` is true, it may also perform
-expensive payload checks such as sparse index bounds, explicit diagonal, and
-symmetry validation. For MATLAB/Octave `.mat` distributions, v5 MAT-files are
-accepted for validation but must produce a warning stating that they are
-fixture/local-test artifacts and not production distribution artifacts because
-of MAT-file size limits.
+default loading. It validates only the calling runtime's LD distribution format:
+Python validates `.npz` distributions with `runtime_format:
+"python_npz_csc32"`; MATLAB/Octave validates `.mat` distributions with
+`runtime_format: "matlab_mat_sparse_double"`. It validates manifest file MD5
+checksums and manifest/per-file metadata agreement. When
+`check_payload_structure` is true, it may also perform expensive payload checks
+such as sparse index bounds, explicit diagonal, and symmetry validation. For
+MATLAB/Octave `.mat` distributions, v5 MAT-files are accepted for validation
+but must produce a warning stating that they are fixture/local-test artifacts
+and not production distribution artifacts because of MAT-file size limits.
 
 LD-specific public cache APIs are not part of the LD contract. There is no
 `save_ld_cache` or `load_ld_cache`; the runtime distribution artifacts are the

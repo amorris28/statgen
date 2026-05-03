@@ -30,7 +30,7 @@ matlab/
     AnnotationPanel.m
     SumstatsShard.m
     Sumstats.m
-    private/           % internal helpers not visible outside the package
+    +internal/          % shared implementation helpers, not public API
   statgen_load_reference.m
   statgen_load_ld.m
   statgen_load_sumstats.m
@@ -66,8 +66,16 @@ No wrappers are created for classes or internal helpers.
 
 - Functions and variables: `snake_case`.
 - Classes: `PascalCase` matching the spec object names.
-- Private package helpers: placed under `+statgen/private/`; not accessible
-  outside the package.
+- Shared implementation helpers that are used by multiple package entry
+  points live under the nested `+statgen/+internal/` namespace and are called
+  with fully qualified names such as `statgen.internal.read_ld_manifest(...)`.
+  The `internal` namespace is not public API and may change without
+  compatibility guarantees.
+- Truly file-local helpers should be subfunctions in the same `.m` file.
+- `+statgen/private/` may be used only for compatibility wrappers or helpers
+  whose visibility is verified under both MATLAB and Octave; shared helpers
+  should prefer `+statgen/+internal/` because it uses documented namespace
+  resolution and is covered by Octave CI.
 
 ## Types and return values
 

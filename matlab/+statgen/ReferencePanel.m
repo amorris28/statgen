@@ -85,7 +85,7 @@ classdef ReferencePanel
             for i = 1:numel(obj.shards)
                 available{i} = obj.shards{i}.label;
             end
-            selected = statgen.validate_requested_shards( ...
+            selected = statgen.internal.validate_requested_shards( ...
                 shards, available, 'ReferencePanel.select_shards');
 
             out_shards = cell(numel(selected), 1);
