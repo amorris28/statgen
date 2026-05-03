@@ -12,6 +12,7 @@ dependencies = [
     "numpy",
     "scipy",
     "pandas",
+    "h5py",
 ]
 
 [tool.setuptools.packages.find]

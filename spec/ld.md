@@ -111,9 +111,12 @@ a1freq     numeric vector, length num_snp
 metadata   struct
 ```
 
-The `.mat` file must be MAT-file version 7.3 (HDF5-based). The legacy v5
-MAT-file format is not acceptable because realistic LD shards can exceed its
-variable-size limits.
+Published production `.mat` LD distribution files must be MAT-file version 7.3
+(HDF5-based). The legacy v5 MAT-file format is not acceptable for production
+distribution because realistic LD shards can exceed its variable-size limits.
+Loaders may accept v5 MAT-files for small synthetic fixtures and local tests
+when they contain the required sparse `ld_r`, `a1freq`, and `metadata`
+variables.
 
 `ld_r` must be native sparse, symmetric, signed `r`, explicitly unit-diagonal,
 and aligned to the paired reference shard. The loader must load `ld_r`
@@ -122,6 +125,10 @@ the default user path.
 
 `metadata` must contain the same logical fields as the `.npz` metadata, with
 MATLAB-valid struct field names and `format: "statgen_ld_mat_sparse_double"`.
+Storage-layout fields that are specific to `.npz` CSC arrays, such as
+`sparse_layout` and `index_base`, are not required in `.mat` metadata.
+Unavailable optional metadata values, such as an unknown `plink_version`, may
+use the runtime's natural empty value.
 
 ## Panel layout and manifest
 
@@ -226,12 +233,16 @@ chrX shard, the manifest records `sex: "combined"` and the rationale must be
 recorded in build metadata.
 
 The MATLAB/Octave converter reads `.npz` shard files and writes `.mat` shard
-files plus a MATLAB/Octave manifest. It must work under Octave for testability
-and build reproducibility, but MATLAB remains the normative runtime where
-MATLAB and Octave differ. The converter may assume `.npz` shards were produced
-and validated by `statgen_build_ld.py`; it must validate metadata consistency
-before writing but is not required to repeat expensive O(nnz) structure checks
-such as full symmetry or diagonal scans.
+files plus a MATLAB/Octave manifest. MATLAB is required for production
+conversion because production artifacts must be v7.3. Octave may write v5
+sparse `.mat` files for fixture-scale tests and local validation, but Octave
+output is not a production distribution artifact. MATLAB remains the normative
+runtime where MATLAB and Octave differ.
+
+The converter may assume `.npz` shards were produced and validated by
+`statgen_build_ld.py`; it must validate metadata consistency before writing but
+is not required to repeat expensive O(nnz) structure checks such as full
+symmetry or diagonal scans.
 
 ## In-memory objects
 
@@ -295,7 +306,10 @@ files are errors.
 default loading. It validates manifest file MD5 checksums and manifest/per-file
 metadata agreement. When `check_payload_structure` is true, it may also perform
 expensive payload checks such as sparse index bounds, explicit diagonal, and
-symmetry validation.
+symmetry validation. For MATLAB/Octave `.mat` distributions, v5 MAT-files are
+accepted for validation but must produce a warning stating that they are
+fixture/local-test artifacts and not production distribution artifacts because
+of MAT-file size limits.
 
 LD-specific public cache APIs are not part of the LD contract. There is no
 `save_ld_cache` or `load_ld_cache`; the runtime distribution artifacts are the

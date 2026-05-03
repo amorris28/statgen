@@ -1,0 +1,43 @@
+{
+  "object_type": "ld_panel_manifest",
+  "schema_version": "1.0",
+  "runtime_format": "python_npz_csc32",
+  "shards": [
+    {
+      "chr": "1",
+      "sex": null,
+      "file": "ld_chr1.npz",
+      "file_md5": "59c5626001a909625124dd4019876ee6",
+      "num_snp": 5,
+      "nnz": 13,
+      "reference_checksum": "65836be1a96bd52932672255c8c95d73"
+    },
+    {
+      "chr": "X",
+      "sex": "female",
+      "file": "ld_chrX_female.npz",
+      "file_md5": "c5f7b6c2b8ba2dad416c6ac7e0eec169",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+    },
+    {
+      "chr": "X",
+      "sex": "male",
+      "file": "ld_chrX_male.npz",
+      "file_md5": "42cb17562e270aa952571f705f4a0781",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+    },
+    {
+      "chr": "X",
+      "sex": "combined",
+      "file": "ld_chrX_combined.npz",
+      "file_md5": "0497fd0b22c5875e476d75c5882799ab",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+    }
+  ]
+}

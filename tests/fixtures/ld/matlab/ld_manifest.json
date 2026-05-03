@@ -1,0 +1,43 @@
+{
+  "object_type": "ld_panel_manifest",
+  "schema_version": "1.0",
+  "runtime_format": "matlab_mat_sparse_double",
+  "shards": [
+    {
+      "chr": "1",
+      "sex": null,
+      "file": "ld_chr1.mat",
+      "file_md5": "2bfc89345f911f11fd789df6398c000e",
+      "num_snp": 5,
+      "nnz": 13,
+      "reference_checksum": "65836be1a96bd52932672255c8c95d73"
+    },
+    {
+      "chr": "X",
+      "sex": "female",
+      "file": "ld_chrX_female.mat",
+      "file_md5": "caf4f30d64c511b8f6cc4958b3c1b3ff",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+    },
+    {
+      "chr": "X",
+      "sex": "male",
+      "file": "ld_chrX_male.mat",
+      "file_md5": "90e324704f02d2efbe38ec7edde3b990",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+    },
+    {
+      "chr": "X",
+      "sex": "combined",
+      "file": "ld_chrX_combined.mat",
+      "file_md5": "ed7f66929628b937155cc00b666ae1f9",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+    }
+  ]
+}

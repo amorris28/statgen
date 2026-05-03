@@ -5,17 +5,21 @@ Generate all committed test fixtures under tests/fixtures/.
 Run from anywhere:
     python tests/fixtures/generate.py
 
-All binary arrays are written with explicit little-endian dtypes.
+Binary fixture arrays use the dtypes documented by their object specs.
 Reference checksums are MD5 over "chr:bp:a1:a2\n" lines in shard row order.
 """
 
 import gzip
 import hashlib
+import io
 import json
-import struct
+import shutil
+import zipfile
 from pathlib import Path
 
 import numpy as np
+from scipy import sparse
+from scipy.io import savemat
 
 ROOT = Path(__file__).parent
 
@@ -62,51 +66,208 @@ def write_fam(path: Path, samples: list[tuple]) -> None:
             f.write("\t".join(str(x) for x in s) + "\n")
 
 
-def write_ld_shard(
-    directory: Path,
+def md5_file(path: Path) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def ld_sparse_matrix(
+    num_snp: int,
+    idx1: list[int],
+    idx2: list[int],
+    r: list[float],
+    dtype,
+) -> sparse.csc_matrix:
+    rows = np.array(idx1 + idx2 + list(range(num_snp)), dtype=np.int32)
+    cols = np.array(idx2 + idx1 + list(range(num_snp)), dtype=np.int32)
+    data = np.array(r + r + [1.0] * num_snp, dtype=dtype)
+    return sparse.coo_matrix((data, (rows, cols)), shape=(num_snp, num_snp)).tocsc()
+
+
+def ld_metadata(
+    chr_label: str,
+    sex: str | None,
+    bim_rows: list[tuple],
+    nnz: int,
+    runtime_format: str,
+    extra_meta: dict | None = None,
+) -> dict:
+    meta = {
+        "object_type": "ld_shard",
+        "schema_version": "1.0",
+        "format": runtime_format,
+        "chr": chr_label,
+        "sex": sex,
+        "num_snp": len(bim_rows),
+        "nnz": nnz,
+        "matrix": "symmetric",
+        "diagonal": "explicit_unit",
+        "value": "r",
+        "reference_checksum": bim_checksum(bim_rows),
+        "build_tool": "generate.py",
+        "build_command": "synthetic fixture",
+        "plink_version": None,
+        "ld_window_kb": 10000,
+        "ld_r2_threshold": 0.05,
+        "num_sample": 100,
+    }
+    if runtime_format == "statgen_ld_npz_csc32":
+        meta.update({"sparse_layout": "csc", "index_base": 0})
+    if extra_meta:
+        meta.update(extra_meta)
+    return meta
+
+
+def write_deterministic_npz(path: Path, arrays: dict[str, np.ndarray]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, array in arrays.items():
+            buf = io.BytesIO()
+            np.save(buf, array, allow_pickle=False)
+            info = zipfile.ZipInfo(f"{name}.npy", date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            zf.writestr(info, buf.getvalue())
+
+
+def write_ld_npz_shard(
+    path: Path,
     chr_label: str,
     sex: str | None,
     bim_rows: list[tuple],
     idx1: list[int],
     idx2: list[int],
     r: list[float],
-    mafvec: list[float],
-    num_sample: int = 100,
+    a1freq: list[float],
     extra_meta: dict | None = None,
-) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    i1 = np.array(idx1, dtype="<i4")
-    i2 = np.array(idx2, dtype="<i4")
-    rv = np.array(r, dtype="<f4")
-    maf = np.array(mafvec, dtype="<f4")
-    i1.tofile(directory / "ld_idx1.i32")
-    i2.tofile(directory / "ld_idx2.i32")
-    rv.tofile(directory / "ld_r.f32")
-    maf.tofile(directory / "mafvec.f32")
-    meta = {
-        "object_type": "ld_shard",
-        "schema_version": "0.1",
-        "chr": chr_label,
-        "sex": sex,
-        "num_snp": len(bim_rows),
-        "num_ld": len(idx1),
-        "index_base": 0,
-        "byte_order": "little_endian",
-        "triangle": "upper",
-        "diagonal": "implicit_unit",
-        "value": "r",
-        "reference_checksum": bim_checksum(bim_rows),
-        "build_tool": "generate.py",
-        "build_command": "synthetic fixture",
-        "ld_window_kb": 10000,
-        "ld_r2_threshold": 0.05,
-        "num_sample": num_sample,
+) -> dict:
+    mat = ld_sparse_matrix(len(bim_rows), idx1, idx2, r, np.float32)
+    meta = ld_metadata(
+        chr_label,
+        sex,
+        bim_rows,
+        nnz=int(mat.nnz),
+        runtime_format="statgen_ld_npz_csc32",
+        extra_meta=extra_meta,
+    )
+    metadata_bytes = json.dumps(meta, sort_keys=True, separators=(",", ":")).encode()
+    write_deterministic_npz(
+        path,
+        {
+            "data": mat.data.astype(np.float32, copy=False),
+            "indices": mat.indices.astype(np.int32, copy=False),
+            "indptr": mat.indptr.astype(np.int32, copy=False),
+            "shape": np.array(mat.shape, dtype=np.int64),
+            "a1freq": np.array(a1freq, dtype=np.float32),
+            "metadata": np.frombuffer(metadata_bytes, dtype=np.uint8),
+        },
+    )
+    return meta
+
+
+def matlab_metadata(meta: dict) -> dict:
+    return {
+        key: (np.array([], dtype=np.float64) if value is None else value)
+        for key, value in meta.items()
     }
-    if extra_meta:
-        meta.update(extra_meta)
-    with open(directory / "metadata.json", "w") as f:
-        json.dump(meta, f, indent=2)
+
+
+def write_ld_mat_shard(
+    path: Path,
+    chr_label: str,
+    sex: str | None,
+    bim_rows: list[tuple],
+    idx1: list[int],
+    idx2: list[int],
+    r: list[float],
+    a1freq: list[float],
+    extra_meta: dict | None = None,
+) -> dict:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mat = ld_sparse_matrix(len(bim_rows), idx1, idx2, r, np.float64)
+    meta = ld_metadata(
+        chr_label,
+        sex,
+        bim_rows,
+        nnz=int(mat.nnz),
+        runtime_format="statgen_ld_mat_sparse_double",
+        extra_meta=extra_meta,
+    )
+    savemat(
+        path,
+        {
+            "ld_r": mat,
+            "a1freq": np.array(a1freq, dtype=np.float64).reshape(-1, 1),
+            "metadata": matlab_metadata(meta),
+        },
+        appendmat=False,
+        do_compression=False,
+        long_field_names=True,
+    )
+    deterministic_header = (
+        "MATLAB 5.0 MAT-file, Platform: statgen, Created by tests/fixtures/generate.py"
+    )
+    with open(path, "r+b") as f:
+        f.write(deterministic_header.encode("ascii")[:116].ljust(116, b" "))
+    return meta
+
+
+def write_ld_manifest(directory: Path, runtime_format: str, shard_records: list[dict]) -> None:
+    manifest = {
+        "object_type": "ld_panel_manifest",
+        "schema_version": "1.0",
+        "runtime_format": runtime_format,
+        "shards": shard_records,
+    }
+    with open(directory / "ld_manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
         f.write("\n")
+
+
+def write_ld_distribution(directory: Path, runtime_format: str, extension: str, shard_writer) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    shard_specs = [
+        ("1", None, f"ld_chr1.{extension}", CHR1_BIM, CHR1_LD, None),
+        ("X", "female", f"ld_chrX_female.{extension}", CHRX_BIM, CHRX_LD["female"], None),
+        ("X", "male", f"ld_chrX_male.{extension}", CHRX_BIM, CHRX_LD["male"], None),
+        (
+            "X",
+            "combined",
+            f"ld_chrX_combined.{extension}",
+            CHRX_BIM,
+            CHRX_LD["combined"],
+            {"chrX_combined_rationale": "synthetic fixture coverage"},
+        ),
+    ]
+    records = []
+    for chr_label, sex, file_name, bim_rows, data, extra_meta in shard_specs:
+        path = directory / file_name
+        idx1 = data.get("idx1", CHRX_LD_IDX1)
+        idx2 = data.get("idx2", CHRX_LD_IDX2)
+        meta = shard_writer(
+            path,
+            chr_label,
+            sex,
+            bim_rows,
+            idx1,
+            idx2,
+            data["r"],
+            data["a1freq"],
+            extra_meta,
+        )
+        records.append({
+            "chr": chr_label,
+            "sex": sex,
+            "file": file_name,
+            "file_md5": md5_file(path),
+            "num_snp": meta["num_snp"],
+            "nnz": meta["nnz"],
+            "reference_checksum": meta["reference_checksum"],
+        })
+    write_ld_manifest(directory, runtime_format, records)
 
 
 # ---------------------------------------------------------------------------
@@ -147,16 +308,16 @@ CHR1_LD = dict(
     idx1=[0, 0, 1, 3],
     idx2=[1, 2, 3, 4],
     r=[0.9, 0.3, -0.5, 0.7],
-    mafvec=[0.30, 0.40, 0.20, 0.35, 0.15],
+    a1freq=[0.30, 0.40, 0.20, 0.35, 0.15],
 )
 
-# LD for chrX — same triplet structure, sex-specific mafvec and r
+# LD for chrX — same sparse structure, sex-specific a1freq and r
 CHRX_LD_IDX1 = [0, 1]
 CHRX_LD_IDX2 = [1, 2]
 CHRX_LD = {
-    "combined": dict(r=[0.60, -0.40], mafvec=[0.25, 0.30, 0.20]),
-    "male":     dict(r=[0.55, -0.45], mafvec=[0.22, 0.28, 0.18]),
-    "female":   dict(r=[0.65, -0.35], mafvec=[0.28, 0.32, 0.22]),
+    "female":   dict(r=[0.65, -0.35], a1freq=[0.28, 0.32, 0.22]),
+    "male":     dict(r=[0.55, -0.45], a1freq=[0.22, 0.28, 0.18]),
+    "combined": dict(r=[0.60, -0.40], a1freq=[0.25, 0.30, 0.20]),
 }
 
 # anno1.bed — chr1; overlapping [99,150)+[120,200) and adjacent [299,350)+[350,400)
@@ -223,36 +384,20 @@ def main() -> None:
         with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
             gz.write(SUMSTATS_ROWS.encode())
 
-    # --- LD chr1 ---
-    write_ld_shard(
-        ROOT / "ld/1",
-        chr_label="1",
-        sex=None,
-        bim_rows=CHR1_BIM,
-        **CHR1_LD,
+    # --- LD runtime distributions ---
+    shutil.rmtree(ROOT / "ld", ignore_errors=True)
+    write_ld_distribution(
+        ROOT / "ld/python",
+        runtime_format="python_npz_csc32",
+        extension="npz",
+        shard_writer=write_ld_npz_shard,
     )
-
-    # --- LD chrX shard group ---
-    chrx_dir = ROOT / "ld/X"
-    chrx_dir.mkdir(parents=True, exist_ok=True)
-    sex_labels = list(CHRX_LD.keys())
-    with open(chrx_dir / "metadata.json", "w") as f:
-        json.dump(
-            {"object_type": "ld_shard_group", "schema_version": "0.1",
-             "chr": "X", "sex_shards": sex_labels},
-            f, indent=2,
-        )
-        f.write("\n")
-    for sex, data in CHRX_LD.items():
-        write_ld_shard(
-            chrx_dir / sex,
-            chr_label="X",
-            sex=sex,
-            bim_rows=CHRX_BIM,
-            idx1=CHRX_LD_IDX1,
-            idx2=CHRX_LD_IDX2,
-            **data,
-        )
+    write_ld_distribution(
+        ROOT / "ld/matlab",
+        runtime_format="matlab_mat_sparse_double",
+        extension="mat",
+        shard_writer=write_ld_mat_shard,
+    )
 
     # --- genotype (PLINK bfile metadata) ---
     for label, bim_rows in [("1", CHR1_BIM), ("X", CHRX_BIM)]:
