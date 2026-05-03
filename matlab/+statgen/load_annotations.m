@@ -128,29 +128,17 @@ function merged = merge_intervals_(starts, ends)
     end
 
     pairs = sortrows([starts(:), ends(:)], [1, 2]);
-    cur_s = pairs(1, 1);
-    cur_e = pairs(1, 2);
-    out_s = [];
-    out_e = [];
+    s = pairs(:, 1);
+    e = pairs(:, 2);
 
-    for i = 2:size(pairs, 1)
-        s = pairs(i, 1);
-        e = pairs(i, 2);
-        if s <= cur_e
-            if e > cur_e
-                cur_e = e;
-            end
-        else
-            out_s(end + 1, 1) = cur_s; %#ok<AGROW>
-            out_e(end + 1, 1) = cur_e; %#ok<AGROW>
-            cur_s = s;
-            cur_e = e;
-        end
-    end
+    running_max_end = cummax(e);
+    new_group = [true; s(2:end) > running_max_end(1:end-1)];
 
-    out_s(end + 1, 1) = cur_s;
-    out_e(end + 1, 1) = cur_e;
-    merged = [out_s, out_e];
+    merged_starts = s(new_group);
+    group_id = cumsum(new_group);
+    merged_ends = accumarray(group_id, e, [], @max);
+
+    merged = [merged_starts, merged_ends];
 end
 
 function mask = paint_mask_(bp, intervals)

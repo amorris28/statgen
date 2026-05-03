@@ -164,21 +164,16 @@ def _merge_intervals(starts: np.ndarray, ends: np.ndarray) -> np.ndarray:
     s = starts[order]
     e = ends[order]
 
-    merged_start = [int(s[0])]
-    merged_end = [int(e[0])]
-    for i in range(1, s.size):
-        cur_s = int(s[i])
-        cur_e = int(e[i])
-        if cur_s <= merged_end[-1]:
-            if cur_e > merged_end[-1]:
-                merged_end[-1] = cur_e
-        else:
-            merged_start.append(cur_s)
-            merged_end.append(cur_e)
+    running_max_end = np.maximum.accumulate(e)
+    new_group = np.empty(len(s), dtype=bool)
+    new_group[0] = True
+    new_group[1:] = s[1:] > running_max_end[:-1]
 
-    return np.column_stack(
-        [np.asarray(merged_start, dtype=np.int64), np.asarray(merged_end, dtype=np.int64)]
-    )
+    group_starts_idx = np.where(new_group)[0]
+    merged_starts = s[group_starts_idx]
+    merged_ends = np.maximum.reduceat(e, group_starts_idx)
+
+    return np.column_stack([merged_starts.astype(np.int64), merged_ends.astype(np.int64)])
 
 
 def _paint_mask(bp: np.ndarray, intervals: np.ndarray) -> np.ndarray:
