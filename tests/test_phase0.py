@@ -133,7 +133,7 @@ def test_plink_bed_magic():
 
 def test_statgen_importable():
     import statgen
-    assert statgen.__version__ == "0.1.0"
+    assert statgen.__version__ == "0.2.0"
 
 
 # ---------------------------------------------------------------------------

@@ -1,12 +1,12 @@
 function manifest = convert_ld_npz_to_mat(input_root, output_root, production)
 % Convert Python LD .npz distribution artifacts into MATLAB/Octave .mat files.
 %
-% MATLAB production conversions should pass production=true, which writes
-% MAT-file v7.3 output. Octave writes v5 sparse .mat files for fixture-scale
-% tests and local validation only; Octave output is not a production LD
-% distribution artifact.
+% MATLAB production conversions write MAT-file v7.3 output by default.
+% Octave writes v5 sparse .mat files only when production=false is passed
+% explicitly for fixture-scale tests and local validation; Octave output is
+% not a production LD distribution artifact.
     if nargin < 3 || isempty(production)
-        production = false;
+        production = true;
     end
     input_root = char(input_root);
     output_root = char(output_root);

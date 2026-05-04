@@ -217,7 +217,7 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
     script = (
         "warning('off', 'statgen:ld:v5mat'); "
         f"ref = statgen.load_reference('{SHARDED_REF}'); "
-        f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}'); "
+        f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', false); "
         f"report = statgen.validate_ld_distribution('{mat_root}', true); "
         f"ld = statgen.load_ld('{mat_root}', ref); "
         f"chr1_payload = load('{mat_root / 'ld_chr1.mat'}'); "
@@ -240,3 +240,17 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
     assert lines[4] == "female"
     assert lines[5] == f"{py_chr1_meta['num_snp']},{py_chr1_meta['nnz']},{py_chr1_meta['reference_checksum']}"
     assert lines[6] == f"{py_x_meta['num_snp']},{py_x_meta['nnz']},{py_x_meta['reference_checksum']}"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_npz_to_mat_default_production_requires_matlab(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    py_root = tmp_path / "ld_python"
+    mat_root = tmp_path / "ld_matlab"
+    _write_ld_npz_distribution(py_root, _synthetic_ld_specs(reference))
+
+    script = f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}');"
+    result = run_octave(script)
+    assert result.returncode != 0
+    assert "Octave cannot write production LD .mat distributions" in result.stderr
