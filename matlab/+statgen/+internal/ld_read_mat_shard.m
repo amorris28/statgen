@@ -1,6 +1,9 @@
-function [shard, meta] = ld_read_mat_shard(path, check_payload_structure)
+function [shard, meta] = ld_read_mat_shard(path, check_payload_structure, retain_ld_r)
     if nargin < 2
         check_payload_structure = false;
+    end
+    if nargin < 3 || isempty(retain_ld_r)
+        retain_ld_r = true;
     end
     if exist(path, 'file') ~= 2
         error('statgen:io', 'LD file not found: %s', path);
@@ -30,7 +33,7 @@ function [shard, meta] = ld_read_mat_shard(path, check_payload_structure)
     end
 
     shard = statgen.LDShard(meta.chr, meta.sex, num_snp, payload.ld_r, ...
-        payload.a1freq, meta.reference_checksum);
+        payload.a1freq, meta.reference_checksum, retain_ld_r);
 end
 
 function validate_shard_metadata_(meta, path)

@@ -97,6 +97,16 @@ def test_load_ld_single_shard_with_single_chromosome_reference():
     assert reference.is_object_compatible(ld) is True
 
 
+def test_load_ld_single_shard_reference_shape_errors_are_specific():
+    reference = load_reference(SHARDED_REF)
+    with pytest.raises(ValueError, match="single-shard reference; reference has 2 shards"):
+        load_ld(LD_PY / "ld_chr1.npz", reference)
+
+    x_reference = load_reference(SHARDED_REF, shards=["X"])
+    with pytest.raises(ValueError, match="chromosome does not match"):
+        load_ld(LD_PY / "ld_chr1.npz", x_reference)
+
+
 def test_load_ld_default_chrx_sex_validation():
     reference = load_reference(SHARDED_REF)
     ld = load_ld(LD_PY, reference, default_chrX_sex="male")

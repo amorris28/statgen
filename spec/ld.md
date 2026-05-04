@@ -4,7 +4,8 @@
 
 LD describes the pairwise signed correlation structure between variants in the
 same processed shard. Values are signed correlation `r`, not `r²`; consumers
-that need `r²` compute it after loading. Cross-chromosome LD is not stored.
+that need `r²` use runtime operations that square LD values element-wise after
+loading. Cross-chromosome LD is not stored.
 Signs are oriented to `a1` dosages, consistent with the allele contract in
 [SPEC.md](SPEC.md).
 
@@ -252,6 +253,21 @@ symmetry or diagonal scans.
 An `LDShard` holds one sparse signed-`r` matrix and its aligned `a1freq`. Each
 `LDShard` is unambiguously identified by its `(chr, sex)` pair.
 
+Runtime implementations may also construct and retain an internal sparse
+`ld_r2` matrix at shard creation time. `ld_r2` is the element-wise square of
+`ld_r` (`ld_r .^ 2` in MATLAB notation), not the matrix product
+`ld_r * ld_r`. It is derived from the loaded distribution artifact, is not a
+separate on-disk distribution field, and exists to make repeated
+`multiply_r2` and pruning calls avoid rebuilding the same sparse squared LD
+matrix.
+
+MATLAB/Octave implementations may provide a memory-oriented loader option to
+drop the raw signed `ld_r` matrix after constructing `ld_r2`. This option must
+default to retaining `ld_r`, preserving the ordinary LD object contract. When a
+caller explicitly disables raw-LD retention, `LDPanel.multiply_r2` and
+`fast_prune` must continue to work from `ld_r2`, but direct shard-level `ld_r`
+inspection is unavailable for that loaded object.
+
 An `LDPanel` is an ordered collection of shard lists matching the paired
 reference panel. For autosomal chromosome shards, each chromosome has exactly
 one `LDShard` (`sex = null`). For chrX, the panel may hold any non-empty subset
@@ -273,6 +289,8 @@ chrX-unrelated operations. For default sex-specific panels built by
   `"male"`, or `"combined"` for chrX shards;
 - `num_snp`: number of SNPs in the shard;
 - `ld_r`: language-native sparse signed-correlation matrix;
+- `ld_r2`: optional internal language-native sparse matrix containing the
+  element-wise square of `ld_r`;
 - `a1freq`: vector of allele frequencies aligned to the paired
   `ReferenceShard`;
 - `reference_checksum`: MD5 reference checksum for the paired
@@ -331,23 +349,27 @@ Expected behavior:
   default. `chrX_sex` applies only to chrX; chr1-22 always use their
   sex-agnostic shard. If chrX is present, an override must name a chrX shard
   present in the panel. If chrX is absent, `chrX_sex` is ignored.
-- `LDPanel.multiply_r2(M, optional chrX_sex)` computes `LD_r² * M`
-  independently per reference shard, never materializes a dense genome-wide LD
-  matrix, accepts both 1-D and 2-D inputs, and returns the same shape as `M`.
+- `LDPanel.multiply_r2(M, optional chrX_sex)` computes
+  `elementwise(LD_r .^ 2) * M` independently per reference shard, never
+  materializes a dense genome-wide LD matrix, accepts both 1-D and 2-D inputs,
+  and returns the same shape as `M`.
 - Python should return `float32` for `float32` input and `float64` for
   `float64` input when multiplying by LD. MATLAB/Octave may return double
   because the stored MATLAB LD matrix is sparse double. Cross-runtime tests
   compare numerical values with dtype-aware tolerances, not dtype identity.
 - `fast_prune` applies greedy significance-based pruning independently per
   reference shard using the LD selected by `chrX_sex`.
+- `fast_prune` returns a floating vector with the same shape as `logpvec`;
+  Python preserves `float32` and `float64` inputs and promotes non-floating
+  inputs to `float64` so pruned values can be represented as `NaN`.
 - Shard-level matrix multiplication is an internal implementation detail, not
   part of the public API.
 
 ## r² Matrix Multiply
 
-The core LD operation multiplies the per-shard squared LD matrix by a
-genome-wide matrix or vector. This is the only numerical primitive exposed by
-`LDPanel`; all downstream computations (LD scores, annotation LD weighting,
+The core LD operation multiplies the per-shard element-wise squared LD matrix
+by a genome-wide matrix or vector. This is the only numerical primitive exposed
+by `LDPanel`; all downstream computations (LD scores, annotation LD weighting,
 per-SNP variance) are expressed in terms of it.
 
 ```text
@@ -358,12 +380,12 @@ LDPanel.multiply_r2(M, optional chrX_sex) -> vector or matrix with same shape as
 panel row order. The result has the same shape as `M`.
 
 `LDPanel.multiply_r2(M, optional chrX_sex)` splits `M` by reference shard,
-computes `LD_r² * M_shard` for each shard, and concatenates the results in
-reference panel order. Omitting `chrX_sex` uses `default_chrX_sex` for the chrX
-shard. Pass `"female"`, `"male"`, or `"combined"` to override in
-language-specific syntax. The `chrX_sex` selector affects only chrX; autosomes
-are always sex-agnostic. If chrX is absent from the panel, `chrX_sex` is
-ignored.
+computes `elementwise(LD_r .^ 2) * M_shard` for each shard, and concatenates
+the results in reference panel order. This is not the matrix square
+`LD_r * LD_r`. Omitting `chrX_sex` uses `default_chrX_sex` for the chrX shard.
+Pass `"female"`, `"male"`, or `"combined"` to override in language-specific
+syntax. The `chrX_sex` selector affects only chrX; autosomes are always
+sex-agnostic. If chrX is absent from the panel, `chrX_sex` is ignored.
 
 The operation must not materialize a dense genome-wide LD matrix. Callers
 pre-exclude SNPs by setting the corresponding rows of `M` to zero.
