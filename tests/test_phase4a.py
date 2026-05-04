@@ -206,8 +206,19 @@ def test_payload_structure_detects_malformed_sparse_indices(tmp_path):
 def test_python_validator_rejects_matlab_ld_distribution():
     with pytest.raises(ValueError, match="expected runtime_format 'python_npz_csc32'"):
         validate_ld_distribution(LD_MAT)
-    with pytest.raises(ValueError, match="unsupported LD shard extension"):
+    with pytest.raises(ValueError, match="use MATLAB/Octave"):
         validate_ld_distribution(LD_MAT / "ld_chr1.mat")
+
+
+def test_ld_metadata_rejects_bool_integer_fields(tmp_path):
+    root = _copy_ld_distribution(tmp_path)
+    _replace_npz_metadata(root / "ld_chr1.npz", {"num_snp": True})
+    manifest = _read_manifest(root)
+    manifest["shards"][0]["file_md5"] = _md5_file(root / "ld_chr1.npz")
+    _write_manifest(root, manifest)
+
+    with pytest.raises(ValueError, match="positive integer"):
+        validate_ld_distribution(root)
 
 
 def test_validate_ld_distribution_missing_manifest_shard_file_fails(tmp_path):

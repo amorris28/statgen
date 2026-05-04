@@ -44,6 +44,12 @@ copying shard payload arrays by default. Implementations should construct subset
 panels from existing shard payloads whenever possible, while preserving object
 immutability and observable API semantics.
 
+Loaders SHOULD avoid defensive deep copies of loaded payload arrays or sparse
+matrix components when the source container has already materialized normal
+runtime-owned arrays and the object contract does not require independent
+mutable buffers. Copies SHOULD be reserved for correctness requirements such as
+dtype/layout conversion, lifetime management, or explicit mutation isolation.
+
 For performance-sensitive tabular source inputs (for example BIM/TSV-like
 files), implementations MUST use language-native tabular readers instead of
 line-by-line manual parsing.
