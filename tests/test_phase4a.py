@@ -292,6 +292,7 @@ def test_octave_validate_ld_distribution_and_bad_chrx_sex(tmp_path):
     _write_manifest(bad_root, manifest)
 
     script = _octave_script(
+        "warning('off', 'statgen:ld:v5mat'); "
         "report = statgen.validate_ld_distribution([fixture_dir '/ld/matlab'], true); "
         "fprintf('%d\\n', report.ok); "
         f"try; ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); statgen.load_ld('{bad_root}', ref); fprintf('NOFAIL\\n'); catch; fprintf('FAIL\\n'); end"

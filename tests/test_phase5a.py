@@ -215,6 +215,7 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
     py_x_meta = _metadata(py_root / "ld_chrX_female.npz")
 
     script = (
+        "warning('off', 'statgen:ld:v5mat'); "
         f"ref = statgen.load_reference('{SHARDED_REF}'); "
         f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}'); "
         f"report = statgen.validate_ld_distribution('{mat_root}', true); "
