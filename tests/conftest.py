@@ -105,3 +105,20 @@ def run_octave(expr: str, timeout: int = 30) -> subprocess.CompletedProcess:
         cmd = ["octave", "--no-gui", "--quiet", "--eval",
                f"addpath('{MATLAB_DIR}'); {expr}"]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def matlab_data_lines(stdout: str) -> list[str]:
+    """Return non-warning stdout lines from Octave/MATLAB test snippets."""
+    out = []
+    for raw in stdout.splitlines():
+        line = raw.replace("\b", "").strip()
+        if not line:
+            continue
+        if line.startswith("[Warning:") or line.startswith("Warning:"):
+            continue
+        if line.startswith("> In ") or line.startswith("In "):
+            continue
+        if line == "]":
+            continue
+        out.append(line)
+    return out

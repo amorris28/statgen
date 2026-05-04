@@ -10,7 +10,7 @@ from scipy import sparse
 
 from statgen.ld import load_ld, validate_ld_distribution
 from statgen.reference import load_reference
-from tests.conftest import FIXTURES_DIR, MATLAB_DIR, run_octave, skipif_no_octave
+from tests.conftest import FIXTURES_DIR, MATLAB_DIR, matlab_data_lines, run_octave, skipif_no_octave
 
 
 SHARDED_REF = FIXTURES_DIR / "reference/sharded/@.bim"
@@ -298,6 +298,6 @@ def test_octave_validate_ld_distribution_and_bad_chrx_sex(tmp_path):
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    lines = result.stdout.strip().splitlines()
+    lines = matlab_data_lines(result.stdout)
     assert lines[0] == "1"
     assert lines[-1] == "FAIL"
