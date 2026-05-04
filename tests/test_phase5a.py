@@ -9,7 +9,7 @@ import pytest
 
 from statgen.ld import _write_ld_npz_distribution, load_ld, validate_ld_distribution
 from statgen.reference import load_reference
-from tests.conftest import FIXTURES_DIR, matlab_data_lines, run_octave, skipif_no_octave
+from tests.conftest import FIXTURES_DIR, matlab_data_lines, run_octave, skipif_matlab_engine, skipif_no_octave
 
 
 SHARDED_REF = FIXTURES_DIR / "reference/sharded/@.bim"
@@ -267,6 +267,7 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
 
 @pytest.mark.octave
 @skipif_no_octave
+@skipif_matlab_engine
 def test_octave_npz_to_mat_default_production_requires_matlab(tmp_path):
     reference = load_reference(SHARDED_REF)
     py_root = tmp_path / "ld_python"

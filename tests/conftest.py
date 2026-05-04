@@ -32,6 +32,11 @@ skipif_no_matlab = pytest.mark.skipif(
     reason="MATLAB not installed",
 )
 
+skipif_matlab_engine = pytest.mark.skipif(
+    _USE_MATLAB,
+    reason="Octave-specific test",
+)
+
 
 def _get_matlab_engine():
     global _MATLAB_ENGINE, _MATLAB_ENGINE_ERROR
