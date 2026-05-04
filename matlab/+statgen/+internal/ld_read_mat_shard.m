@@ -41,7 +41,8 @@ function validate_shard_metadata_(meta, path)
         error('statgen:ld', '%s: metadata must be a struct', path);
     end
     required = {'object_type', 'schema_version', 'format', 'chr', 'sex', ...
-        'num_snp', 'nnz', 'matrix', 'diagonal', 'value', 'reference_checksum'};
+        'num_snp', 'nnz', 'matrix', 'diagonal', 'value', ...
+        'reference_checksum', 'num_monomorphic_snps'};
     for i = 1:numel(required)
         if ~isfield(meta, required{i})
             error('statgen:ld', '%s: metadata missing required field %s', path, required{i});
@@ -62,6 +63,11 @@ function validate_shard_metadata_(meta, path)
     end
     if double(meta.nnz) < 0 || floor(double(meta.nnz)) ~= double(meta.nnz)
         error('statgen:ld', '%s: metadata nnz must be a non-negative integer', path);
+    end
+    if double(meta.num_monomorphic_snps) < 0 || ...
+            floor(double(meta.num_monomorphic_snps)) ~= double(meta.num_monomorphic_snps) || ...
+            double(meta.num_monomorphic_snps) > double(meta.num_snp)
+        error('statgen:ld', '%s: metadata num_monomorphic_snps must be an integer in [0, num_snp]', path);
     end
     if ~strcmp(meta.matrix, 'symmetric') || ~strcmp(meta.diagonal, 'explicit_unit') || ~strcmp(meta.value, 'r')
         error('statgen:ld', '%s: invalid LD matrix metadata', path);

@@ -217,6 +217,7 @@ def _write_ld_npz_shard(
         sex=sex,
         num_snp=num_snp,
         nnz=nnz,
+        num_monomorphic_snps=int(np.count_nonzero((a1freq == 0.0) | (a1freq == 1.0))),
         reference_checksum=reference_checksum,
         build_metadata=build_metadata,
         extra_metadata=extra_metadata,
@@ -337,6 +338,7 @@ def _ld_npz_metadata(
     sex,
     num_snp,
     nnz,
+    num_monomorphic_snps,
     reference_checksum,
     build_metadata=None,
     extra_metadata=None,
@@ -354,6 +356,7 @@ def _ld_npz_metadata(
         "matrix": "symmetric",
         "diagonal": "explicit_unit",
         "value": "r",
+        "num_monomorphic_snps": int(num_monomorphic_snps),
         "reference_checksum": reference_checksum,
     }
     build = dict(LD_BUILD_METADATA_DEFAULTS)

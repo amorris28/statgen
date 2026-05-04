@@ -66,7 +66,8 @@ if "--freq" in args:
     with open(str(out) + ".afreq", "w") as f:
         f.write("#CHROM\tPOS\tID\tREF\tALT1\tALT1_FREQ\tOBS_CT\n")
         for i, (chrom, snp, bp, a1, a2) in enumerate(rows):
-            f.write(f"{chrom}\t{bp}\t{snp}\t{a2}\t{a1}\t{0.10 + 0.05 * i:.4f}\t{sample_count}\n")
+            freq = 0.0 if os.environ.get("FAKE_PLINK_MONOMORPHIC_FIRST") and i == 0 else 0.10 + 0.05 * i
+            f.write(f"{chrom}\t{bp}\t{snp}\t{a2}\t{a1}\t{freq:.4f}\t{sample_count}\n")
     raise SystemExit(0)
 
 if "--r-unphased" in args or "--r" in args:
@@ -263,6 +264,69 @@ def test_build_ld_distribution_uses_explicit_scratch_directory(tmp_path, monkeyp
     assert (scratch / "chr1.afreq").is_file()
     assert not (out / "_statgen_build_ld_work").exists()
     assert str(scratch) in log.read_text()
+
+
+def test_build_ld_distribution_rejects_negative_ld_r2_threshold(tmp_path):
+    mod = _load_build_module()
+    fake = tmp_path / "fake_plink2.py"
+    _write_fake_plink2(fake)
+
+    with pytest.raises(ValueError, match="ld_r2_threshold must be a finite non-negative value"):
+        mod.build_ld_distribution(
+            bfile=str(SHARDED_BFILE),
+            out=tmp_path / "ld_negative_threshold",
+            shard="1",
+            plink2=str(fake),
+            ld_r2_threshold=-0.01,
+        )
+
+
+def test_build_ld_distribution_rejects_monomorphic_snps_before_ld(tmp_path, monkeypatch):
+    mod = _load_build_module()
+    fake = tmp_path / "fake_plink2.py"
+    _write_fake_plink2(fake)
+    log = tmp_path / "monomorphic_reject.log"
+    monkeypatch.setenv("FAKE_PLINK_LOG", str(log))
+    monkeypatch.setenv("FAKE_PLINK_MONOMORPHIC_FIRST", "1")
+
+    with pytest.raises(ValueError, match="contains 1 monomorphic SNPs"):
+        mod.build_ld_distribution(
+            bfile=str(SHARDED_BFILE),
+            out=tmp_path / "ld_reject_monomorphic",
+            shard="1",
+            plink2=str(fake),
+        )
+
+    commands = log.read_text()
+    assert "--freq" in commands
+    assert "--r-unphased" not in commands
+    assert not (tmp_path / "ld_reject_monomorphic" / "ld_chr1.monomorphic.tsv").exists()
+
+
+def test_build_ld_distribution_allows_monomorphic_snps_with_sidecar(tmp_path, monkeypatch):
+    mod = _load_build_module()
+    fake = tmp_path / "fake_plink2.py"
+    _write_fake_plink2(fake)
+    log = tmp_path / "monomorphic_allow.log"
+    monkeypatch.setenv("FAKE_PLINK_LOG", str(log))
+    monkeypatch.setenv("FAKE_PLINK_MONOMORPHIC_FIRST", "1")
+    out = tmp_path / "ld_allow_monomorphic"
+
+    mod.build_ld_distribution(
+        bfile=str(SHARDED_BFILE),
+        out=out,
+        shard="1",
+        plink2=str(fake),
+        allow_monomorphic_snps=True,
+    )
+
+    assert "--r-unphased" in log.read_text()
+    sidecar = out / "ld_chr1.monomorphic.tsv"
+    assert sidecar.read_text(encoding="utf-8").splitlines() == [
+        "chr\tsnp\tbp\ta1\ta2",
+        "1\trs1001\t100\tA\tG",
+    ]
+    assert _metadata(out / "ld_chr1.npz")["num_monomorphic_snps"] == 1
 
 
 def test_statgen_build_ld_cli_passes_allowlisted_plink_controls(tmp_path):

@@ -59,6 +59,7 @@ function groups = load_panel_root_(root, manifest, ref_shards, retain_ld_r)
             entry = entries(selected(k));
             shard_path = fullfile(root, entry.file);
             [shard, meta] = statgen.internal.ld_read_mat_shard(shard_path, false, retain_ld_r);
+            warn_monomorphic_snps_(shard_path, meta);
             statgen.internal.ld_validate_manifest_entry_agreement(entry, meta, shard_path);
             statgen.internal.ld_validate_reference_compatibility(shard, ref, shard_path);
             sex_key = shard.sex;
@@ -73,7 +74,8 @@ function groups = load_panel_root_(root, manifest, ref_shards, retain_ld_r)
 end
 
 function groups = load_single_shard_(path, ref_shards, retain_ld_r)
-    [shard, ~] = statgen.internal.ld_read_mat_shard(path, false, retain_ld_r);
+    [shard, meta] = statgen.internal.ld_read_mat_shard(path, false, retain_ld_r);
+    warn_monomorphic_snps_(path, meta);
     if numel(ref_shards) ~= 1
         error('statgen:ld', ...
             'single-shard LD loads require a single-shard reference; reference has %d shards', ...
@@ -86,4 +88,12 @@ function groups = load_single_shard_(path, ref_shards, retain_ld_r)
     end
     statgen.internal.ld_validate_reference_compatibility(shard, ref_shards{1}, path);
     groups = {{shard}};
+end
+
+function warn_monomorphic_snps_(path, meta)
+    if isfield(meta, 'num_monomorphic_snps') && double(meta.num_monomorphic_snps) > 0
+        warning('statgen:ld:monomorphic', ...
+            '%s: LD shard contains %d monomorphic SNPs; LD involving those SNPs is undefined and represented by omitted off-diagonal entries', ...
+            path, double(meta.num_monomorphic_snps));
+    end
 end

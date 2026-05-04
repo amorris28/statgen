@@ -7,7 +7,7 @@
       "chr": "1",
       "sex": null,
       "file": "ld_chr1.mat",
-      "file_md5": "2bfc89345f911f11fd789df6398c000e",
+      "file_md5": "d5709ca6d9a36550acf77aed7765ba2e",
       "num_snp": 5,
       "nnz": 13,
       "reference_checksum": "65836be1a96bd52932672255c8c95d73"
@@ -16,7 +16,7 @@
       "chr": "X",
       "sex": "female",
       "file": "ld_chrX_female.mat",
-      "file_md5": "caf4f30d64c511b8f6cc4958b3c1b3ff",
+      "file_md5": "67d61e102ba0b40071690f924f556f6c",
       "num_snp": 3,
       "nnz": 7,
       "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
@@ -25,7 +25,7 @@
       "chr": "X",
       "sex": "male",
       "file": "ld_chrX_male.mat",
-      "file_md5": "90e324704f02d2efbe38ec7edde3b990",
+      "file_md5": "2e0010d575d4161aff40cfec9551045b",
       "num_snp": 3,
       "nnz": 7,
       "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
@@ -34,7 +34,7 @@
       "chr": "X",
       "sex": "combined",
       "file": "ld_chrX_combined.mat",
-      "file_md5": "ed7f66929628b937155cc00b666ae1f9",
+      "file_md5": "8e5b14ba1a2860a3312cfc32262fa4ec",
       "num_snp": 3,
       "nnz": 7,
       "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"

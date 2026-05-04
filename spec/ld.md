@@ -41,6 +41,41 @@ The paired `ReferencePanel` and `LDPanel` must originate from the same BIM row
 order and allele orientation. The LD build additionally depends on the paired
 BED/FAM genotype source used to estimate LD and allele frequencies.
 
+Off-diagonal LD `r` values are Pearson correlations between two `a1` dosage
+vectors. Pearson correlation is statistically undefined when either vector has
+zero variance. For a full-shard genotype vector this includes SNPs with no
+observed variation among the samples PLINK2 uses for that shard (`a1freq`
+equal to `0` or `1`), including chrX sex-specific shards. Pairwise
+missing-call handling can also make LD undefined: two SNPs may each vary in
+the shard overall, but after restricting the estimate to samples with
+non-missing calls for both SNPs, one or both pairwise dosage vectors may have
+zero variance.
+
+LD shards must preserve the paired reference shard's full SNP axis. Builders
+must not drop SNPs just because their LD is undefined.
+
+Undefined off-diagonal LD values are represented by omission from the sparse
+matrix and therefore read as zero under the sparse-missing convention. This is
+a storage and downstream-computation convention, not a claim that the
+statistical correlation estimate is zero. `ld_r` must not contain `NaN` or
+infinite values. The diagonal is always stored as explicit `1.0`, even for
+monomorphic or otherwise pairwise-undefined SNPs, so aligned matrix operations
+retain the full BIM/reference shape.
+
+Because marginally monomorphic SNPs have undefined LD with every other SNP,
+`statgen_build_ld.py` treats them as a build-time QC failure by default. The
+builder checks for `a1freq == 0` or `a1freq == 1` immediately after frequency
+calculation and before the heavier PLINK2 LD computation. Users may force
+output with `--allow-monomorphic-snps`; forced shards retain the full SNP axis
+and use the sparse omission convention above for undefined off-diagonal LD.
+
+Pairwise zero variance caused only by missing-call intersection is documented
+but is not a default build-time failure. In ordinary sparse PLINK2 `.vcor`
+output with a nonnegative `--ld-window-r2` threshold, such undefined pairs are
+omitted and are not distinguishable from below-threshold omitted pairs in the
+resulting sparse artifact. Users who need stronger guarantees should apply
+upstream missingness QC or run separate diagnostics before building LD.
+
 ## Distribution formats
 
 `load_ld` reads the distribution artifact native to the runtime:
@@ -93,6 +128,7 @@ The metadata JSON must include:
   "matrix": "symmetric",
   "diagonal": "explicit_unit",
   "value": "r",
+  "num_monomorphic_snps": 0,
   "reference_checksum": "...",
   "build_tool": "plink2",
   "build_command": "plink2 ...",
@@ -210,10 +246,32 @@ For the requested shard, the builder:
 
 1. Computes `a1` allele frequencies using PLINK2 `--freq`, aligned to BIM row
    order.
-2. Computes pairwise signed LD using PLINK2 `--r-unphased` and `--keep-allele-order`
+2. Fails before LD computation if any aligned frequency is exactly `0` or `1`,
+   unless `--allow-monomorphic-snps` is supplied.
+3. Computes pairwise signed LD using PLINK2 `--r-unphased` and `--keep-allele-order`
    with default window 10,000 kb and default `r²` storage threshold `0.05`.
-3. Writes one validated `.npz` shard file for autosomes, or one validated
+4. Writes one validated `.npz` shard file for autosomes, or one validated
    `.npz` file per chrX sex label.
+
+Each shard metadata records `num_monomorphic_snps`, the number of aligned SNPs
+with `a1freq` exactly `0` or `1` for that shard. This field is present even
+when the count is zero. When monomorphic SNPs are present and output is forced,
+the builder also writes a sidecar QC table next to the shard file, named like
+`ld_chr1.monomorphic.tsv` or `ld_chrX_male.monomorphic.tsv`. The sidecar is
+created only when monomorphic SNPs are present and has columns:
+
+```text
+chr  snp  bp  a1  a2
+```
+
+PLINK2 tabular `.vcor` output includes only variant pairs that pass its LD
+report filters. With a nonnegative `--ld-window-r2` threshold, undefined
+correlations such as `nan` do not pass the filter; with a negative threshold,
+PLINK2 can emit `nan` rows. `statgen_build_ld.py` therefore requires a finite,
+nonnegative `ld_r2_threshold`, rejects non-finite LD values if they are
+encountered in PLINK output, and treats omitted off-diagonal pairs as absent
+sparse entries. Omitted pairs include low-`r²` pairs and undefined pairs; both
+read as zero from the resulting sparse LD shard.
 
 After shard jobs finish, `statgen_create_ld_manifest.py --ld <root>` creates
 `ld_manifest.json` from the per-shard metadata in existing `.npz` files and
@@ -226,6 +284,7 @@ Before publishing an `.npz` shard, the builder must validate at least:
 - `len(indptr) == num_snp + 1`;
 - `len(data) == len(indices) == indptr[-1]`;
 - `len(a1freq) == num_snp`;
+- `num_monomorphic_snps` is a non-negative integer no greater than `num_snp`;
 - sparse index arrays use int32 and `nnz < 2^31`;
 - sparse index bounds are valid;
 - metadata schema version is supported;
@@ -364,6 +423,9 @@ Expected behavior:
 
 - Panel accessors are read-only and concatenate shard data in reference panel
   order.
+- Loading warns and proceeds when a shard metadata field
+  `num_monomorphic_snps` is greater than zero. Runtime operations do not
+  special-case those SNPs.
 - `default_chrX_sex` defaults to `"female"` when omitted.
 - `r2_threshold` defaults to `0.2` when omitted.
 - `LDPanel.a1freq(optional chrX_sex)` uses `default_chrX_sex` for chrX by

@@ -73,6 +73,7 @@ def validate_shard_metadata(meta: dict, path: Path, expected_format: str) -> Non
         "diagonal",
         "value",
         "reference_checksum",
+        "num_monomorphic_snps",
     }
     missing = sorted(required.difference(meta))
     if missing:
@@ -86,6 +87,12 @@ def validate_shard_metadata(meta: dict, path: Path, expected_format: str) -> Non
     validate_chr_sex(meta["chr"], meta["sex"], f"{path}: metadata")
     validate_positive_int(meta["num_snp"], f"{path}: metadata num_snp")
     validate_nonnegative_int(meta["nnz"], f"{path}: metadata nnz")
+    validate_nonnegative_int(
+        meta["num_monomorphic_snps"],
+        f"{path}: metadata num_monomorphic_snps",
+    )
+    if int(meta["num_monomorphic_snps"]) > int(meta["num_snp"]):
+        raise ValueError(f"{path}: metadata num_monomorphic_snps must not exceed num_snp")
     if int(meta["nnz"]) >= 2**31:
         raise ValueError(f"{path}: CSC32 metadata nnz must be < 2^31")
     if meta["matrix"] != "symmetric":

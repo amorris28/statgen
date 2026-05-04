@@ -41,6 +41,7 @@ def main(argv=None) -> int:
         ld_window_kb=args.ld_window_kb,
         ld_r2_threshold=args.ld_r2_threshold,
         no_sex_split=args.no_sex_split,
+        allow_monomorphic_snps=args.allow_monomorphic_snps,
         scratch=args.scratch,
         mind=args.mind[0] if args.mind is not None else None,
         mind_mode=args.mind[1] if args.mind is not None and len(args.mind) == 2 else None,
@@ -63,6 +64,7 @@ def build_ld_distribution(
     ld_window_kb=DEFAULT_LD_WINDOW_KB,
     ld_r2_threshold=DEFAULT_LD_R2_THRESHOLD,
     no_sex_split=False,
+    allow_monomorphic_snps=False,
     scratch=None,
     mind=None,
     mind_mode=None,
@@ -77,6 +79,7 @@ def build_ld_distribution(
     if not shards:
         raise ValueError(f"No bfile shard {shard!r} found for {bfile}")
 
+    ld_r2_threshold = _normalize_ld_r2_threshold(ld_r2_threshold)
     plink_options = _normalize_plink_options(
         mind=mind,
         mind_mode=mind_mode,
@@ -99,10 +102,12 @@ def build_ld_distribution(
         _build_shard_specs(
             shard_spec,
             tmp_root,
+            out_root=Path(out),
             plink2=plink2,
             ld_window_kb=int(ld_window_kb),
             ld_r2_threshold=float(ld_r2_threshold),
             no_sex_split=bool(no_sex_split),
+            allow_monomorphic_snps=bool(allow_monomorphic_snps),
             plink_version=plink_version,
             plink_options=plink_options,
             sample_filters=sample_filters,
@@ -123,6 +128,11 @@ def _parse_args(argv=None):
     parser.add_argument("--plink2", default="plink2", help="PLINK2 executable path")
     parser.add_argument("--ld-window-kb", type=int, default=DEFAULT_LD_WINDOW_KB)
     parser.add_argument("--ld-r2-threshold", type=float, default=DEFAULT_LD_R2_THRESHOLD)
+    parser.add_argument(
+        "--allow-monomorphic-snps",
+        action="store_true",
+        help="Force LD shard output when the submitted samples contain SNPs with a1freq 0 or 1",
+    )
     parser.add_argument(
         "--scratch",
         default=None,
@@ -187,10 +197,12 @@ def _build_shard_specs(
     shard,
     tmp_root: Path,
     *,
+    out_root: Path,
     plink2,
     ld_window_kb,
     ld_r2_threshold,
     no_sex_split,
+    allow_monomorphic_snps,
     plink_version,
     plink_options,
     sample_filters,
@@ -239,6 +251,22 @@ def _build_shard_specs(
         )
         _run(freq_cmd)
         a1freq = _parse_afreq(out_prefix.with_suffix(".afreq"), shard["reference_shard"], ref_key_index)
+        monomorphic = _monomorphic_snp_mask(a1freq)
+        num_monomorphic = int(np.count_nonzero(monomorphic))
+        if num_monomorphic:
+            if not allow_monomorphic_snps:
+                raise ValueError(
+                    f"chr{chr_label}"
+                    f"{'' if sex is None else ' ' + sex} LD shard contains "
+                    f"{num_monomorphic} monomorphic SNPs; rerun with "
+                    "--allow-monomorphic-snps to force output"
+                )
+            _write_monomorphic_snp_table(
+                out_root,
+                tag,
+                shard["reference_shard"],
+                monomorphic,
+            )
 
         ld_cmd = _plink_ld_command(
             plink2,
@@ -270,6 +298,25 @@ def _build_shard_specs(
             }
         )
     return specs
+
+
+def _monomorphic_snp_mask(a1freq: np.ndarray) -> np.ndarray:
+    return (a1freq == 0.0) | (a1freq == 1.0)
+
+
+def _write_monomorphic_snp_table(root: Path, tag: str, reference_shard, mask: np.ndarray) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"ld_{tag}.monomorphic.tsv"
+    table = pd.DataFrame(
+        {
+            "chr": reference_shard.chr[mask],
+            "snp": reference_shard.snp[mask],
+            "bp": reference_shard.bp[mask],
+            "a1": reference_shard.a1[mask],
+            "a2": reference_shard.a2[mask],
+        }
+    )
+    table.to_csv(path, sep="\t", index=False)
 
 
 def _plink_freq_command(plink2, bfile, out_prefix, *, chr_label, keep_file, plink_options):
@@ -358,6 +405,13 @@ def _normalize_plink_options(*, mind, mind_mode, threads, memory) -> dict:
         "threads": threads,
         "memory": memory,
     }
+
+
+def _normalize_ld_r2_threshold(value) -> float:
+    threshold = float(value)
+    if not np.isfinite(threshold) or threshold < 0:
+        raise ValueError("ld_r2_threshold must be a finite non-negative value")
+    return threshold
 
 
 def _run(cmd):

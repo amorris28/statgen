@@ -104,6 +104,7 @@ def test_write_ld_npz_distribution_from_synthetic_tables_validates_and_loads(tmp
     assert meta["format"] == "statgen_ld_npz_csc32"
     assert meta["build_tool"] == "pytest"
     assert meta["num_sample"] == 4
+    assert meta["num_monomorphic_snps"] == 0
 
     ld = load_ld(root, reference)
     chr1 = ld.shard_groups[0][0]
@@ -143,6 +144,19 @@ def test_write_ld_npz_distribution_with_all_chrx_sexes_metadata_and_numpy_pairs(
     assert by_sex["male"].ld_r[0, 1] == pytest.approx(0.55)
     assert by_sex["male"].ld_r[1, 2] == pytest.approx(-0.45)
     assert by_sex["combined"].ld_r[0, 2] == pytest.approx(0.60)
+
+
+def test_load_ld_warns_for_monomorphic_snp_metadata(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    root = tmp_path / "ld_python_monomorphic"
+    spec = dict(_synthetic_ld_specs(reference)[0])
+    spec["a1freq"] = [0.0, 0.20, 0.30, 0.40, 0.50]
+
+    _write_ld_npz_distribution(root, [spec])
+    assert _metadata(root / "ld_chr1.npz")["num_monomorphic_snps"] == 1
+
+    with pytest.warns(RuntimeWarning, match="contains 1 monomorphic SNPs"):
+        load_ld(root, reference.select_shards(["1"]))
 
 
 def test_ld_npz_writer_rejects_malformed_synthetic_tables(tmp_path):

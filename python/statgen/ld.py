@@ -1,4 +1,5 @@
 from pathlib import Path
+import warnings
 
 import numpy as np
 from scipy import sparse
@@ -15,7 +16,16 @@ from ._utils import validate_requested_shards
 
 
 class LDShard:
-    def __init__(self, chr_label, sex, num_snp, ld_r, a1freq, reference_checksum):
+    def __init__(
+        self,
+        chr_label,
+        sex,
+        num_snp,
+        ld_r,
+        a1freq,
+        reference_checksum,
+        num_monomorphic_snps=0,
+    ):
         self._chr = str(chr_label)
         self._sex = sex
         self._num_snp = int(num_snp)
@@ -23,6 +33,7 @@ class LDShard:
         self._ld_r2 = _build_ld_r2(self._ld_r)
         self._a1freq = np.asarray(a1freq, dtype=np.float32).reshape(-1)
         self._reference_checksum = str(reference_checksum)
+        self._num_monomorphic_snps = int(num_monomorphic_snps)
 
     @property
     def chr(self) -> str:
@@ -55,6 +66,10 @@ class LDShard:
     @property
     def checksum(self) -> str:
         return self._reference_checksum
+
+    @property
+    def num_monomorphic_snps(self) -> int:
+        return self._num_monomorphic_snps
 
 
 class LDPanel:
@@ -372,7 +387,15 @@ def _load_npz_shard(path: Path) -> tuple[LDShard, dict]:
         ld_r,
         a1freq,
         meta["reference_checksum"],
+        int(meta["num_monomorphic_snps"]),
     )
+    if shard.num_monomorphic_snps:
+        warnings.warn(
+            f"{path}: LD shard contains {shard.num_monomorphic_snps} monomorphic SNPs; "
+            "LD involving those SNPs is undefined and represented by omitted off-diagonal entries",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return shard, meta
 
 

@@ -101,6 +101,7 @@ def test_ld_chr1_npz_payload():
     assert meta["sex"] is None
     assert meta["num_snp"] == 5
     assert meta["nnz"] == 13
+    assert meta["num_monomorphic_snps"] == 0
 
 
 def test_ld_chrX_npz_metadata():

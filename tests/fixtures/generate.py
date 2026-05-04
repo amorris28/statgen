@@ -106,6 +106,7 @@ def ld_metadata(
         "matrix": "symmetric",
         "diagonal": "explicit_unit",
         "value": "r",
+        "num_monomorphic_snps": 0,
         "reference_checksum": bim_checksum(bim_rows),
         "build_tool": "generate.py",
         "build_command": "synthetic fixture",
