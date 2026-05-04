@@ -337,7 +337,7 @@ def test_build_ld_distribution_allows_monomorphic_snps_with_sidecar(tmp_path, mo
     assert _metadata(out / "ld_chr1.npz")["num_monomorphic_snps"] == 1
 
 
-def test_statgen_build_ld_cli_passes_allowlisted_plink_controls(tmp_path):
+def test_statgen_build_ld_cli_passes_resource_controls(tmp_path):
     out = tmp_path / "ld"
     _result, log = _run_build(
         tmp_path,
@@ -348,9 +348,6 @@ def test_statgen_build_ld_cli_passes_allowlisted_plink_controls(tmp_path):
             str(out),
             "--shard",
             "X",
-            "--mind",
-            "0.05",
-            "hh-missing",
             "--threads",
             "2",
             "--memory",
@@ -359,34 +356,38 @@ def test_statgen_build_ld_cli_passes_allowlisted_plink_controls(tmp_path):
     )
 
     commands = log.read_text()
-    assert commands.count("--mind 0.05 hh-missing") == 4
     assert commands.count("--threads 2") == 4
     assert commands.count("--memory 512") == 4
 
 
-def test_build_ld_distribution_intersects_user_sample_filters_with_chrx_split(tmp_path, monkeypatch):
+def test_statgen_build_ld_cli_rejects_sample_missingness_filter(tmp_path):
+    out = tmp_path / "ld"
+    result, _log = _run_build(
+        tmp_path,
+        [
+            "--bfile",
+            str(SHARDED_BFILE),
+            "--out",
+            str(out),
+            "--shard",
+            "1",
+            "--mind",
+            "0.05",
+        ],
+        expect_ok=False,
+    )
+
+    assert "unrecognized arguments: --mind 0.05" in result.stderr
+
+
+def test_build_ld_distribution_writes_chrx_split_keep_files_with_resource_controls(tmp_path, monkeypatch):
     mod = _load_build_module()
     fake = tmp_path / "fake_plink2.py"
     _write_fake_plink2(fake)
-    log = tmp_path / "filtered_plink_commands.log"
+    log = tmp_path / "split_plink_commands.log"
     monkeypatch.setenv("FAKE_PLINK_LOG", str(log))
-    keep_samples = tmp_path / "keep_samples.txt"
-    keep_samples.write_text(
-        "#FID\tIID\n"
-        "FAM1\tIND1\n"
-        "FAM1\tIND2\n"
-        "FAM2\tIND3\n"
-        "FAM2\tIND4\n",
-        encoding="utf-8",
-    )
-    remove_samples = tmp_path / "remove_samples.txt"
-    remove_samples.write_text("FAM2\tIND3\n", encoding="utf-8")
-    keep_families = tmp_path / "keep_families.txt"
-    keep_families.write_text("FAM1\nFAM2\n", encoding="utf-8")
-    remove_families = tmp_path / "remove_families.txt"
-    remove_families.write_text("FAM2\n", encoding="utf-8")
-    out = tmp_path / "ld_filtered"
-    scratch = tmp_path / "scratch_filtered"
+    out = tmp_path / "ld_split"
+    scratch = tmp_path / "scratch_split"
 
     mod.build_ld_distribution(
         bfile=str(SHARDED_BFILE),
@@ -394,12 +395,6 @@ def test_build_ld_distribution_intersects_user_sample_filters_with_chrx_split(tm
         shard="1",
         plink2=str(fake),
         scratch=scratch,
-        keep_samples=keep_samples,
-        remove_samples=remove_samples,
-        keep_families=keep_families,
-        remove_families=remove_families,
-        mind=0.02,
-        mind_mode="dosage",
         threads=3,
         memory=1024,
     )
@@ -409,27 +404,20 @@ def test_build_ld_distribution_intersects_user_sample_filters_with_chrx_split(tm
         shard="X",
         plink2=str(fake),
         scratch=scratch,
-        keep_samples=keep_samples,
-        remove_samples=remove_samples,
-        keep_families=keep_families,
-        remove_families=remove_families,
-        mind=0.02,
-        mind_mode="dosage",
         threads=3,
         memory=1024,
     )
 
-    assert (scratch / "chr1.keep").read_text() == "FAM1\tIND1\nFAM1\tIND2\n"
-    assert (scratch / "chrX_male.keep").read_text() == "FAM1\tIND1\n"
-    assert (scratch / "chrX_female.keep").read_text() == "FAM1\tIND2\n"
+    assert not (scratch / "chr1.keep").exists()
+    assert (scratch / "chrX_male.keep").read_text() == "FAM1\tIND1\nFAM2\tIND3\n"
+    assert (scratch / "chrX_female.keep").read_text() == "FAM1\tIND2\nFAM2\tIND4\n"
     chr1_meta = _metadata(out / "ld_chr1.npz")
     female_meta = _metadata(out / "ld_chrX_female.npz")
     male_meta = _metadata(out / "ld_chrX_male.npz")
-    assert chr1_meta["num_sample"] == 2
-    assert female_meta["num_sample"] == 1
-    assert male_meta["num_sample"] == 1
+    assert chr1_meta["num_sample"] == 4
+    assert female_meta["num_sample"] == 2
+    assert male_meta["num_sample"] == 2
     commands = log.read_text()
-    assert commands.count("--mind 0.02 dosage") == 6
     assert commands.count("--threads 3") == 6
     assert commands.count("--memory 1024") == 6
 

@@ -43,12 +43,6 @@ def main(argv=None) -> int:
         no_sex_split=args.no_sex_split,
         allow_monomorphic_snps=args.allow_monomorphic_snps,
         scratch=args.scratch,
-        mind=args.mind[0] if args.mind is not None else None,
-        mind_mode=args.mind[1] if args.mind is not None and len(args.mind) == 2 else None,
-        keep_samples=args.keep_samples,
-        remove_samples=args.remove_samples,
-        keep_families=args.keep_families,
-        remove_families=args.remove_families,
         threads=args.threads,
         memory=args.memory,
     )
@@ -66,12 +60,6 @@ def build_ld_distribution(
     no_sex_split=False,
     allow_monomorphic_snps=False,
     scratch=None,
-    mind=None,
-    mind_mode=None,
-    keep_samples=None,
-    remove_samples=None,
-    keep_families=None,
-    remove_families=None,
     threads=None,
     memory=None,
 ) -> None:
@@ -80,19 +68,7 @@ def build_ld_distribution(
         raise ValueError(f"No bfile shard {shard!r} found for {bfile}")
 
     ld_r2_threshold = _normalize_ld_r2_threshold(ld_r2_threshold)
-    plink_options = _normalize_plink_options(
-        mind=mind,
-        mind_mode=mind_mode,
-        threads=threads,
-        memory=memory,
-    )
-    sample_filters = {
-        "keep_samples": keep_samples,
-        "remove_samples": remove_samples,
-        "keep_families": keep_families,
-        "remove_families": remove_families,
-    }
-    has_sample_filters = any(value is not None for value in sample_filters.values())
+    plink_options = _normalize_plink_options(threads=threads, memory=memory)
 
     plink_version = _plink_version(plink2)
     tmp_root = _prepare_scratch_dir(out, scratch)
@@ -111,8 +87,6 @@ def build_ld_distribution(
             allow_monomorphic_snps=bool(allow_monomorphic_snps),
             plink_version=plink_version,
             plink_options=plink_options,
-            sample_filters=sample_filters,
-            has_sample_filters=has_sample_filters,
         ),
     )
     for record in shard_records:
@@ -140,20 +114,9 @@ def _parse_args(argv=None):
         help="Directory for PLINK2 intermediate outputs; defaults to <out>/_statgen_build_ld_work",
     )
     parser.add_argument("--no-sex-split", action="store_true", help="Build one combined chrX shard instead of female/male shards")
-    parser.add_argument("--mind", nargs="+", metavar="VALUE", help="PLINK2 sample missingness filter: --mind <x> [dosage|hh-missing]")
-    parser.add_argument("--keep-samples", default=None, help="Sample ID file to keep, intersected with statgen chrX keep files")
-    parser.add_argument("--remove-samples", default=None, help="Sample ID file to remove before building LD")
-    parser.add_argument("--keep-families", default=None, help="Family ID file to keep before building LD")
-    parser.add_argument("--remove-families", default=None, help="Family ID file to remove before building LD")
     parser.add_argument("--threads", type=int, default=None, help="PLINK2 --threads value")
     parser.add_argument("--memory", type=int, default=None, help="PLINK2 --memory value in MB")
-    args = parser.parse_args(argv)
-    if args.mind is not None:
-        if len(args.mind) not in {1, 2}:
-            parser.error("--mind expects <x> optionally followed by dosage or hh-missing")
-        if len(args.mind) == 2 and args.mind[1] not in {"dosage", "hh-missing"}:
-            parser.error("--mind mode must be dosage or hh-missing")
-    return args
+    return parser.parse_args(argv)
 
 
 def _prepare_scratch_dir(out, scratch) -> Path:
@@ -206,41 +169,34 @@ def _build_shard_specs(
     allow_monomorphic_snps,
     plink_version,
     plink_options,
-    sample_filters,
-    has_sample_filters,
 ) -> list[dict]:
     chr_label = shard["chr"]
     fam = _read_fam(_bfile_component(shard["bfile"], ".fam"))
-    filtered_fam = _apply_user_sample_filters(fam, **sample_filters)
 
     if chr_label == "X" and not no_sex_split:
-        _require_nonmissing_chrx_sex(filtered_fam, _bfile_component(shard["bfile"], ".fam"))
+        _require_nonmissing_chrx_sex(fam, _bfile_component(shard["bfile"], ".fam"))
         jobs = [
-            ("female", filtered_fam.loc[filtered_fam["sex"] == "2", ["fid", "iid"]]),
-            ("male", filtered_fam.loc[filtered_fam["sex"] == "1", ["fid", "iid"]]),
+            ("female", fam.loc[fam["sex"] == "2", ["fid", "iid"]]),
+            ("male", fam.loc[fam["sex"] == "1", ["fid", "iid"]]),
         ]
     elif chr_label == "X":
-        keep_samples = filtered_fam.loc[:, ["fid", "iid"]] if has_sample_filters else None
-        jobs = [("combined", keep_samples)]
+        jobs = [("combined", None)]
     else:
-        keep_samples = filtered_fam.loc[:, ["fid", "iid"]] if has_sample_filters else None
-        jobs = [(None, keep_samples)]
+        jobs = [(None, None)]
 
     ref_key_index = _reference_key_index(shard["reference_shard"])
     specs = []
-    for sex, keep_samples in jobs:
-        if keep_samples is not None and keep_samples.empty and sex is not None:
+    for sex, split_sample_ids in jobs:
+        if split_sample_ids is not None and split_sample_ids.empty and sex is not None:
             raise ValueError(f"chrX {sex} build has no samples")
-        if keep_samples is not None and keep_samples.empty:
-            raise ValueError(f"chr{chr_label} build has no samples")
 
         tag = f"chr{chr_label}" if sex is None else f"chr{chr_label}_{sex}"
         out_prefix = tmp_root / tag
         keep_file = None
-        num_sample = int(len(fam) if keep_samples is None else len(keep_samples))
-        if keep_samples is not None:
+        num_sample = int(len(fam) if split_sample_ids is None else len(split_sample_ids))
+        if split_sample_ids is not None:
             keep_file = tmp_root / f"{tag}.keep"
-            keep_samples.to_csv(keep_file, sep="\t", header=False, index=False)
+            split_sample_ids.to_csv(keep_file, sep="\t", header=False, index=False)
 
         freq_cmd = _plink_freq_command(
             plink2,
@@ -393,26 +349,13 @@ def _plink_ld_command(
 def _append_plink_filter_and_resource_args(cmd: list[str], *, keep_file, plink_options: dict) -> None:
     if keep_file is not None:
         cmd.extend(["--keep", str(keep_file)])
-    if plink_options["mind"] is not None:
-        cmd.extend(["--mind", plink_options["mind"]])
-        if plink_options["mind_mode"] is not None:
-            cmd.append(plink_options["mind_mode"])
     if plink_options["threads"] is not None:
         cmd.extend(["--threads", str(plink_options["threads"])])
     if plink_options["memory"] is not None:
         cmd.extend(["--memory", str(plink_options["memory"])])
 
 
-def _normalize_plink_options(*, mind, mind_mode, threads, memory) -> dict:
-    if mind is None and mind_mode is not None:
-        raise ValueError("mind_mode requires mind")
-    if mind is not None:
-        mind_value = float(mind)
-        if not np.isfinite(mind_value) or mind_value < 0 or mind_value > 1:
-            raise ValueError("mind must be a finite value in [0, 1]")
-        mind = str(mind)
-    if mind_mode is not None and mind_mode not in {"dosage", "hh-missing"}:
-        raise ValueError("mind_mode must be 'dosage' or 'hh-missing'")
+def _normalize_plink_options(*, threads, memory) -> dict:
     if threads is not None:
         threads = int(threads)
         if threads < 1:
@@ -422,8 +365,6 @@ def _normalize_plink_options(*, mind, mind_mode, threads, memory) -> dict:
         if memory < 1:
             raise ValueError("memory must be a positive integer")
     return {
-        "mind": mind,
-        "mind_mode": mind_mode,
         "threads": threads,
         "memory": memory,
     }
@@ -466,99 +407,6 @@ def _read_fam(path: Path) -> pd.DataFrame:
     if not rows:
         raise ValueError(f"{path}: FAM must contain at least one sample")
     return pd.DataFrame(rows, columns=["fid", "iid", "father", "mother", "sex", "phenotype"])
-
-
-def _apply_user_sample_filters(
-    fam: pd.DataFrame,
-    *,
-    keep_samples,
-    remove_samples,
-    keep_families,
-    remove_families,
-) -> pd.DataFrame:
-    mask = np.ones(len(fam), dtype=bool)
-    if keep_families is not None:
-        mask &= fam["fid"].isin(_read_family_filter_file(keep_families)).to_numpy()
-    if remove_families is not None:
-        mask &= ~fam["fid"].isin(_read_family_filter_file(remove_families)).to_numpy()
-    if keep_samples is not None:
-        mask &= _sample_filter_mask(fam, keep_samples)
-    if remove_samples is not None:
-        mask &= ~_sample_filter_mask(fam, remove_samples)
-    return fam.loc[mask].reset_index(drop=True)
-
-
-def _read_family_filter_file(path) -> set[str]:
-    path = Path(path)
-    families = set()
-    saw_header = False
-    with open(path, newline="") as f:
-        for raw in f:
-            fields = raw.rstrip("\n\r").split()
-            if not fields:
-                continue
-            if not saw_header and fields[0].startswith("#FID"):
-                saw_header = True
-                continue
-            saw_header = True
-            families.add(fields[0])
-    return families
-
-
-def _sample_filter_mask(fam: pd.DataFrame, path) -> np.ndarray:
-    sample_filter = _read_sample_filter_file(path)
-    if sample_filter["iid_only"]:
-        return fam["iid"].isin(sample_filter["iid"]).to_numpy()
-    selected = sample_filter["pairs"]
-    return np.fromiter(
-        (((fid, iid) in selected) for fid, iid in zip(fam["fid"], fam["iid"])),
-        dtype=bool,
-        count=len(fam),
-    )
-
-
-def _read_sample_filter_file(path) -> dict:
-    path = Path(path)
-    rows = []
-    header = None
-    with open(path, newline="") as f:
-        for raw in f:
-            fields = raw.rstrip("\n\r").split()
-            if not fields:
-                continue
-            if header is None and fields[0].startswith("#"):
-                header = [field.lstrip("#") for field in fields]
-                continue
-            rows.append(fields)
-
-    if header is None:
-        iid_only = all(len(row) == 1 for row in rows)
-        if iid_only:
-            return {"iid_only": True, "iid": {row[0] for row in rows}, "pairs": set()}
-        bad = [i for i, row in enumerate(rows, start=1) if len(row) < 2]
-        if bad:
-            raise ValueError(f"{path}:{bad[0]}: sample filter rows must have one IID column or at least FID IID columns")
-        return {"iid_only": False, "iid": set(), "pairs": {(row[0], row[1]) for row in rows if len(row) >= 2}}
-
-    header_index = {name: i for i, name in enumerate(header)}
-    if "IID" not in header_index:
-        raise ValueError(f"{path}: sample filter header must contain IID")
-    if "FID" not in header_index:
-        iid_i = header_index["IID"]
-        _require_sample_filter_width(path, rows, iid_i)
-        return {"iid_only": True, "iid": {row[iid_i] for row in rows}, "pairs": set()}
-
-    fid_i = header_index["FID"]
-    iid_i = header_index["IID"]
-    _require_sample_filter_width(path, rows, max(fid_i, iid_i))
-    pairs = {(row[fid_i], row[iid_i]) for row in rows}
-    return {"iid_only": False, "iid": set(), "pairs": pairs}
-
-
-def _require_sample_filter_width(path: Path, rows: list[list[str]], required_index: int) -> None:
-    for i, row in enumerate(rows, start=2):
-        if len(row) <= required_index:
-            raise ValueError(f"{path}:{i}: sample filter row is shorter than its header")
 
 
 def _require_nonmissing_chrx_sex(fam: pd.DataFrame, path: Path) -> None:

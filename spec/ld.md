@@ -338,18 +338,15 @@ The sharding of the resulting LD panel must match the sharding of the reference
 used with it.
 
 `statgen_build_ld.py` is not a general PLINK passthrough. Supported PLINK-like
-controls are limited to sample-level missingness filtering (`--mind <x>`
-optionally followed by `dosage` or `hh-missing`), statgen-owned sample/family
-inclusion and exclusion arguments corresponding to PLINK `--keep`, `--remove`,
-`--keep-fam`, and `--remove-fam`, and resource controls corresponding to
-PLINK `--threads` and `--memory`. User sample/family filters are resolved by
-statgen into generated keep files so they can be intersected with chrX
-sex-specific keep files. Variant-level QC/filtering and allele/reference
-mutation flags must not be passed through; users who need variant filtering
-must create a filtered bfile/reference upstream.
-When these controls are used, `num_sample` records the sample count submitted
-to PLINK after statgen sample/family and chrX sex filters; PLINK `--mind` may
-remove additional samples internally.
+controls are limited to resource controls corresponding to PLINK `--threads`
+and `--memory`. For chrX sex-specific builds, statgen generates internal keep
+files for female and male shards; these generated files are not user-facing
+PLINK passthrough controls. Sample/family filtering, sample-level missingness
+filtering, variant-level QC/filtering, and allele/reference mutation flags must
+not be passed through; users who need filtering must create a filtered
+bfile/reference upstream.
+`num_sample` records the sample count submitted to PLINK for each shard after
+statgen-owned chrX sex splitting.
 
 By default, chrX builds produce `female` and `male` shards using FAM column 5
 (1 = male, 2 = female). The script requires non-missing sex for chrX
