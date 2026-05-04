@@ -110,11 +110,17 @@ def run_octave(expr: str, timeout: int = 30) -> subprocess.CompletedProcess:
 def matlab_data_lines(stdout: str) -> list[str]:
     """Return non-warning stdout lines from Octave/MATLAB test snippets."""
     out = []
+    in_warning_block = False
     for raw in stdout.splitlines():
         line = raw.replace("\b", "").strip()
         if not line:
             continue
         if line.startswith("[Warning:") or line.startswith("Warning:"):
+            in_warning_block = line.startswith("[Warning:") and not line.endswith("]")
+            continue
+        if in_warning_block:
+            if line.endswith("]"):
+                in_warning_block = False
             continue
         if line.startswith("> In ") or line.startswith("In "):
             continue
