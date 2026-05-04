@@ -198,18 +198,26 @@ may be present in the directory and are ignored.
 files from a PLINK bfile. It accepts both input layouts:
 
 - **Sharded bfile input** (`@` in path, e.g. `chr@`): one bfile per
-  chromosome; discovery is by canonical substitution (`1`-`22`, `X`) and each
-  discovered shard is processed independently.
-- **Non-sharded bfile input** (single path, no `@`): the script splits by
-  chromosome.
+  chromosome; the requested shard is resolved by canonical substitution.
+- **Non-sharded bfile input** (single path, no `@`): the requested shard is
+  selected from the single BIM.
 
-For each processed unit, the builder:
+`statgen_build_ld.py` requires a single `--shard` label (`1`-`22` or `X`) and
+builds only that shard. This applies to both sharded and non-sharded bfile
+inputs, so chromosomes can be built as independent parallel jobs.
+
+For the requested shard, the builder:
 
 1. Computes `a1` allele frequencies using PLINK2 `--freq`, aligned to BIM row
    order.
-2. Computes pairwise signed LD using PLINK2 `--r` and `--keep-allele-order`
+2. Computes pairwise signed LD using PLINK2 `--r-unphased` and `--keep-allele-order`
    with default window 10,000 kb and default `r²` storage threshold `0.05`.
-3. Writes one validated `.npz` shard file and updates `ld_manifest.json`.
+3. Writes one validated `.npz` shard file for autosomes, or one validated
+   `.npz` file per chrX sex label.
+
+After shard jobs finish, `statgen_create_ld_manifest.py --ld <root>` creates
+`ld_manifest.json` from the per-shard metadata in existing `.npz` files and
+validates the resulting panel.
 
 Before publishing an `.npz` shard, the builder must validate at least:
 
@@ -228,13 +236,26 @@ sample count, and reference checksum are build metadata and must be recorded.
 The sharding of the resulting LD panel must match the sharding of the reference
 used with it.
 
+`statgen_build_ld.py` is not a general PLINK passthrough. Supported PLINK-like
+controls are limited to sample-level missingness filtering (`--mind <x>`
+optionally followed by `dosage` or `hh-missing`), statgen-owned sample/family
+inclusion and exclusion arguments corresponding to PLINK `--keep`, `--remove`,
+`--keep-fam`, and `--remove-fam`, and resource controls corresponding to
+PLINK `--threads` and `--memory`. User sample/family filters are resolved by
+statgen into generated keep files so they can be intersected with chrX
+sex-specific keep files. Variant-level QC/filtering and allele/reference
+mutation flags must not be passed through; users who need variant filtering
+must create a filtered bfile/reference upstream.
+When these controls are used, `num_sample` records the sample count submitted
+to PLINK after statgen sample/family and chrX sex filters; PLINK `--mind` may
+remove additional samples internally.
+
 By default, chrX builds produce `female` and `male` shards using FAM column 5
 (1 = male, 2 = female). The script requires non-missing sex for chrX
 sex-specific builds. `combined` chrX output is not the default; it is an
 explicit user decision because it depends on modeling and encoding
 assumptions. If users suppress sex splitting and write only a single combined
-chrX shard, the manifest records `sex: "combined"` and the rationale must be
-recorded in build metadata.
+chrX shard, the manifest records `sex: "combined"`.
 
 The MATLAB/Octave converter reads `.npz` shard files and writes `.mat` shard
 files plus a MATLAB/Octave manifest. MATLAB is required for production

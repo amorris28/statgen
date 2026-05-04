@@ -27,7 +27,7 @@ function manifest = convert_ld_npz_to_mat(input_root, output_root, production)
     for i = 1:numel(input_manifest.shards)
         entry = input_manifest.shards(i);
         npz_path = fullfile(input_root, entry.file);
-        [ld_r, a1freq, metadata] = read_npz_ld_shard_(npz_path);
+        [ld_r, a1freq, metadata] = read_npz_ld_shard_(npz_path, output_root);
         validate_npz_entry_agreement_(entry, metadata, npz_path);
 
         metadata = convert_metadata_(metadata);
@@ -54,11 +54,12 @@ function manifest = convert_ld_npz_to_mat(input_root, output_root, production)
     statgen.validate_ld_distribution(output_root, false);
 end
 
-function [ld_r, a1freq, metadata] = read_npz_ld_shard_(path)
+function [ld_r, a1freq, metadata] = read_npz_ld_shard_(path, scratch_root)
     if exist(path, 'file') ~= 2
         error('statgen:io', 'LD file not found: %s', path);
     end
-    work = tempname();
+    [~, tag] = fileparts(path);
+    work = fullfile(scratch_root, ['.tmp_' tag]);
     mkdir(work);
     cleanup = onCleanup(@() cleanup_dir_(work));
     unzip(path, work);

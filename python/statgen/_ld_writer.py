@@ -11,6 +11,7 @@ from ._ld_npz import validate_npz_distribution
 from ._ld_schema import (
     MANIFEST_SCHEMA,
     NPZ_FORMAT,
+    NPZ_REQUIRED,
     PY_RUNTIME_FORMAT,
     SHARD_SCHEMA,
     md5_file,
@@ -18,6 +19,7 @@ from ._ld_schema import (
     validate_positive_int,
     validate_shard_metadata,
 )
+from ._utils import CHR_RANK
 
 
 LD_BUILD_METADATA_DEFAULTS = {
@@ -32,6 +34,12 @@ LD_BUILD_METADATA_DEFAULTS = {
 
 def write_ld_npz_distribution(root, shard_specs, *, validate=True) -> dict:
     """Write a Python CSC32 LD distribution from already-aligned shard specs."""
+    records = write_ld_npz_shards(root, shard_specs)
+    return write_ld_npz_manifest(root, records, validate=validate)
+
+
+def write_ld_npz_shards(root, shard_specs) -> list[dict]:
+    """Write Python CSC32 LD shard files without creating a panel manifest."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     shard_specs = list(shard_specs)
@@ -68,14 +76,21 @@ def write_ld_npz_distribution(root, shard_specs, *, validate=True) -> dict:
             {
                 "chr": meta["chr"],
                 "sex": meta["sex"],
-                "file": file_name,
+                "file": file_key,
                 "file_md5": md5_file(path),
                 "num_snp": meta["num_snp"],
                 "nnz": meta["nnz"],
                 "reference_checksum": meta["reference_checksum"],
             }
         )
+    return records
 
+
+def write_ld_npz_manifest(root, records, *, validate=True) -> dict:
+    root = Path(root)
+    records = list(records)
+    if not records:
+        raise ValueError("LD manifest must contain at least one shard")
     manifest = {
         "object_type": "ld_panel_manifest",
         "schema_version": MANIFEST_SCHEMA,
@@ -86,6 +101,44 @@ def write_ld_npz_distribution(root, shard_specs, *, validate=True) -> dict:
     if validate:
         validate_npz_distribution(root, check_payload_structure=True)
     return manifest
+
+
+def create_ld_npz_manifest(root, *, validate=True) -> dict:
+    root = Path(root)
+    if not root.is_dir():
+        raise FileNotFoundError(f"LD distribution root not found: {root}")
+    records = [_ld_npz_manifest_record(path, root) for path in root.glob("*.npz")]
+    records.sort(key=_ld_manifest_sort_key)
+    return write_ld_npz_manifest(root, records, validate=validate)
+
+
+def _ld_npz_manifest_record(path: Path, root: Path) -> dict:
+    file_rel = path.relative_to(root)
+    if file_rel.is_absolute() or ".." in file_rel.parts:
+        raise ValueError("LD shard file must be inside the distribution root")
+    with np.load(path, allow_pickle=False) as data:
+        missing = sorted(NPZ_REQUIRED.difference(data.files))
+        if missing:
+            raise ValueError(f"{path}: missing required arrays: {', '.join(missing)}")
+        metadata = data["metadata"]
+    meta = json.loads(bytes(metadata).decode("utf-8"))
+    validate_shard_metadata(meta, path, expected_format=NPZ_FORMAT)
+    return {
+        "chr": meta["chr"],
+        "sex": meta["sex"],
+        "file": file_rel.as_posix(),
+        "file_md5": md5_file(path),
+        "num_snp": meta["num_snp"],
+        "nnz": meta["nnz"],
+        "reference_checksum": meta["reference_checksum"],
+    }
+
+
+def _ld_manifest_sort_key(record: dict) -> tuple[int, int, str]:
+    chr_label = record["chr"]
+    chr_i = CHR_RANK.get(chr_label, len(CHR_RANK))
+    sex_i = {None: 0, "female": 1, "male": 2, "combined": 3}.get(record["sex"], 99)
+    return chr_i, sex_i, record["file"]
 
 
 def _normalize_ld_shard_write_spec(spec: dict) -> dict:

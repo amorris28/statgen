@@ -363,14 +363,16 @@ artifact writer.
 
 Implementation tasks:
 
-- implement `script/statgen_build_ld.py`;
+- implement `script/statgen_build_ld.py` for one required `--shard` at a time;
+- implement `script/statgen_create_ld_manifest.py` to finalize a panel from
+  existing shard files;
 - support sharded bfile input with `@` and non-sharded input;
-- for non-sharded input, split by chromosome;
-- run PLINK2 `--freq` and `--r` with `--keep-allele-order`;
+- for non-sharded input, select the requested chromosome;
+- run PLINK2 `--freq` and `--r-unphased` with `--keep-allele-order`;
 - default to a 10,000 kb LD window and `r2 >= 0.05` storage threshold, with
   command-line overrides recorded in metadata;
 - for chrX, build `male` and `female` outputs by default using FAM sex codes;
-  `combined` output is opt-in and records the modeling rationale in metadata;
+  `combined` output is opt-in via `--no-sex-split`;
 - record build command, PLINK version if available, sample count, window,
   threshold, reference checksum, and runtime/storage format in metadata.
 

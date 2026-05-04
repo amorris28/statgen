@@ -137,10 +137,11 @@ function [tbl, cleanup_fn] = parse_sumstats_table_(path)
     cleanup_fn = @() [];
     actual_path = path;
     if ends_with_(path, '.gz')
-        tmpdir = tempname;
+        [~, base, ~] = fileparts(path);
+        scratch_root = statgen_scratch_root_(path);
+        tmpdir = unique_tmpdir_(scratch_root, ['sumstats_gunzip_' base]);
         mkdir(tmpdir);
         gunzip(path, tmpdir);
-        [~, base, ~] = fileparts(path);
         actual_path = fullfile(tmpdir, base);
         cleanup_fn = @() cleanup_tmpdir_(tmpdir);
     end
@@ -202,6 +203,36 @@ function out = pick_optional_(vec, ix)
     else
         out = vec(ix);
     end
+end
+
+function root = statgen_scratch_root_(path)
+    env_root = getenv('STATGEN_SCRATCH');
+    if ~isempty(env_root)
+        root = char(env_root);
+    else
+        [root, ~, ~] = fileparts(path);
+        if isempty(root)
+            root = pwd;
+        end
+    end
+    if exist(root, 'dir') ~= 7
+        [ok, msg] = mkdir(root);
+        if ~ok
+            error('statgen:io', 'Cannot create STATGEN scratch directory %s: %s', root, msg);
+        end
+    end
+end
+
+function tmpdir = unique_tmpdir_(root, prefix)
+    root = char(root);
+    for i = 1:100
+        suffix = sprintf('%s_%06d_%06d', prefix, round(1e6 * rand()), i);
+        tmpdir = fullfile(root, suffix);
+        if exist(tmpdir, 'dir') ~= 7 && exist(tmpdir, 'file') ~= 2
+            return
+        end
+    end
+    error('statgen:io', 'Could not allocate unique scratch directory under %s', root);
 end
 
 function cleanup_tmpdir_(tmpdir)

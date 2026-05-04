@@ -322,6 +322,30 @@ def test_octave_sumstats_roundtrip(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_sumstats_gzip_uses_statgen_scratch(tmp_path):
+    path = tmp_path / "traits.tsv.gz"
+    _write_gz_tsv(path, _valid_sumstats_text(include_optional=False))
+    scratch = tmp_path / "scratch"
+    script = _octave_script(
+        f"setenv('STATGEN_SCRATCH', '{scratch}'); "
+        f"ref = statgen.load_reference('{SHARDED_REF}'); "
+        f"s = statgen.load_sumstats('{path}', ref); "
+        "fprintf('%d\\n', s.num_snp); "
+        f"d = dir('{scratch}'); "
+        "names = {d.name}; "
+        "names = names(~strcmp(names, '.') & ~strcmp(names, '..')); "
+        "fprintf('%d\\n', numel(names)); "
+        "setenv('STATGEN_SCRATCH', '');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "8"
+    assert lines[1] == "0"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_missing_required_columns_fail(tmp_path):
     base_row = {"chr": "1", "bp": "100", "a1": "A", "a2": "G", "z": "1.2", "n": "900", "p": "0.1"}
     missing_cols = ["chr", "bp", "a1", "a2", "z", "n"]

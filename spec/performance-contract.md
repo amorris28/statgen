@@ -78,6 +78,18 @@ When using native table loaders for throughput, implementations MAY apply
 lighter per-field validation than fully manual parsers, as long as object-level
 contract checks and compatibility checks remain enforced.
 
+System temporary directory use must remain small:
+- `tempfile` / system temporary-directory use is allowed only for a few small helper objects, approximately 1 MB total per process.
+- Large intermediate files must be placed under a user-controlled output or scratch prefix because HPC environments may have small or quota-limited `/tmp` partitions.
+- Operations with a natural output path, such as builders and converters, MUST
+  place large intermediates under that output path by default, with an explicit
+  user-controlled scratch override when appropriate.
+- Operations without a natural output path, such as source loaders that need to
+  expand compressed inputs before parsing, SHOULD use `STATGEN_SCRATCH` when it
+  is set. If `STATGEN_SCRATCH` is unset, they may fall back to a source-adjacent
+  scratch directory when writable, but they MUST NOT silently place large
+  intermediates in the system temporary directory.
+
 ## Python cache format requirements
 
 Python caches MUST use Python-native binary storage suitable for direct numeric
