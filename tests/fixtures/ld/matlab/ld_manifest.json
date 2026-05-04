@@ -10,7 +10,8 @@
       "file_md5": "d5709ca6d9a36550acf77aed7765ba2e",
       "num_snp": 5,
       "nnz": 13,
-      "reference_checksum": "65836be1a96bd52932672255c8c95d73"
+      "reference_checksum": "65836be1a96bd52932672255c8c95d73",
+      "reference_bim": "reference_chr1.bim"
     },
     {
       "chr": "X",
@@ -19,7 +20,8 @@
       "file_md5": "67d61e102ba0b40071690f924f556f6c",
       "num_snp": 3,
       "nnz": 7,
-      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b",
+      "reference_bim": "reference_chrX.bim"
     },
     {
       "chr": "X",
@@ -28,7 +30,8 @@
       "file_md5": "2e0010d575d4161aff40cfec9551045b",
       "num_snp": 3,
       "nnz": 7,
-      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b",
+      "reference_bim": "reference_chrX.bim"
     },
     {
       "chr": "X",
@@ -37,7 +40,8 @@
       "file_md5": "8e5b14ba1a2860a3312cfc32262fa4ec",
       "num_snp": 3,
       "nnz": 7,
-      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b"
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b",
+      "reference_bim": "reference_chrX.bim"
     }
   ]
 }

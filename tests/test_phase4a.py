@@ -1,5 +1,4 @@
 import json
-import hashlib
 import shutil
 import zipfile
 from pathlib import Path
@@ -8,6 +7,7 @@ import numpy as np
 import pytest
 from scipy import sparse
 
+from statgen._ld_schema import md5_file
 from statgen.ld import load_ld, validate_ld_distribution
 from statgen.reference import load_reference
 from tests.conftest import FIXTURES_DIR, MATLAB_DIR, matlab_data_lines, run_octave, skipif_no_octave
@@ -24,14 +24,6 @@ def _read_manifest(root: Path) -> dict:
 
 def _write_manifest(root: Path, manifest: dict) -> None:
     (root / "ld_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-
-
-def _md5_file(path: Path) -> str:
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _copy_ld_distribution(tmp_path: Path) -> Path:
@@ -66,6 +58,7 @@ def test_load_ld_panel_matches_fixture_sparse_payloads():
     ld = load_ld(LD_PY, reference)
 
     assert ld.default_chrX_sex == "female"
+    assert ld.reference.num_snp == reference.num_snp
     assert [s.label for s in ld.shards] == ["1", "X"]
     assert [len(g) for g in ld.shard_groups] == [1, 3]
     assert reference.is_object_compatible(ld) is True
@@ -88,23 +81,26 @@ def test_load_ld_panel_matches_fixture_sparse_payloads():
     assert x_by_sex["combined"].ld_r[1, 2] == pytest.approx(-0.40)
 
 
-def test_load_ld_single_shard_with_single_chromosome_reference():
-    reference = load_reference(SHARDED_REF, shards=["1"])
-    ld = load_ld(LD_PY / "ld_chr1.npz", reference)
+def test_load_ld_uses_bundled_reference_when_reference_is_omitted():
+    ld = load_ld(LD_PY)
 
-    assert [s.label for s in ld.shards] == ["1"]
-    assert ld.shards[0].num_snp == 5
-    assert reference.is_object_compatible(ld) is True
+    assert [s.label for s in ld.reference.shards] == ["1", "X"]
+    assert [s.label for s in ld.shards] == ["1", "X"]
+    assert ld.reference.is_object_compatible(ld) is True
 
 
-def test_load_ld_single_shard_reference_shape_errors_are_specific():
+def test_load_ld_shards_filters_supplied_or_bundled_reference():
     reference = load_reference(SHARDED_REF)
-    with pytest.raises(ValueError, match="single-shard reference; reference has 2 shards"):
-        load_ld(LD_PY / "ld_chr1.npz", reference)
+    ld = load_ld(LD_PY, reference, shards=["1"])
+    assert [s.label for s in ld.reference.shards] == ["1"]
+    assert [s.label for s in ld.shards] == ["1"]
 
-    x_reference = load_reference(SHARDED_REF, shards=["X"])
-    with pytest.raises(ValueError, match="chromosome does not match"):
-        load_ld(LD_PY / "ld_chr1.npz", x_reference)
+    ld = load_ld(LD_PY, shards=["X"])
+    assert [s.label for s in ld.reference.shards] == ["X"]
+    assert [s.label for s in ld.shards] == ["X"]
+
+    with pytest.raises(ValueError, match="requested shard 'X' is not present"):
+        load_ld(LD_PY, reference.select_shards(["1"]), shards=["X"])
 
 
 def test_load_ld_default_chrx_sex_validation():
@@ -130,7 +126,7 @@ def test_validate_ld_distribution_checks_manifest_md5_and_payload_structure(tmp_
         validate_ld_distribution(root)
 
     manifest = _read_manifest(root)
-    manifest["shards"][0]["file_md5"] = _md5_file(root / "ld_chr1.npz")
+    manifest["shards"][0]["file_md5"] = md5_file(root / "ld_chr1.npz")
     _write_manifest(root, manifest)
     with pytest.raises(ValueError, match="a1freq length"):
         validate_ld_distribution(root, check_payload_structure=True)
@@ -143,6 +139,11 @@ def test_load_ld_missing_manifest_shard_file_fails(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="LD file not found"):
         load_ld(root, reference)
+
+
+def test_load_ld_rejects_single_shard_file_path():
+    with pytest.raises(ValueError, match="panel root directory"):
+        load_ld(LD_PY / "ld_chr1.npz")
 
 
 def test_invalid_ld_manifest_fails_clearly(tmp_path):
@@ -187,6 +188,51 @@ def test_load_ld_rejects_manifest_metadata_and_reference_mismatches(tmp_path):
         load_ld(root, reference)
 
 
+def test_validate_ld_distribution_checks_bundled_reference_bim(tmp_path):
+    root = _copy_ld_distribution(tmp_path)
+    (root / "reference_chr1.bim").write_text(
+        "1\trs1001\t0\t100\tA\tG\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="reference_bim num_snp"):
+        validate_ld_distribution(root)
+
+
+def test_validate_ld_distribution_missing_bundled_reference_bim_fails(tmp_path):
+    root = _copy_ld_distribution(tmp_path)
+    (root / "reference_chr1.bim").unlink()
+
+    with pytest.raises(FileNotFoundError, match="reference_chr1.bim"):
+        validate_ld_distribution(root)
+
+
+@pytest.mark.parametrize(
+    "bad_reference_bim",
+    ["../other.bim", "/abs/path.bim", "subdir/bim.bim", "foo..bar.bim"],
+)
+def test_invalid_reference_bim_manifest_values_fail(tmp_path, bad_reference_bim):
+    root = _copy_ld_distribution(tmp_path)
+    manifest = _read_manifest(root)
+    manifest["shards"][0]["reference_bim"] = bad_reference_bim
+    _write_manifest(root, manifest)
+
+    with pytest.raises(ValueError, match="reference_bim"):
+        validate_ld_distribution(root)
+
+
+def test_manifest_rejects_inconsistent_reference_bim_for_same_chr(tmp_path):
+    root = _copy_ld_distribution(tmp_path)
+    manifest = _read_manifest(root)
+    manifest["shards"][1]["reference_bim"] = "reference_chrX.bim"
+    manifest["shards"][2]["reference_bim"] = "reference_chrX_alt.bim"
+    _write_manifest(root, manifest)
+    shutil.copyfile(root / "reference_chrX.bim", root / "reference_chrX_alt.bim")
+
+    with pytest.raises(ValueError, match="must share reference_bim"):
+        validate_ld_distribution(root)
+
+
 def test_load_ld_rejects_unknown_chrx_sex_label(tmp_path):
     reference = load_reference(SHARDED_REF)
     root = _copy_ld_distribution(tmp_path)
@@ -206,7 +252,7 @@ def test_payload_structure_detects_malformed_sparse_indices(tmp_path):
     arrays["indices"][0] = 999
     _write_npz(root / "ld_chr1.npz", arrays)
     manifest = _read_manifest(root)
-    manifest["shards"][0]["file_md5"] = _md5_file(root / "ld_chr1.npz")
+    manifest["shards"][0]["file_md5"] = md5_file(root / "ld_chr1.npz")
     _write_manifest(root, manifest)
 
     with pytest.raises(ValueError, match="row indices out of bounds"):
@@ -216,7 +262,7 @@ def test_payload_structure_detects_malformed_sparse_indices(tmp_path):
 def test_python_validator_rejects_matlab_ld_distribution():
     with pytest.raises(ValueError, match="expected runtime_format 'python_npz_csc32'"):
         validate_ld_distribution(LD_MAT)
-    with pytest.raises(ValueError, match="use MATLAB/Octave"):
+    with pytest.raises(ValueError, match="panel root directory"):
         validate_ld_distribution(LD_MAT / "ld_chr1.mat")
 
 
@@ -224,7 +270,7 @@ def test_ld_metadata_rejects_bool_integer_fields(tmp_path):
     root = _copy_ld_distribution(tmp_path)
     _replace_npz_metadata(root / "ld_chr1.npz", {"num_snp": True})
     manifest = _read_manifest(root)
-    manifest["shards"][0]["file_md5"] = _md5_file(root / "ld_chr1.npz")
+    manifest["shards"][0]["file_md5"] = md5_file(root / "ld_chr1.npz")
     _write_manifest(root, manifest)
 
     with pytest.raises(ValueError, match="positive integer"):
@@ -274,13 +320,13 @@ def test_octave_load_ld_mat_fixture_sparse_payloads():
 
 @pytest.mark.octave
 @skipif_no_octave
-def test_octave_load_ld_single_mat_shard():
+def test_octave_load_ld_uses_bundled_reference_and_shard_subset():
     script = _octave_script(
-        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim'], {'1'}); "
-        "ld = statgen.load_ld([fixture_dir '/ld/matlab/ld_chr1.mat'], ref); "
+        "ld = statgen.load_ld([fixture_dir '/ld/matlab'], [], {'1'}); "
         "fprintf('%d\\n', numel(ld.shard_groups)); "
+        "fprintf('%d\\n', numel(ld.reference.shards)); "
         "fprintf('%s\\n', ld.shards{1}.label); "
-        "fprintf('%d\\n', ref.is_object_compatible(ld)); "
+        "fprintf('%d\\n', ld.reference.is_object_compatible(ld)); "
         "fprintf('%.2f\\n', full(ld.shards{1}.ld_r(1,2)));"
     )
     result = run_octave(script)
@@ -289,7 +335,8 @@ def test_octave_load_ld_single_mat_shard():
     assert lines[0] == "1"
     assert lines[1] == "1"
     assert lines[2] == "1"
-    assert lines[3] == "0.90"
+    assert lines[3] == "1"
+    assert lines[4] == "0.90"
 
 
 @pytest.mark.octave

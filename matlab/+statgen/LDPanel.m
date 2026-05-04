@@ -5,20 +5,25 @@ classdef LDPanel
         shard_offsets
         shard_groups
         default_chrX_sex
+        reference
     end
     properties (Dependent)
         shards
     end
 
     methods
-        function obj = LDPanel(shard_groups, default_chrX_sex)
+        function obj = LDPanel(shard_groups, default_chrX_sex, reference)
             if nargin == 0, return; end
             if nargin < 2 || isempty(default_chrX_sex)
                 default_chrX_sex = 'female';
             end
+            if nargin < 3
+                reference = [];
+            end
             statgen.LDPanel.validate_chrx_sex_(default_chrX_sex, 'default_chrX_sex');
             obj.shard_groups = shard_groups;
             obj.default_chrX_sex = char(default_chrX_sex);
+            obj.reference = reference;
 
             total = 0;
             offsets = struct('shard_label', {}, 'start0', {}, 'stop0', {});
@@ -43,6 +48,7 @@ classdef LDPanel
             end
             obj.num_snp = total;
             obj.shard_offsets = offsets;
+            obj.validate_reference_shape_();
             obj.validate_default_chrX_sex_();
         end
 
@@ -98,7 +104,11 @@ classdef LDPanel
                 idx = find(strcmp(available, selected{i}), 1, 'first');
                 out_groups{i} = obj.shard_groups{idx};
             end
-            out = statgen.LDPanel(out_groups, obj.default_chrX_sex);
+            out_reference = [];
+            if ~isempty(obj.reference)
+                out_reference = obj.reference.select_shards(selected);
+            end
+            out = statgen.LDPanel(out_groups, obj.default_chrX_sex, out_reference);
         end
 
         function out = multiply_r2(obj, M, chrX_sex)
@@ -160,6 +170,25 @@ classdef LDPanel
                 if ~any(strcmp(present, obj.default_chrX_sex))
                     error('statgen:ld', ...
                         'default_chrX_sex must name a loaded chrX LD shard');
+                end
+            end
+        end
+
+        function validate_reference_shape_(obj)
+            if isempty(obj.reference)
+                return
+            end
+            if numel(obj.reference.shards) ~= numel(obj.shard_groups)
+                error('statgen:ld', 'LDPanel reference shard count must match LD shard groups');
+            end
+            for i = 1:numel(obj.shard_groups)
+                ref = obj.reference.shards{i};
+                first = obj.shard_groups{i}{1};
+                if ~strcmp(ref.label, first.label)
+                    error('statgen:ld', 'LDPanel reference shard labels must match LD shard groups');
+                end
+                if ref.num_snp ~= first.num_snp
+                    error('statgen:ld', 'LDPanel reference shard sizes must match LD shard groups');
                 end
             end
         end

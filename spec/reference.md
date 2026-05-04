@@ -92,7 +92,10 @@ ReferencePanel.is_object_compatible(object) -> bool
 
 Expected behavior:
 
-- Reference panels are external inputs; `statgen` never writes `.bim` files.
+- Reference panels are external inputs; reference APIs never write `.bim`
+  files. LD distribution builders (`statgen_build_ld.py` and the MATLAB/Octave
+  converter) are the only tools that write `.bim` files, and only as exact
+  copies of input BIM rows bundled alongside LD shards.
 - Cache is a single file (non-sharded); internal layout is implementation-specific.
 - Shard discovery, contig validation, row-order validation, and shard subsetting
   follow [contigs-and-shards.md](contigs-and-shards.md).

@@ -23,11 +23,15 @@ from tests.conftest import FIXTURES_DIR, skipif_no_octave, run_octave
     "annotations/anno2.bed",
     "sumstats/traits.tsv.gz",
     "ld/python/ld_manifest.json",
+    "ld/python/reference_chr1.bim",
+    "ld/python/reference_chrX.bim",
     "ld/python/ld_chr1.npz",
     "ld/python/ld_chrX_female.npz",
     "ld/python/ld_chrX_male.npz",
     "ld/python/ld_chrX_combined.npz",
     "ld/matlab/ld_manifest.json",
+    "ld/matlab/reference_chr1.bim",
+    "ld/matlab/reference_chrX.bim",
     "ld/matlab/ld_chr1.mat",
     "ld/matlab/ld_chrX_female.mat",
     "ld/matlab/ld_chrX_male.mat",
@@ -81,6 +85,12 @@ def test_ld_python_manifest():
     ]
     assert all(len(s["reference_checksum"]) == 32 for s in meta["shards"])
     assert all(len(s["file_md5"]) == 32 for s in meta["shards"])
+    assert [s["reference_bim"] for s in meta["shards"]] == [
+        "reference_chr1.bim",
+        "reference_chrX.bim",
+        "reference_chrX.bim",
+        "reference_chrX.bim",
+    ]
 
 
 def test_ld_chr1_npz_payload():

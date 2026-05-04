@@ -21,13 +21,23 @@ function manifest = ld_read_manifest(path, expected_runtime_format)
     if ~isfield(manifest, 'shards') || isempty(manifest.shards)
         error('statgen:ld', '%s: shards must be a non-empty list', path);
     end
+    ref_chr = {};
+    ref_bim = {};
     for i = 1:numel(manifest.shards)
         validate_manifest_entry_(manifest.shards(i), sprintf('%s:shards(%d)', path, i));
+        chr_label = char(manifest.shards(i).chr);
+        idx = find(strcmp(ref_chr, chr_label), 1, 'first');
+        if isempty(idx)
+            ref_chr{end+1} = chr_label; %#ok<AGROW>
+            ref_bim{end+1} = char(manifest.shards(i).reference_bim); %#ok<AGROW>
+        elseif ~strcmp(ref_bim{idx}, manifest.shards(i).reference_bim)
+            error('statgen:ld', '%s: manifest entries for chr %s must share reference_bim', path, chr_label);
+        end
     end
 end
 
 function validate_manifest_entry_(entry, where)
-    required = {'chr', 'sex', 'file', 'file_md5', 'num_snp', 'nnz', 'reference_checksum'};
+    required = {'chr', 'sex', 'file', 'file_md5', 'num_snp', 'nnz', 'reference_checksum', 'reference_bim'};
     for i = 1:numel(required)
         if ~isfield(entry, required{i})
             error('statgen:ld', '%s: missing required field %s', where, required{i});
@@ -36,5 +46,19 @@ function validate_manifest_entry_(entry, where)
     statgen.internal.ld_validate_chr_sex(entry.chr, entry.sex, where);
     if isempty(entry.file)
         error('statgen:ld', '%s: file must be non-empty', where);
+    end
+    validate_reference_bim_(entry.reference_bim, where);
+end
+
+function validate_reference_bim_(value, where)
+    if isempty(value) || ~(ischar(value) || isstring(value))
+        error('statgen:ld', '%s: reference_bim must be a non-empty filename', where);
+    end
+    value = char(value);
+    if any(value == '/') || any(value == '\') || strcmp(value, '.') || ~isempty(strfind(value, '..'))
+        error('statgen:ld', '%s: reference_bim must be a plain relative filename', where);
+    end
+    if ~isempty(regexp(value, '^[A-Za-z]:', 'once'))
+        error('statgen:ld', '%s: reference_bim must be a plain relative filename', where);
     end
 end

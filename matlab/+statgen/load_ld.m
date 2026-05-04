@@ -1,11 +1,6 @@
-function panel = load_ld(path, reference, default_chrX_sex, retain_ld_r)
+function panel = load_ld(path, varargin)
 % Load MATLAB/Octave-native sparse LD distribution artifacts.
-    if nargin < 3 || isempty(default_chrX_sex)
-        default_chrX_sex = 'female';
-    end
-    if nargin < 4 || isempty(retain_ld_r)
-        retain_ld_r = true;
-    end
+    [reference, shards, default_chrX_sex, retain_ld_r] = parse_args_(varargin{:});
     statgen.LDPanel.validate_chrx_sex_(default_chrX_sex, 'default_chrX_sex');
     if ~islogical(retain_ld_r) && ~(isnumeric(retain_ld_r) && isscalar(retain_ld_r))
         error('statgen:ld', 'retain_ld_r must be a scalar logical value');
@@ -13,15 +8,64 @@ function panel = load_ld(path, reference, default_chrX_sex, retain_ld_r)
     retain_ld_r = logical(retain_ld_r);
 
     path = char(path);
-    if isfolder(path)
-        manifest = statgen.internal.ld_read_manifest(fullfile(path, 'ld_manifest.json'), ...
-            'matlab_mat_sparse_double');
-        groups = load_panel_root_(path, manifest, reference.shards, retain_ld_r);
-    else
-        groups = load_single_shard_(path, reference.shards, retain_ld_r);
+    if ~isfolder(path)
+        error('statgen:ld', 'load_ld: path must identify a panel root directory');
     end
 
-    panel = statgen.LDPanel(groups, default_chrX_sex);
+    manifest = statgen.internal.ld_read_manifest(fullfile(path, 'ld_manifest.json'), ...
+        'matlab_mat_sparse_double');
+    if isempty(reference)
+        reference = load_bundled_reference_(path, manifest, shards);
+    elseif ~isempty(shards)
+        reference = reference.select_shards(shards);
+    end
+    groups = load_panel_root_(path, manifest, reference.shards, retain_ld_r);
+    panel = statgen.LDPanel(groups, default_chrX_sex, reference);
+end
+
+function [reference, shards, default_chrX_sex, retain_ld_r] = parse_args_(varargin)
+    reference = [];
+    shards = [];
+    default_chrX_sex = 'female';
+    retain_ld_r = true;
+
+    if numel(varargin) >= 1
+        reference = varargin{1};
+    end
+    if numel(varargin) >= 2
+        third = varargin{2};
+        if is_chrx_sex_(third)
+            default_chrX_sex = char(third);
+            if numel(varargin) >= 3 && ~isempty(varargin{3})
+                retain_ld_r = varargin{3};
+            end
+        else
+            shards = third;
+            if numel(varargin) >= 3 && ~isempty(varargin{3})
+                default_chrX_sex = varargin{3};
+            end
+            if numel(varargin) >= 4 && ~isempty(varargin{4})
+                retain_ld_r = varargin{4};
+            end
+        end
+    end
+    if numel(varargin) > 4
+        error('statgen:ld', 'load_ld accepts at most five arguments');
+    end
+    if isempty(default_chrX_sex)
+        default_chrX_sex = 'female';
+    end
+    if isempty(retain_ld_r)
+        retain_ld_r = true;
+    end
+end
+
+function tf = is_chrx_sex_(value)
+    if ~(ischar(value) || (isstring(value) && isscalar(value)))
+        tf = false;
+        return
+    end
+    tf = any(strcmp(char(value), {'female', 'male', 'combined'}));
 end
 
 function groups = load_panel_root_(root, manifest, ref_shards, retain_ld_r)
@@ -73,21 +117,55 @@ function groups = load_panel_root_(root, manifest, ref_shards, retain_ld_r)
     end
 end
 
-function groups = load_single_shard_(path, ref_shards, retain_ld_r)
-    [shard, meta] = statgen.internal.ld_read_mat_shard(path, false, retain_ld_r);
-    warn_monomorphic_snps_(path, meta);
-    if numel(ref_shards) ~= 1
-        error('statgen:ld', ...
-            'single-shard LD loads require a single-shard reference; reference has %d shards', ...
-            numel(ref_shards));
+function reference = load_bundled_reference_(root, manifest, shards)
+    available = manifest_chr_labels_(manifest);
+    selected = statgen.internal.validate_requested_shards(shards, available, 'load_ld');
+    ref_shards = cell(numel(selected), 1);
+    for i = 1:numel(selected)
+        label = selected{i};
+        entries = entries_for_chr_(manifest.shards, label);
+        reference_path = fullfile(root, entries(1).reference_bim);
+        panel = statgen.load_reference(reference_path);
+        if numel(panel.shards) ~= 1
+            error('statgen:ld', '%s: bundled reference_bim must contain exactly one shard', reference_path);
+        end
+        ref = panel.shards{1};
+        for j = 1:numel(entries)
+            validate_bundled_reference_entry_(ref, entries(j), reference_path);
+        end
+        ref_shards{i} = ref;
     end
-    if ~strcmp(ref_shards{1}.label, shard.chr)
-        error('statgen:ld', ...
-            'single-shard LD chromosome does not match single-shard reference: LD chr %s, reference chr %s', ...
-            shard.chr, ref_shards{1}.label);
+    reference = statgen.ReferencePanel(ref_shards);
+end
+
+function labels = manifest_chr_labels_(manifest)
+    labels = {};
+    for i = 1:numel(manifest.shards)
+        label = char(manifest.shards(i).chr);
+        if ~any(strcmp(labels, label))
+            labels{end+1} = label; %#ok<AGROW>
+        end
     end
-    statgen.internal.ld_validate_reference_compatibility(shard, ref_shards{1}, path);
-    groups = {{shard}};
+end
+
+function entries = entries_for_chr_(entries_in, label)
+    keep = false(numel(entries_in), 1);
+    for i = 1:numel(entries_in)
+        keep(i) = strcmp(entries_in(i).chr, label);
+    end
+    entries = entries_in(keep);
+end
+
+function validate_bundled_reference_entry_(ref, entry, path)
+    if ~strcmp(ref.label, entry.chr)
+        error('statgen:ld', '%s: bundled reference_bim chr does not match manifest', path);
+    end
+    if ref.num_snp ~= double(entry.num_snp)
+        error('statgen:ld', '%s: bundled reference_bim num_snp does not match manifest', path);
+    end
+    if ~strcmp(ref.checksum, entry.reference_checksum)
+        error('statgen:ld', '%s: bundled reference_bim reference_checksum does not match manifest', path);
+    end
 end
 
 function warn_monomorphic_snps_(path, meta)

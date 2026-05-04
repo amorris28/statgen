@@ -172,12 +172,19 @@ use the runtime's natural empty value.
 
 ## Panel layout and manifest
 
-A panel root is a directory containing one or more LD shard files plus
-`ld_manifest.json`. A loader may also accept a single shard file.
+A panel root is a directory containing one or more LD shard files, one bundled
+reference `.bim` file per chromosome, and `ld_manifest.json`. `path` passed to
+`load_ld` must always identify a panel root directory; single shard files are
+not a supported load target.
 
-Recommended shard filenames:
+Recommended filenames:
 
 ```text
+reference_chr1.bim
+reference_chr2.bim
+...
+reference_chr22.bim
+reference_chrX.bim
 ld_chr1.npz
 ld_chr2.npz
 ...
@@ -187,14 +194,17 @@ ld_chrX_male.npz
 ld_chrX_combined.npz
 ```
 
-MATLAB/Octave distributions use the same names with `.mat`. Autosomal shards
-use no sex suffix. chrX shards always use an explicit sex suffix. Not all chrX
-sex labels need to be present. `female` and `male` are the default
-sex-specific build outputs; `combined` is optional and assumption-dependent.
+MATLAB/Octave distributions use the same names with `.mat` for LD shard files;
+bundled `.bim` files are identical across runtimes. Autosomal LD shards use no
+sex suffix. chrX LD shards always use an explicit sex suffix. Not all chrX sex
+labels need to be present. `female` and `male` are the default sex-specific
+build outputs; `combined` is optional and assumption-dependent. Each chromosome
+has exactly one bundled reference `.bim` regardless of how many chrX sex labels
+are present.
 
-For panel-root loads, `ld_manifest.json` is authoritative for file discovery.
-Loaders must not infer panels by globbing arbitrary filenames. Files present in
-the directory but absent from the manifest are ignored.
+`ld_manifest.json` is authoritative for file discovery. Loaders must not infer
+panels by globbing arbitrary filenames. Files present in the directory but
+absent from the manifest are ignored.
 
 Required manifest fields:
 
@@ -211,7 +221,28 @@ Required manifest fields:
       "file_md5": "...",
       "num_snp": 123,
       "nnz": 4567,
-      "reference_checksum": "..."
+      "reference_checksum": "...",
+      "reference_bim": "reference_chr1.bim"
+    },
+    {
+      "chr": "X",
+      "sex": "female",
+      "file": "ld_chrX_female.npz",
+      "file_md5": "...",
+      "num_snp": 456,
+      "nnz": 7890,
+      "reference_checksum": "...",
+      "reference_bim": "reference_chrX.bim"
+    },
+    {
+      "chr": "X",
+      "sex": "male",
+      "file": "ld_chrX_male.npz",
+      "file_md5": "...",
+      "num_snp": 456,
+      "nnz": 3456,
+      "reference_checksum": "...",
+      "reference_bim": "reference_chrX.bim"
     }
   ]
 }
@@ -220,13 +251,20 @@ Required manifest fields:
 `runtime_format` is `"python_npz_csc32"` for Python distributions and
 `"matlab_mat_sparse_double"` for MATLAB/Octave distributions. Manifest entries
 and per-file metadata must agree on `chr`, `sex`, `num_snp`, `nnz`,
-`reference_checksum`, and runtime/storage format. `file` and `file_md5` are
-manifest-only fields. Runtime loaders are not required to compute `file_md5` on
-the default load path.
+`reference_checksum`, and runtime/storage format. `file`, `file_md5`, and
+`reference_bim` are manifest-only fields. Runtime loaders are not required to
+compute `file_md5` on the default load path.
 
-If the supplied `ReferencePanel` is a shard subset, `load_ld` loads only the LD
-files required for those reference shards. LD files for other reference shards
-may be present in the directory and are ignored.
+`reference_bim` must be a plain relative filename with no path separators, no
+`..` components, and no absolute path prefix (e.g. `"reference_chr1.bim"`, not
+`"../foo.bim"` or `"/abs/path.bim"`). Loaders must reject manifests that
+violate this constraint. chrX sex variants (`female`, `male`, `combined`) all
+carry the same `reference_bim` value because they share one paired reference
+shard.
+
+`load_ld` loads only the LD files and, when needed, reference `.bim` files
+required for the requested shards. LD files and reference `.bim` files for
+other shards may be present in the directory and are ignored.
 
 ## Building and conversion
 
@@ -252,6 +290,9 @@ For the requested shard, the builder:
    with default window 10,000 kb and default `r²` storage threshold `0.05`.
 4. Writes one validated `.npz` shard file for autosomes, or one validated
    `.npz` file per chrX sex label.
+5. Copies the relevant rows of the source BIM into a bundled
+   `reference_chr<N>.bim` file in the output directory. For chrX, writes
+   `reference_chrX.bim` once, shared by all sex-label shards.
 
 Each shard metadata records `num_monomorphic_snps`, the number of aligned SNPs
 with `a1freq` exactly `0` or `1` for that shard. This field is present even
@@ -274,8 +315,9 @@ sparse entries. Omitted pairs include low-`r²` pairs and undefined pairs; both
 read as zero from the resulting sparse LD shard.
 
 After shard jobs finish, `statgen_create_ld_manifest.py --ld <root>` creates
-`ld_manifest.json` from the per-shard metadata in existing `.npz` files and
-validates the resulting panel.
+`ld_manifest.json` from the per-shard metadata in existing `.npz` files,
+discovers bundled `reference_chr*.bim` files, populates `reference_bim` in each
+shard entry, and validates the resulting panel.
 
 Before publishing an `.npz` shard, the builder must validate at least:
 
@@ -326,7 +368,9 @@ runtime where MATLAB and Octave differ.
 The converter may assume `.npz` shards were produced and validated by
 `statgen_build_ld.py`; it must validate metadata consistency before writing but
 is not required to repeat expensive O(nnz) structure checks such as full
-symmetry or diagonal scans.
+symmetry or diagonal scans. The converter copies bundled `reference_chr*.bim`
+files from the `.npz` panel root into the `.mat` output directory unchanged and
+carries `reference_bim` values through to the MATLAB/Octave manifest.
 
 ## In-memory objects
 
@@ -384,9 +428,10 @@ returns `a1freq` as double.
 ## API
 
 ```text
-load_ld(path, reference, optional default_chrX_sex) -> LDPanel
+load_ld(path, optional reference, optional shards, optional default_chrX_sex) -> LDPanel
 validate_ld_distribution(path, optional check_payload_structure) -> report
 
+LDPanel.reference -> ReferencePanel
 LDPanel.a1freq(optional chrX_sex) -> num_snp float vector
 LDPanel.default_chrX_sex -> "female" | "male" | "combined"
 LDPanel.select_shards(shards) -> LDPanel
@@ -394,26 +439,42 @@ LDPanel.multiply_r2(M, optional chrX_sex) -> vector or matrix with same shape as
 fast_prune(logpvec, ld_panel, optional r2_threshold, optional chrX_sex) -> logpvec
 ```
 
-`path` may identify a panel root containing `ld_manifest.json` or a single LD
-shard file. `reference` is required. `load_ld` must validate that every loaded
-LD shard is compatible with the corresponding `ReferenceShard`: shard label,
-`num_snp`, and `reference_checksum` must match. A mismatch is an error.
+`path` identifies a panel root directory containing `ld_manifest.json`.
+`load_ld` must validate that every loaded LD shard is compatible with its
+paired `ReferenceShard`: shard label, `num_snp`, and `reference_checksum` must
+match. A mismatch is an error.
 
-For a panel-root path, `load_ld` derives expected LD files from the supplied
-`ReferencePanel` and resolves them through the manifest. Missing required LD
-files are errors.
+`reference` is optional. When provided, `load_ld` uses it directly — the
+bundled `reference_bim` files are not read — which avoids redundant `.bim` I/O
+when the caller has already loaded or cached the reference. When `reference` is
+omitted, `load_ld` loads the reference from the bundled `reference_bim` files
+named in the manifest.
+
+In both cases, `shards` further subsets which shards are loaded. Requesting a
+shard absent from the supplied `reference` or from the LD panel is an error.
+Callers who have already subset the reference via `select_shards` or
+`load_reference_cache` may omit `shards`; passing `shards` in addition applies
+a second filter and errors on any label not present in both.
+
+The loaded `ReferencePanel` — whether supplied by the caller or constructed from
+bundled `.bim` files — is retained as `LDPanel.reference`. Missing required LD
+or bundled reference files are errors.
 
 `validate_ld_distribution` is an explicit distribution-QA path, not part of
-default loading. It validates only the calling runtime's LD distribution format:
-Python validates `.npz` distributions with `runtime_format:
-"python_npz_csc32"`; MATLAB/Octave validates `.mat` distributions with
-`runtime_format: "matlab_mat_sparse_double"`. It validates manifest file MD5
-checksums and manifest/per-file metadata agreement. When
-`check_payload_structure` is true, it may also perform expensive payload checks
-such as sparse index bounds, explicit diagonal, and symmetry validation. For
-MATLAB/Octave `.mat` distributions, v5 MAT-files are accepted for validation
-but must produce a warning stating that they are fixture/local-test artifacts
-and not production distribution artifacts because of MAT-file size limits.
+default loading. It is self-contained: no external reference is required. It
+validates only the calling runtime's LD distribution format: Python validates
+`.npz` distributions with `runtime_format: "python_npz_csc32"`; MATLAB/Octave
+validates `.mat` distributions with `runtime_format:
+"matlab_mat_sparse_double"`. It validates manifest file MD5 checksums,
+manifest/per-file metadata agreement,
+presence of all `reference_bim` files named in the manifest, and cross-checks
+each LD shard's `reference_checksum` and `num_snp` against the corresponding
+bundled `.bim` file. When `check_payload_structure` is true, it additionally
+performs expensive checks: sparse index bounds, explicit diagonal, and symmetry
+validation. For MATLAB/Octave `.mat`
+distributions, v5 MAT-files are accepted for validation but must produce a
+warning stating that they are fixture/local-test artifacts and not production
+distribution artifacts because of MAT-file size limits.
 
 LD-specific public cache APIs are not part of the LD contract. There is no
 `save_ld_cache` or `load_ld_cache`; the runtime distribution artifacts are the
@@ -423,6 +484,9 @@ Expected behavior:
 
 - Panel accessors are read-only and concatenate shard data in reference panel
   order.
+- `LDPanel.reference` is always populated after a successful `load_ld` call,
+  regardless of whether `reference` was supplied or loaded from bundled `.bim`
+  files.
 - Loading warns and proceeds when a shard metadata field
   `num_monomorphic_snps` is greater than zero. Runtime operations do not
   special-case those SNPs.

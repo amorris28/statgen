@@ -18,7 +18,7 @@ PYTHON_ROOT = REPO_ROOT / "python"
 if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
-from statgen._ld_npz import validate_npz_distribution
+from statgen._ld_npz import validate_npz_shard_file
 from statgen._ld_writer import write_ld_npz_shards
 from statgen._utils import CANONICAL_CHR_ORDER
 from statgen.reference import load_reference
@@ -97,6 +97,7 @@ def build_ld_distribution(
     plink_version = _plink_version(plink2)
     tmp_root = _prepare_scratch_dir(out, scratch)
     shard_spec = shards[0]
+    _copy_reference_bim_for_shard(Path(out), shard_spec)
     shard_records = write_ld_npz_shards(
         out,
         _build_shard_specs(
@@ -115,7 +116,7 @@ def build_ld_distribution(
         ),
     )
     for record in shard_records:
-        validate_npz_distribution(Path(out) / record["file"], check_payload_structure=True)
+        validate_npz_shard_file(Path(out) / record["file"], check_payload_structure=True)
 
     return None
 
@@ -317,6 +318,27 @@ def _write_monomorphic_snp_table(root: Path, tag: str, reference_shard, mask: np
         }
     )
     table.to_csv(path, sep="\t", index=False)
+
+
+def _copy_reference_bim_for_shard(root: Path, shard: dict) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    chr_label = shard["chr"]
+    src = _bfile_component(shard["bfile"], ".bim")
+    dst = root / f"reference_chr{chr_label}.bim"
+    wrote = 0
+    with open(src, encoding="utf-8", newline="") as in_f, open(
+        dst, "w", encoding="utf-8", newline=""
+    ) as out_f:
+        for raw in in_f:
+            fields = raw.rstrip("\n\r").split()
+            if fields and fields[0] == chr_label:
+                out_f.write(raw if raw.endswith(("\n", "\r")) else raw + "\n")
+                wrote += 1
+    if wrote != shard["reference_shard"].num_snp:
+        raise ValueError(
+            f"{src}: copied {wrote} BIM rows for chr{chr_label}, "
+            f"expected {shard['reference_shard'].num_snp}"
+        )
 
 
 def _plink_freq_command(plink2, bfile, out_prefix, *, chr_label, keep_file, plink_options):

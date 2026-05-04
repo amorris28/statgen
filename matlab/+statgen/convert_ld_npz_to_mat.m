@@ -23,9 +23,14 @@ function manifest = convert_ld_npz_to_mat(input_root, output_root, production)
         fullfile(input_root, 'ld_manifest.json'), 'python_npz_csc32');
 
     records = struct('chr', {}, 'sex', {}, 'file', {}, 'file_md5', {}, ...
-        'num_snp', {}, 'nnz', {}, 'reference_checksum', {});
+        'num_snp', {}, 'nnz', {}, 'reference_checksum', {}, 'reference_bim', {});
+    copied_reference_bim = {};
     for i = 1:numel(input_manifest.shards)
         entry = input_manifest.shards(i);
+        if ~any(strcmp(copied_reference_bim, entry.reference_bim))
+            copy_reference_bim_(input_root, output_root, entry.reference_bim);
+            copied_reference_bim{end+1} = char(entry.reference_bim); %#ok<AGROW>
+        end
         npz_path = fullfile(input_root, entry.file);
         [ld_r, a1freq, metadata] = read_npz_ld_shard_(npz_path, output_root);
         validate_npz_entry_agreement_(entry, metadata, npz_path);
@@ -42,6 +47,7 @@ function manifest = convert_ld_npz_to_mat(input_root, output_root, production)
         records(end).num_snp = double(metadata.num_snp);
         records(end).nnz = double(metadata.nnz);
         records(end).reference_checksum = char(metadata.reference_checksum);
+        records(end).reference_bim = char(entry.reference_bim);
     end
 
     manifest = struct();
@@ -52,6 +58,18 @@ function manifest = convert_ld_npz_to_mat(input_root, output_root, production)
     write_json_(fullfile(output_root, 'ld_manifest.json'), manifest);
 
     statgen.validate_ld_distribution(output_root, false);
+end
+
+function copy_reference_bim_(input_root, output_root, reference_bim)
+    src = fullfile(input_root, reference_bim);
+    dst = fullfile(output_root, reference_bim);
+    if exist(src, 'file') ~= 2
+        error('statgen:io', 'LD file not found: %s', src);
+    end
+    [ok, msg] = copyfile(src, dst);
+    if ~ok
+        error('statgen:io', 'Failed to copy bundled reference_bim: %s', msg);
+    end
 end
 
 function [ld_r, a1freq, metadata] = read_npz_ld_shard_(path, scratch_root)

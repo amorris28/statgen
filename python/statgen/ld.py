@@ -73,9 +73,10 @@ class LDShard:
 
 
 class LDPanel:
-    def __init__(self, shard_groups, default_chrX_sex="female"):
+    def __init__(self, shard_groups, default_chrX_sex="female", reference=None):
         self._shard_groups = [list(g) for g in shard_groups]
         self._default_chrX_sex = validate_chrx_sex(default_chrX_sex, "default_chrX_sex")
+        self._reference = reference
         self._shard_offsets = []
         pos = 0
         for group in self._shard_groups:
@@ -92,6 +93,8 @@ class LDPanel:
             )
             pos += first.num_snp
         self._num_snp = pos
+        if self._reference is not None:
+            self._validate_reference_shape()
         self._validate_default_chrX_sex()
 
     @property
@@ -123,6 +126,10 @@ class LDPanel:
     def default_chrX_sex(self) -> str:
         return self._default_chrX_sex
 
+    @property
+    def reference(self):
+        return self._reference
+
     def a1freq(self, chrX_sex=None) -> np.ndarray:
         shards = [shard for shard, _start, _stop in self.iter_shards_with_offsets(chrX_sex)]
         if not shards:
@@ -133,7 +140,8 @@ class LDPanel:
         available = [group[0].label for group in self._shard_groups]
         selected = validate_requested_shards(shards, available, "LDPanel.select_shards")
         by_label = {group[0].label: group for group in self._shard_groups}
-        return LDPanel([by_label[label] for label in selected], self._default_chrX_sex)
+        reference = None if self._reference is None else self._reference.select_shards(selected)
+        return LDPanel([by_label[label] for label in selected], self._default_chrX_sex, reference)
 
     def multiply_r2(self, M, chrX_sex=None):
         if sparse.issparse(M):
@@ -170,6 +178,17 @@ class LDPanel:
                         "default_chrX_sex must name a loaded chrX LD shard; "
                         f"got {self._default_chrX_sex!r}, present {sorted(present)!r}"
                     )
+
+    def _validate_reference_shape(self) -> None:
+        ref_shards = list(self._reference.shards)
+        if len(ref_shards) != len(self._shard_groups):
+            raise ValueError("LDPanel reference shard count must match LD shard groups")
+        for ref_shard, group in zip(ref_shards, self._shard_groups):
+            first = group[0]
+            if ref_shard.label != first.label:
+                raise ValueError("LDPanel reference shard labels must match LD shard groups")
+            if ref_shard.num_snp != first.num_snp:
+                raise ValueError("LDPanel reference shard sizes must match LD shard groups")
 
     def _multiply_r2_dense(self, M, chrX_sex=None):
         arr = np.asarray(M)
@@ -228,26 +247,32 @@ class LDPanel:
         return sparse.vstack(parts, format=M.getformat()).astype(out_dtype)
 
 
-def load_ld(path, reference, default_chrX_sex=None) -> LDPanel:
+def load_ld(path, reference=None, shards=None, default_chrX_sex=None) -> LDPanel:
     default_chrX_sex = validate_chrx_sex(
         "female" if default_chrX_sex is None else default_chrX_sex,
         "default_chrX_sex",
     )
     path = Path(path)
+    if not path.is_dir():
+        raise ValueError("load_ld: path must identify a panel root directory")
+
+    manifest = read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
+    if reference is None:
+        reference = _load_bundled_reference(path, manifest, shards)
+    elif shards is not None:
+        reference = reference.select_shards(shards)
+
     ref_shards = list(reference.shards)
     if not ref_shards:
         raise ValueError("load_ld: reference must contain at least one shard")
 
-    if path.is_dir():
-        manifest = read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
-        groups = _load_panel_root(path, manifest, ref_shards)
-    else:
-        groups = _load_single_shard(path, ref_shards)
-
-    return LDPanel(groups, default_chrX_sex=default_chrX_sex)
+    groups = _load_panel_root(path, manifest, ref_shards)
+    return LDPanel(groups, default_chrX_sex=default_chrX_sex, reference=reference)
 
 
 def validate_ld_distribution(path, check_payload_structure=False) -> dict:
+    if not Path(path).is_dir():
+        raise ValueError("validate_ld_distribution: path must identify a panel root directory")
     return validate_npz_distribution(path, check_payload_structure=check_payload_structure)
 
 
@@ -326,6 +351,12 @@ def _write_ld_npz_distribution(*args, **kwargs):
     return write_ld_npz_distribution(*args, **kwargs)
 
 
+def _load_bundled_reference(root: Path, manifest: dict, shards):
+    from ._ld_reference import load_bundled_reference_panel
+
+    return load_bundled_reference_panel(root, manifest, shards, where="load_ld")
+
+
 def _load_panel_root(root: Path, manifest: dict, ref_shards: list) -> list[list[LDShard]]:
     entries = list(manifest["shards"])
     groups = []
@@ -359,22 +390,6 @@ def _load_panel_root(root: Path, manifest: dict, ref_shards: list) -> list[list[
             group.append(shard)
         groups.append(group)
     return groups
-
-
-def _load_single_shard(path: Path, ref_shards: list) -> list[list[LDShard]]:
-    shard, _meta = _load_npz_shard(path)
-    if len(ref_shards) != 1:
-        raise ValueError(
-            "single-shard LD loads require a single-shard reference; "
-            f"reference has {len(ref_shards)} shards"
-        )
-    if ref_shards[0].label != shard.chr:
-        raise ValueError(
-            "single-shard LD chromosome does not match single-shard reference: "
-            f"LD chr {shard.chr!r}, reference chr {ref_shards[0].label!r}"
-        )
-    _validate_reference_compatibility(shard, ref_shards[0], path)
-    return [[shard]]
 
 
 def _load_npz_shard(path: Path) -> tuple[LDShard, dict]:

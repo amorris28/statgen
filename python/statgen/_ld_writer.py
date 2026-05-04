@@ -14,11 +14,14 @@ from ._ld_schema import (
     NPZ_REQUIRED,
     PY_RUNTIME_FORMAT,
     SHARD_SCHEMA,
+    default_reference_bim_filename,
     md5_file,
     validate_chr_sex,
     validate_positive_int,
+    validate_reference_bim_filename,
     validate_shard_metadata,
 )
+from ._ld_reference import validate_bundled_reference_bim
 from ._utils import CHR_RANK
 
 
@@ -70,8 +73,14 @@ def write_ld_npz_shards(root, shard_specs) -> list[dict]:
             raise ValueError(f"duplicate LD shard output file: {file_key}")
         seen_files.add(file_key)
 
-        shard_payload = {k: v for k, v in normalized.items() if k != "file"}
+        shard_payload = {
+            k: v
+            for k, v in normalized.items()
+            if k not in {"file", "reference_shard", "reference_bim"}
+        }
         meta = _write_ld_npz_shard(path, **shard_payload)
+        reference_bim = normalized["reference_bim"]
+        _ensure_reference_bim(root / reference_bim, normalized["reference_shard"], meta)
         records.append(
             {
                 "chr": meta["chr"],
@@ -81,6 +90,7 @@ def write_ld_npz_shards(root, shard_specs) -> list[dict]:
                 "num_snp": meta["num_snp"],
                 "nnz": meta["nnz"],
                 "reference_checksum": meta["reference_checksum"],
+                "reference_bim": reference_bim,
             }
         )
     return records
@@ -131,6 +141,7 @@ def _ld_npz_manifest_record(path: Path, root: Path) -> dict:
         "num_snp": meta["num_snp"],
         "nnz": meta["nnz"],
         "reference_checksum": meta["reference_checksum"],
+        "reference_bim": _discover_reference_bim(root, meta),
     }
 
 
@@ -155,6 +166,7 @@ def _normalize_ld_shard_write_spec(spec: dict) -> dict:
         "build_metadata",
         "extra_metadata",
         "file",
+        "reference_bim",
     }
     unknown = sorted(set(spec).difference(allowed))
     if unknown:
@@ -178,12 +190,26 @@ def _normalize_ld_shard_write_spec(spec: dict) -> dict:
     reference_checksum = spec.get("reference_checksum", getattr(ref, "checksum", None))
     if not isinstance(reference_checksum, str) or reference_checksum == "":
         raise ValueError("LD shard write spec reference_checksum must be a non-empty string")
+    reference_bim = validate_reference_bim_filename(
+        spec.get("reference_bim", default_reference_bim_filename(chr_label)),
+        "LD shard write spec reference_bim",
+    )
+    if ref is None:
+        raise ValueError("LD shard write spec must provide reference_shard so reference_bim can be bundled")
+    if getattr(ref, "label", None) != chr_label:
+        raise ValueError("LD shard write spec reference_shard label must match chr")
+    if getattr(ref, "num_snp", None) != num_snp:
+        raise ValueError("LD shard write spec reference_shard num_snp must match num_snp")
+    if getattr(ref, "checksum", None) != reference_checksum:
+        raise ValueError("LD shard write spec reference_shard checksum must match reference_checksum")
 
     return {
         "chr_label": chr_label,
         "sex": sex,
         "num_snp": num_snp,
         "reference_checksum": reference_checksum,
+        "reference_shard": ref,
+        "reference_bim": reference_bim,
         "a1freq": _coerce_a1freq(spec.get("a1freq"), num_snp),
         "ld_pairs": spec.get("ld_pairs"),
         "build_metadata": dict(spec.get("build_metadata", {})),
@@ -373,6 +399,37 @@ def _default_ld_shard_filename(chr_label: str, sex, suffix: str) -> str:
     if chr_label == "X":
         return f"ld_chrX_{sex}{suffix}"
     return f"ld_chr{chr_label}{suffix}"
+
+
+def _ensure_reference_bim(path: Path, reference_shard, meta: dict) -> None:
+    if path.exists():
+        _validate_existing_reference_bim(path, meta)
+        return
+    _write_reference_bim_from_shard(path, reference_shard)
+    _validate_existing_reference_bim(path, meta)
+
+
+def _write_reference_bim_from_shard(path: Path, reference_shard) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        for chr_label, snp, bp, a1, a2 in zip(
+            reference_shard.chr,
+            reference_shard.snp,
+            reference_shard.bp,
+            reference_shard.a1,
+            reference_shard.a2,
+        ):
+            f.write(f"{chr_label}\t{snp}\t0\t{int(bp)}\t{a1}\t{a2}\n")
+
+
+def _validate_existing_reference_bim(path: Path, meta: dict) -> None:
+    validate_bundled_reference_bim(path, meta, target="LD shard")
+
+
+def _discover_reference_bim(root: Path, meta: dict) -> str:
+    reference_bim = default_reference_bim_filename(meta["chr"])
+    _validate_existing_reference_bim(root / reference_bim, meta)
+    return reference_bim
 
 
 def _write_deterministic_npz(path: Path, arrays: dict[str, np.ndarray]) -> None:

@@ -196,6 +196,13 @@ def test_statgen_build_ld_sharded_bfile_default_chrx_sex_split(tmp_path):
         ("X", "female"),
         ("X", "male"),
     ]
+    assert [s["reference_bim"] for s in manifest["shards"]] == [
+        "reference_chr1.bim",
+        "reference_chrX.bim",
+        "reference_chrX.bim",
+    ]
+    assert (out / "reference_chr1.bim").read_text() == (FIXTURES_DIR / "genotype/sharded/1.bim").read_text()
+    assert (out / "reference_chrX.bim").read_text() == (FIXTURES_DIR / "genotype/sharded/X.bim").read_text()
 
     female_meta = _metadata(out / "ld_chrX_female.npz")
     male_meta = _metadata(out / "ld_chrX_male.npz")
@@ -211,7 +218,8 @@ def test_statgen_build_ld_sharded_bfile_default_chrx_sex_split(tmp_path):
     assert "--keep-allele-order" in commands
 
     reference = load_reference(SHARDED_REF)
-    ld = load_ld(out, reference)
+    ld = load_ld(out)
+    assert ld.reference.is_object_compatible(ld) is True
     assert [s.label for s in ld.shards] == ["1", "X"]
     assert ld.shard_groups[0][0].reference_checksum == reference.shards[0].checksum
     np.testing.assert_allclose(ld.a1freq("female")[:5], [0.10, 0.15, 0.20, 0.25, 0.30])

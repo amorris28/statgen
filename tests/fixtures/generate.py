@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import shutil
+import sys
 import zipfile
 from pathlib import Path
 
@@ -22,6 +23,11 @@ from scipy import sparse
 from scipy.io import savemat
 
 ROOT = Path(__file__).parent
+PYTHON_ROOT = ROOT.parents[1] / "python"
+if str(PYTHON_ROOT) not in sys.path:
+    sys.path.insert(0, str(PYTHON_ROOT))
+
+from statgen._ld_schema import md5_file
 
 
 # ---------------------------------------------------------------------------
@@ -64,14 +70,6 @@ def write_fam(path: Path, samples: list[tuple]) -> None:
     with open(path, "w") as f:
         for s in samples:
             f.write("\t".join(str(x) for x in s) + "\n")
-
-
-def md5_file(path: Path) -> str:
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def ld_sparse_matrix(
@@ -230,6 +228,12 @@ def write_ld_manifest(directory: Path, runtime_format: str, shard_records: list[
 
 def write_ld_distribution(directory: Path, runtime_format: str, extension: str, shard_writer) -> None:
     directory.mkdir(parents=True, exist_ok=True)
+    reference_bims = {
+        "1": "reference_chr1.bim",
+        "X": "reference_chrX.bim",
+    }
+    write_bim(directory / reference_bims["1"], CHR1_BIM)
+    write_bim(directory / reference_bims["X"], CHRX_BIM)
     shard_specs = [
         ("1", None, f"ld_chr1.{extension}", CHR1_BIM, CHR1_LD, None),
         ("X", "female", f"ld_chrX_female.{extension}", CHRX_BIM, CHRX_LD["female"], None),
@@ -267,6 +271,7 @@ def write_ld_distribution(directory: Path, runtime_format: str, extension: str, 
             "num_snp": meta["num_snp"],
             "nnz": meta["nnz"],
             "reference_checksum": meta["reference_checksum"],
+            "reference_bim": reference_bims[chr_label],
         })
     write_ld_manifest(directory, runtime_format, records)
 

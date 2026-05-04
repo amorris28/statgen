@@ -19,28 +19,49 @@ from ._ld_schema import (
 
 def validate_npz_distribution(path, check_payload_structure=False) -> dict:
     path = Path(path)
+    if not path.is_dir():
+        raise ValueError("validate_npz_distribution: path must identify a panel root directory")
 
-    if path.is_dir():
-        manifest = read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
-        runtime = manifest["runtime_format"]
-        for entry in manifest["shards"]:
-            shard_path = path / entry["file"]
-            require_file(shard_path)
-            file_md5 = md5_file(shard_path)
-            if file_md5 != entry.get("file_md5"):
-                raise ValueError(f"{shard_path}: file_md5 does not match manifest")
-            _ld_r, _a1freq, meta = read_npz_shard(
-                shard_path,
-                check_payload_structure=check_payload_structure,
-            )
-            validate_manifest_entry_agreement(entry, meta, shard_path)
-    else:
-        runtime = runtime_from_suffix(path)
-        if runtime != PY_RUNTIME_FORMAT:
-            raise ValueError(f"{path}: unsupported LD runtime {runtime!r}")
-        read_npz_shard(path, check_payload_structure=check_payload_structure)
+    manifest = read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
+    runtime = manifest["runtime_format"]
+    seen_reference_bim = set()
+    for entry in manifest["shards"]:
+        shard_path = path / entry["file"]
+        require_file(shard_path)
+        file_md5 = md5_file(shard_path)
+        if file_md5 != entry.get("file_md5"):
+            raise ValueError(f"{shard_path}: file_md5 does not match manifest")
+        _ld_r, _a1freq, meta = read_npz_shard(
+            shard_path,
+            check_payload_structure=check_payload_structure,
+        )
+        validate_manifest_entry_agreement(entry, meta, shard_path)
+        reference_key = (
+            entry["reference_bim"],
+            entry["chr"],
+            int(entry["num_snp"]),
+            entry["reference_checksum"],
+        )
+        if reference_key not in seen_reference_bim:
+            _validate_bundled_reference(root=path, entry=entry)
+            seen_reference_bim.add(reference_key)
 
     return {"ok": True}
+
+
+def validate_npz_shard_file(path, check_payload_structure=False) -> dict:
+    path = Path(path)
+    runtime = runtime_from_suffix(path)
+    if runtime != PY_RUNTIME_FORMAT:
+        raise ValueError(f"{path}: unsupported LD runtime {runtime!r}")
+    read_npz_shard(path, check_payload_structure=check_payload_structure)
+    return {"ok": True}
+
+
+def _validate_bundled_reference(*, root: Path, entry: dict) -> None:
+    from ._ld_reference import validate_bundled_reference_bim
+
+    validate_bundled_reference_bim(root / entry["reference_bim"], entry, target="manifest")
 
 
 def read_npz_shard(path: Path, check_payload_structure: bool):

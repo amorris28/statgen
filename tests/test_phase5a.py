@@ -97,6 +97,12 @@ def test_write_ld_npz_distribution_from_synthetic_tables_validates_and_loads(tmp
         "ld_chr1.npz",
         "ld_chrX_female.npz",
     ]
+    assert [entry["reference_bim"] for entry in manifest["shards"]] == [
+        "reference_chr1.bim",
+        "reference_chrX.bim",
+    ]
+    assert (root / "reference_chr1.bim").is_file()
+    assert (root / "reference_chrX.bim").is_file()
     report = validate_ld_distribution(root, check_payload_structure=True)
     assert report["ok"] is True
 
@@ -106,7 +112,8 @@ def test_write_ld_npz_distribution_from_synthetic_tables_validates_and_loads(tmp
     assert meta["num_sample"] == 4
     assert meta["num_monomorphic_snps"] == 0
 
-    ld = load_ld(root, reference)
+    ld = load_ld(root)
+    assert ld.reference.is_object_compatible(ld) is True
     chr1 = ld.shard_groups[0][0]
     chrx = ld.shard_groups[1][0]
     np.testing.assert_allclose(chr1.a1freq, [0.10, 0.20, 0.30, 0.40, 0.50])
@@ -254,6 +261,8 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
     assert lines[4] == "female"
     assert lines[5] == f"{py_chr1_meta['num_snp']},{py_chr1_meta['nnz']},{py_chr1_meta['reference_checksum']}"
     assert lines[6] == f"{py_x_meta['num_snp']},{py_x_meta['nnz']},{py_x_meta['reference_checksum']}"
+    assert (mat_root / "reference_chr1.bim").is_file()
+    assert (mat_root / "reference_chrX.bim").is_file()
 
 
 @pytest.mark.octave

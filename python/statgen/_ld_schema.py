@@ -33,17 +33,30 @@ def read_manifest(path: Path, expected_runtime: str | None) -> dict:
         raise ValueError(f"{path}: shards must be a non-empty list")
 
     seen = set()
+    reference_bim_by_chr = {}
     for i, entry in enumerate(shards):
         validate_manifest_entry(entry, f"{path}:shards[{i}]")
         key = (entry["chr"], entry["sex"])
         if key in seen:
             raise ValueError(f"{path}: duplicate manifest entry for chr {key[0]} sex {key[1]!r}")
         seen.add(key)
+        prior_reference_bim = reference_bim_by_chr.setdefault(entry["chr"], entry["reference_bim"])
+        if entry["reference_bim"] != prior_reference_bim:
+            raise ValueError(f"{path}: manifest entries for chr {entry['chr']} must share reference_bim")
     return manifest
 
 
 def validate_manifest_entry(entry: dict, where: str) -> None:
-    required = {"chr", "sex", "file", "file_md5", "num_snp", "nnz", "reference_checksum"}
+    required = {
+        "chr",
+        "sex",
+        "file",
+        "file_md5",
+        "num_snp",
+        "nnz",
+        "reference_checksum",
+        "reference_bim",
+    }
     missing = sorted(required.difference(entry))
     if missing:
         raise ValueError(f"{where}: missing required fields: {', '.join(missing)}")
@@ -58,6 +71,7 @@ def validate_manifest_entry(entry: dict, where: str) -> None:
         raise ValueError(f"{where}: reference_checksum must be a non-empty string")
     if not isinstance(entry["file_md5"], str) or len(entry["file_md5"]) != 32:
         raise ValueError(f"{where}: file_md5 must be a lowercase MD5 hex string")
+    validate_reference_bim_filename(entry["reference_bim"], f"{where}: reference_bim")
 
 
 def validate_shard_metadata(meta: dict, path: Path, expected_format: str) -> None:
@@ -132,6 +146,19 @@ def validate_manifest_entry_agreement(entry: dict, meta: dict, path: Path) -> No
     suffix_runtime = runtime_from_suffix(path)
     if suffix_runtime == PY_RUNTIME_FORMAT and meta.get("format") != NPZ_FORMAT:
         raise ValueError(f"{path}: manifest file extension and metadata format disagree")
+
+
+def default_reference_bim_filename(chr_label: str) -> str:
+    return f"reference_chr{chr_label}.bim"
+
+
+def validate_reference_bim_filename(value, where: str) -> str:
+    if not isinstance(value, str) or value == "":
+        raise ValueError(f"{where} must be a non-empty filename")
+    path = Path(value)
+    if path.is_absolute() or len(path.parts) != 1 or value in {".", ".."} or ".." in value:
+        raise ValueError(f"{where} must be a plain relative filename")
+    return value
 
 
 def runtime_from_suffix(path: Path) -> str:

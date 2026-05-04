@@ -38,9 +38,11 @@ Sharded paths use `@` as the shard-label placeholder.
 
 - **Reference and genotype loaders**: substitute `@` with canonical contig
   labels in order (no glob-based discovery) and load existing matches.
-- **LD loaders**: derive expected shard files from the supplied `reference`
-  object and resolve them through `ld_manifest.json` rather than performing
-  canonical substitution independently.
+- **LD loaders**: always resolve shard files through `ld_manifest.json`.
+  When `reference` is supplied to `load_ld`, expected files are derived from
+  it; when omitted, the manifest is consulted directly. In both cases the
+  optional `shards` parameter further subsets which shards are loaded;
+  requesting a shard absent from the reference or LD panel is an error.
 
 Non-sharded single-file inputs are split by the `chr` column into
 per-chromosome shards in canonical order.
@@ -51,9 +53,13 @@ All panel objects expose `select_shards(shards)`.
 Cache loaders that operate without a required reference
 (`load_reference_cache`, `load_annotations_cache`, `load_sumstats_cache`)
 accept an optional `shards` parameter.
-Source loaders that are defined around an explicit `reference` argument
-(`load_ld`, `load_annotations`, `load_sumstats`) use the supplied reference
-shard structure; subsetting is done via `select_shards`.
+Source loaders with an explicit `reference` argument
+(`load_annotations`, `load_sumstats`) use the supplied reference shard
+structure; subsetting is done via `select_shards` on the reference before
+passing it in.
+`load_ld` bridges both patterns: `reference` is optional because the LD
+distribution bundles its own `.bim` files; `shards` is always honored as a
+further subset regardless of whether `reference` is supplied.
 The rules are uniform:
 
 - Omitting `shards` loads or returns all available shards present in the input
