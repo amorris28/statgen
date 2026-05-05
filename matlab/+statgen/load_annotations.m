@@ -163,48 +163,28 @@ function mask = paint_mask_(bp, intervals)
 end
 
 function [cols, n_rows] = read_bed_tabular_(path)
-    % Parse line-wise to preserve the BED header/comment contract:
-    % skip blank, '#', 'track ', and 'browser ' lines before tab parsing.
-    % Accept any whitespace as a field separator (tabs or spaces).
-    % PERF: this exception to native table-readers is required because
-    % readtable/textscan do not provide this exact multi-prefix skipping
-    % behavior consistently across MATLAB and Octave.
+    % BED fields are tab-separated per spec. Blank and '#'-prefixed lines are
+    % skipped. 'track'/'browser' metadata lines are not supported; prefix
+    % them with '#' if present.
     fid = fopen(path, 'r');
     if fid < 0
         error('statgen:io', 'Cannot open BED file: %s', path);
     end
     cleaner = onCleanup(@() fclose(fid));
-    raw_lines = textscan(fid, '%s', ...
-        'Delimiter', '\n', ...
-        'Whitespace', '', ...
-        'ReturnOnError', false);
-    clear cleaner;
-    lines = raw_lines{1};
-    kept = {};
-    for i = 1:numel(lines)
-        line = char(lines{i});
-        if should_skip_bed_line_(line)
-            continue
-        end
-        kept{end + 1, 1} = line; %#ok<AGROW>
-    end
+    raw = textscan(fid, '%s', 'Delimiter', '\n', 'Whitespace', '', 'ReturnOnError', false);
+    lines = raw{1};
+    skip = cellfun(@(l) isempty(l) || strncmp(l, '#', 1), lines);
+    lines = lines(~skip);
 
-    n_rows = numel(kept);
-    cols = {cell(n_rows, 1), cell(n_rows, 1), cell(n_rows, 1)};
-    for i = 1:n_rows
-        parts = regexp(strtrim(kept{i}), '\s+', 'split');
-        if numel(parts) < 3
-            error('statgen:annotations', '%s: BED must have at least 3 whitespace-separated columns', path);
-        end
-        cols{1}{i} = parts{1};
-        cols{2}{i} = parts{2};
-        cols{3}{i} = parts{3};
+    n_rows = numel(lines);
+    if n_rows == 0
+        cols = {cell(0,1), cell(0,1), cell(0,1)};
+        return
     end
-end
-
-function tf = should_skip_bed_line_(line)
-    tf = isempty(line) ...
-        || strncmp(line, '#', 1) ...
-        || strncmp(line, 'track ', 6) ...
-        || strncmp(line, 'browser ', 8);
+    data = textscan(strjoin(lines, '\n'), '%s%s%s%*[^\n]', ...
+        'Delimiter', '\t', 'Whitespace', '', 'ReturnOnError', false);
+    if numel(data{1}) ~= n_rows
+        error('statgen:annotations', '%s: BED must have at least 3 tab-separated columns', path);
+    end
+    cols = data(1:3);
 end

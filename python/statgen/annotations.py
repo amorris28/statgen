@@ -1,5 +1,4 @@
 import json
-import io
 from pathlib import Path
 
 import numpy as np
@@ -11,27 +10,6 @@ from ._utils import validate_requested_shards
 
 _CACHE_SCHEMA = "annotations_cache/0.1"
 
-
-def _is_ignored_bed_line(line: str) -> bool:
-    return (
-        line == ""
-        or line.startswith("#")
-        or line.startswith("track ")
-        or line.startswith("browser ")
-    )
-
-
-def _read_bed_payload(path: Path) -> str:
-    kept = []
-    with open(path, "r", encoding="utf-8") as f:
-        for raw in f:
-            line = raw.rstrip("\r\n")
-            if _is_ignored_bed_line(line):
-                continue
-            kept.append(line)
-    if not kept:
-        raise ValueError(f"{path}: BED file is empty")
-    return "\n".join(kept) + "\n"
 
 
 def _as_sparse_binary(mat) -> sparse.csr_matrix:
@@ -94,14 +72,16 @@ def _annotation_name_from_path(path: Path) -> str:
 
 
 def _parse_bed(path: Path) -> dict[str, np.ndarray]:
-    payload = _read_bed_payload(path)
+    # Lines beginning with '#' and blank lines are skipped natively.
+    # 'track'/'browser' metadata lines are not supported; prefix with '#' if present.
     try:
         df = pd.read_csv(
-            io.StringIO(payload),
-            sep=r"\s+",
+            path,
+            sep="\t",
             header=None,
             dtype=str,
-            engine="python",
+            comment="#",
+            skip_blank_lines=True,
             keep_default_na=False,
             na_filter=False,
         )
@@ -113,7 +93,7 @@ def _parse_bed(path: Path) -> dict[str, np.ndarray]:
     if df.shape[0] == 0:
         raise ValueError(f"{path}: BED file is empty")
     if df.shape[1] < 3:
-        raise ValueError(f"{path}: BED must have at least 3 whitespace-separated columns")
+        raise ValueError(f"{path}: BED must have at least 3 tab-separated columns")
 
     chr_col = df.iloc[:, 0]
     start_raw = df.iloc[:, 1]

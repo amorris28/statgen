@@ -24,15 +24,16 @@ annotations/
 Painted matrices are not canonical—they are derived from BED files and a
 specific reference and must be reproducible from them.
 
-BED metadata/comment lines are allowed and ignored before parsing columns 1–3:
+BED comment lines are skipped before parsing columns 1–3:
 
 - empty lines;
-- lines starting with `#`;
-- lines starting with `track `;
-- lines starting with `browser `.
+- lines starting with `#`.
 
-For compatibility with existing preprocessing tools, field separation for BED
-data rows is parsed as one or more whitespace characters (tabs or spaces).
+`track` and `browser` metadata lines are not supported. If present in a file,
+they must be prefixed with `#` before loading.
+
+Field separation for BED data rows is a single tab character, per the BED
+specification.
 
 ## In-memory objects
 
@@ -135,8 +136,8 @@ Expected behavior:
   one-element list. Annotation names are derived deterministically from BED
   basenames (without extension).
 - Empty BED files are invalid input and must fail with a clear error.
-  A file that becomes empty after skipping allowed BED metadata/comment lines
-  is also invalid and must fail with a clear error.
+  A file that becomes empty after skipping BED comment lines is also invalid
+  and must fail with a clear error.
 - `reference` is required; the output shard structure matches the reference
   panel; `annomat` rows are aligned to the reference.
 - `annonames` must be unique. Duplicate names from BED basenames or

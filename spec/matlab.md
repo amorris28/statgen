@@ -127,6 +127,18 @@ They return a scalar logical and do not throw.
   schema for mixed-label columns (for example `chr`) rather than auto-inference.
   This avoids label coercion (for example `X` becoming `NaN`) and preserves
   input-contract semantics.
+- Tabular file reading uses one of two patterns depending on whether the file
+  format requires comment/blank-line filtering before column parsing:
+  - **No filtering needed** (e.g. BIM): try `readtable` first (MATLAB), fall back
+    to a column-format `textscan` call for Octave, guarded by
+    `exist('readtable', 'file') == 2`. See `load_reference.m:read_bim_tabular_`.
+  - **Comment/blank-line filtering needed** (e.g. BED): two-pass `textscan`.
+    First pass reads all lines with `'Delimiter', '\n'`; `cellfun` filters blank
+    and `'#'`-prefixed lines; second pass re-parses the filtered content with a
+    column format via `textscan(strjoin(lines, '\n'), '%s%s...', 'Delimiter', '\t', ...)`.
+    `readtable` is not used for this case because it does not support the
+    required pre-filter step portably across MATLAB and Octave.
+    See `load_annotations.m:read_bed_tabular_`.
 - Internal struct metadata keys must be valid MATLAB identifiers (for example
   `statgen_var_names__`), not names that rely on permissive dynamic-field
   behavior (for example leading-underscore keys such as `_var_names`), because
