@@ -361,7 +361,15 @@ files for one requested reference shard at a time. The shard argument is
 required so conversion can run as independent parallel jobs without manifest
 write races. For chrX, one requested shard label `X` converts all chrX
 sex-label shard files present in the Python manifest (`female`, `male`, and/or
-`combined`).
+`combined`). `convert_ld_npz_to_mat(npz_root, mat_root, shard)` writes
+production v7.3 MAT-files by default. Supported `format` values are `v7.3`
+(the production default) and `v5`. A caller may explicitly request local v5
+MAT-file output with `format = "v5"` in language-specific syntax (for example
+MATLAB name-value arguments). v5 output is accepted for fixture-scale tests and
+local validation, but is not a production distribution artifact. The v7
+MAT-file format is intentionally not supported for LD conversion because it has
+the same production-size limitation as v5: realistic LD sparse matrices can
+exceed legacy MAT-file per-variable size limits.
 
 After all requested shard conversions finish,
 `create_ld_mat_manifest(npz_root, mat_root, shards)` creates the
@@ -377,9 +385,9 @@ Missing expected `.mat` files or bundled `reference_bim` files are errors before
 `ld_manifest.json` is written.
 
 MATLAB is required for production conversion because production artifacts must
-be v7.3. Octave may write v5 sparse `.mat` files for fixture-scale tests and
-local validation, but Octave output is not a production distribution artifact.
-MATLAB remains the normative runtime where MATLAB and Octave differ.
+be v7.3. Octave may write v5 sparse `.mat` files only when the caller
+explicitly requests `format = "v5"`. MATLAB remains the normative runtime where
+MATLAB and Octave differ.
 
 The converter may assume `.npz` shards were produced and validated by
 `statgen_build_ld.py`; it must validate metadata consistency before writing but

@@ -76,7 +76,7 @@ zero-based shard offsets for compatibility with portable metadata.
 
 ```text
 load_reference(path, optional shards) -> ReferencePanel
-save_reference_cache(panel, path)
+save_reference_cache(panel, path, optional format)
 load_reference_cache(path, optional shards) -> ReferencePanel
 
 ReferencePanel.num_snp -> int

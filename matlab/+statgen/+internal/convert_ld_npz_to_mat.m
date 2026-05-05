@@ -1,21 +1,21 @@
-function convert_ld_npz_to_mat(input_root, output_root, shard, production)
+function convert_ld_npz_to_mat(input_root, output_root, shard, format, save_arg)
 % Convert one Python LD .npz reference shard into MATLAB/Octave .mat files.
 %
 % MATLAB production conversions write MAT-file v7.3 output by default.
-% Octave writes v5 sparse .mat files only when production=false is passed
-% explicitly for fixture-scale tests and local validation; Octave output is
-% not a production LD distribution artifact.
+% v5 output is available only when the public converter receives
+% format='v5', and is limited to fixture-scale tests and local validation.
     if nargin < 3 || isempty(shard) || ~(ischar(shard) || isstring(shard))
         error('statgen:ld', 'convert_ld_npz_to_mat requires a shard label');
     end
-    if nargin < 4 || isempty(production)
-        production = true;
+    if nargin < 5 || isempty(format) || isempty(save_arg)
+        [format, save_arg] = statgen.internal.parse_mat_format( ...
+            'convert_ld_npz_to_mat', 'v7.3', {'v7.3', 'v5'});
     end
     input_root = char(input_root);
     output_root = char(output_root);
     shard = char(shard);
 
-    if production && is_octave_()
+    if strcmp(format, 'v7.3') && is_octave_()
         error('statgen:ld', ...
             'Octave cannot write production LD .mat distributions; use MATLAB for v7.3 output');
     end
@@ -41,7 +41,7 @@ function convert_ld_npz_to_mat(input_root, output_root, shard, production)
         metadata = convert_metadata_(metadata);
         mat_file = strrep(entry.file, '.npz', '.mat');
         mat_path = fullfile(output_root, mat_file);
-        save_mat_shard_(mat_path, ld_r, a1freq, metadata, production);
+        save_mat_shard_(mat_path, ld_r, a1freq, metadata, save_arg);
 
     end
 end
@@ -167,12 +167,8 @@ function validate_npz_entry_agreement_(entry, metadata, path)
     end
 end
 
-function save_mat_shard_(path, ld_r, a1freq, metadata, production)
-    if production
-        save(path, 'ld_r', 'a1freq', 'metadata', '-v7.3');
-    else
-        save(path, 'ld_r', 'a1freq', 'metadata', '-mat');
-    end
+function save_mat_shard_(path, ld_r, a1freq, metadata, save_arg)
+    save(path, 'ld_r', 'a1freq', 'metadata', save_arg);
 end
 
 function value = read_npy_(path)

@@ -116,7 +116,7 @@ is a sparse binary matrix.
 
 ```text
 load_annotations(bed_paths, reference) -> AnnotationPanel
-save_annotations_cache(panel, path)
+save_annotations_cache(panel, path, optional format)
 load_annotations_cache(path, optional shards) -> AnnotationPanel
 create_annotations(reference, annomat, annonames) -> AnnotationPanel
 create_annotation(reference, annovec, annoname) -> AnnotationPanel

@@ -1,8 +1,10 @@
-function save_reference_cache(panel, path)
+function save_reference_cache(panel, path, varargin)
 % Save a ReferencePanel to a MATLAB binary .mat cache file.
 % SNP-axis numeric vectors (bp) are stored as native binary arrays.
 % String fields (chr, snp, a1, a2) are stored as cell arrays of chars.
     path = char(path);
+    [~, save_arg] = statgen.internal.parse_mat_format( ...
+        'save_reference_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});
     n_shards = numel(panel.shards);
 
     % Small metadata: schema, labels, checksums
@@ -28,5 +30,5 @@ function save_reference_cache(panel, path)
         cache_shards(i).a2  = s.a2;   % cell array of strings
     end
 
-    save(path, 'cache_meta', 'cache_shards', '-v7');
+    save(path, 'cache_meta', 'cache_shards', save_arg);
 end

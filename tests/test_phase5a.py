@@ -240,8 +240,8 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
     script = (
         "warning('off', 'statgen:ld:v5mat'); "
         f"ref = statgen.load_reference('{SHARDED_REF}'); "
-        f"statgen.internal.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1', false); "
-        f"statgen.internal.convert_ld_npz_to_mat('{py_root}', '{mat_root}', 'X', false); "
+        f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1', 'format', 'v5'); "
+        f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', 'X', 'format', 'v5'); "
         f"manifest = statgen.create_ld_mat_manifest('{py_root}', '{mat_root}', {{'1', 'X'}}); "
         f"report = statgen.validate_ld_distribution('{mat_root}', true); "
         f"ld = statgen.load_ld('{mat_root}', ref); "
@@ -308,6 +308,15 @@ def test_octave_npz_to_mat_requires_explicit_shard(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_npz_to_mat_rejects_unknown_format():
+    script = "statgen.convert_ld_npz_to_mat('in', 'out', '1', 'format', 'bad');"
+    result = run_octave(script)
+    assert result.returncode != 0
+    assert "format must be one of: v7.3, v5" in result.stderr
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_create_ld_mat_manifest_validates_completeness_before_write(tmp_path):
     reference = load_reference(SHARDED_REF)
     py_root = tmp_path / "ld_python"
@@ -315,7 +324,7 @@ def test_octave_create_ld_mat_manifest_validates_completeness_before_write(tmp_p
     _write_ld_npz_distribution(py_root, _synthetic_ld_specs(reference))
 
     script = (
-        f"statgen.internal.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1', false); "
+        f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1', 'format', 'v5'); "
         f"statgen.create_ld_mat_manifest('{py_root}', '{mat_root}', {{'1', 'X'}});"
     )
     result = run_octave(script)

@@ -532,6 +532,21 @@ def test_octave_cache_roundtrip(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_reference_cache_accepts_format_option(tmp_path):
+    cache_path = str(tmp_path / "ref_cache_v5.mat")
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"statgen.save_reference_cache(ref, '{cache_path}', 'format', 'v5'); "
+        f"ref2 = statgen.load_reference_cache('{cache_path}'); "
+        f"fprintf('%d\\n', ref2.num_snp);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "8"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_is_object_compatible():
     script = _octave_script(
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "

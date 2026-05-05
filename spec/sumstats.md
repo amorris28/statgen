@@ -98,7 +98,7 @@ language-specific sentinel defined in [SPEC.md](SPEC.md).
 
 ```text
 load_sumstats(path, reference) -> Sumstats
-save_sumstats_cache(sumstats, path)
+save_sumstats_cache(sumstats, path, optional format)
 load_sumstats_cache(path, optional shards) -> Sumstats
 create_sumstats(reference, zvec, nvec, optional pvec, optional beta_vec,
                 optional se_vec, optional eaf_vec, optional info_vec) -> Sumstats

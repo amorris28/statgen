@@ -1,6 +1,8 @@
-function save_sumstats_cache(sumstats, path)
+function save_sumstats_cache(sumstats, path, varargin)
 % Save Sumstats to MATLAB binary .mat cache file.
     path = char(path);
+    [~, save_arg] = statgen.internal.parse_mat_format( ...
+        'save_sumstats_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});
     n_shards = numel(sumstats.shards);
 
     cache_meta.schema = 'sumstats_cache/0.1';
@@ -28,5 +30,5 @@ function save_sumstats_cache(sumstats, path)
         cache_shards(i).info_vec = s.info_vec;
     end
 
-    save(path, 'cache_meta', 'cache_shards', '-v7');
+    save(path, 'cache_meta', 'cache_shards', save_arg);
 end
