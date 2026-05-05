@@ -14,4 +14,7 @@ function ld_validate_manifest_entry_agreement(entry, meta, path)
     if ~strcmp(entry.reference_checksum, meta.reference_checksum)
         error('statgen:ld', '%s: manifest/per-file metadata mismatch for reference_checksum', path);
     end
+    if ~strcmp(entry.reference_bim, meta.reference_bim)
+        error('statgen:ld', '%s: manifest/per-file metadata mismatch for reference_bim', path);
+    end
 end

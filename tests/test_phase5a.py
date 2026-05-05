@@ -111,6 +111,7 @@ def test_write_ld_npz_distribution_from_synthetic_tables_validates_and_loads(tmp
     assert meta["build_tool"] == "pytest"
     assert meta["num_sample"] == 4
     assert meta["num_monomorphic_snps"] == 0
+    assert meta["reference_bim"] == "reference_chr1.bim"
 
     ld = load_ld(root)
     assert ld.reference.is_object_compatible(ld) is True
@@ -141,6 +142,7 @@ def test_write_ld_npz_distribution_with_all_chrx_sexes_metadata_and_numpy_pairs(
     assert male_meta["plink_version"] is None
     assert male_meta["ld_window_kb"] is None
     assert male_meta["ld_r2_threshold"] is None
+    assert male_meta["reference_bim"] == "reference_chrX.bim"
 
     combined_meta = _metadata(root / "ld_chrX_combined.npz")
     assert combined_meta["chrX_combined_rationale"] == "synthetic phase5a coverage"
@@ -238,7 +240,9 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
     script = (
         "warning('off', 'statgen:ld:v5mat'); "
         f"ref = statgen.load_reference('{SHARDED_REF}'); "
-        f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', false); "
+        f"statgen.internal.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1', false); "
+        f"statgen.internal.convert_ld_npz_to_mat('{py_root}', '{mat_root}', 'X', false); "
+        f"manifest = statgen.create_ld_mat_manifest('{py_root}', '{mat_root}', {{'1', 'X'}}); "
         f"report = statgen.validate_ld_distribution('{mat_root}', true); "
         f"ld = statgen.load_ld('{mat_root}', ref); "
         f"chr1_payload = load('{mat_root / 'ld_chr1.mat'}'); "
@@ -248,8 +252,9 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
         "fprintf('%.2f,%.2f\\n', full(ld.shard_groups{1}{1}.ld_r(1,2)), full(ld.shard_groups{1}{1}.ld_r(3,4))); "
         "fprintf('%.2f\\n', ld.shard_groups{2}{1}.a1freq(2)); "
         "fprintf('%s\\n', ld.shard_groups{2}{1}.sex); "
-        "fprintf('%d,%d,%s\\n', chr1_payload.metadata.num_snp, chr1_payload.metadata.nnz, chr1_payload.metadata.reference_checksum); "
-        "fprintf('%d,%d,%s\\n', x_payload.metadata.num_snp, x_payload.metadata.nnz, x_payload.metadata.reference_checksum);"
+        "fprintf('%d\\n', numel(manifest.shards)); "
+        "fprintf('%d,%d,%s,%s\\n', chr1_payload.metadata.num_snp, chr1_payload.metadata.nnz, chr1_payload.metadata.reference_checksum, chr1_payload.metadata.reference_bim); "
+        "fprintf('%d,%d,%s,%s\\n', x_payload.metadata.num_snp, x_payload.metadata.nnz, x_payload.metadata.reference_checksum, x_payload.metadata.reference_bim);"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
@@ -259,8 +264,15 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
     assert lines[2] == "0.25,-0.50"
     assert lines[3] == "0.33"
     assert lines[4] == "female"
-    assert lines[5] == f"{py_chr1_meta['num_snp']},{py_chr1_meta['nnz']},{py_chr1_meta['reference_checksum']}"
-    assert lines[6] == f"{py_x_meta['num_snp']},{py_x_meta['nnz']},{py_x_meta['reference_checksum']}"
+    assert lines[5] == "2"
+    assert lines[6] == (
+        f"{py_chr1_meta['num_snp']},{py_chr1_meta['nnz']},"
+        f"{py_chr1_meta['reference_checksum']},{py_chr1_meta['reference_bim']}"
+    )
+    assert lines[7] == (
+        f"{py_x_meta['num_snp']},{py_x_meta['nnz']},"
+        f"{py_x_meta['reference_checksum']},{py_x_meta['reference_bim']}"
+    )
     assert (mat_root / "reference_chr1.bim").is_file()
     assert (mat_root / "reference_chrX.bim").is_file()
 
@@ -274,7 +286,55 @@ def test_octave_npz_to_mat_default_production_requires_matlab(tmp_path):
     mat_root = tmp_path / "ld_matlab"
     _write_ld_npz_distribution(py_root, _synthetic_ld_specs(reference))
 
-    script = f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}');"
+    script = f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1');"
     result = run_octave(script)
     assert result.returncode != 0
     assert "Octave cannot write production LD .mat distributions" in result.stderr
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_npz_to_mat_requires_explicit_shard(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    py_root = tmp_path / "ld_python"
+    mat_root = tmp_path / "ld_matlab"
+    _write_ld_npz_distribution(py_root, _synthetic_ld_specs(reference))
+
+    script = f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}');"
+    result = run_octave(script)
+    assert result.returncode != 0
+    assert "requires a shard label" in result.stderr
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_create_ld_mat_manifest_validates_completeness_before_write(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    py_root = tmp_path / "ld_python"
+    mat_root = tmp_path / "ld_matlab"
+    _write_ld_npz_distribution(py_root, _synthetic_ld_specs(reference))
+
+    script = (
+        f"statgen.internal.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1', false); "
+        f"statgen.create_ld_mat_manifest('{py_root}', '{mat_root}', {{'1', 'X'}});"
+    )
+    result = run_octave(script)
+    assert result.returncode != 0
+    assert "Expected MATLAB LD shard not found" in result.stderr
+    assert not (mat_root / "ld_manifest.json").exists()
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_create_ld_mat_manifest_errors_for_shard_absent_from_python_manifest(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    py_root = tmp_path / "ld_python"
+    mat_root = tmp_path / "ld_matlab"
+    _write_ld_npz_distribution(py_root, _synthetic_ld_specs(reference))
+    mat_root.mkdir()
+
+    script = f"statgen.create_ld_mat_manifest('{py_root}', '{mat_root}', {{'2'}});"
+    result = run_octave(script)
+    assert result.returncode != 0
+    assert "shard 2 not found in Python manifest" in result.stderr
+    assert not (mat_root / "ld_manifest.json").exists()

@@ -87,6 +87,7 @@ def validate_shard_metadata(meta: dict, path: Path, expected_format: str) -> Non
         "diagonal",
         "value",
         "reference_checksum",
+        "reference_bim",
         "num_monomorphic_snps",
     }
     missing = sorted(required.difference(meta))
@@ -117,6 +118,7 @@ def validate_shard_metadata(meta: dict, path: Path, expected_format: str) -> Non
         raise ValueError(f"{path}: metadata value must be 'r'")
     if not isinstance(meta["reference_checksum"], str) or meta["reference_checksum"] == "":
         raise ValueError(f"{path}: metadata reference_checksum must be a non-empty string")
+    validate_reference_bim_filename(meta["reference_bim"], f"{path}: metadata reference_bim")
     if expected_format == NPZ_FORMAT:
         if meta.get("sparse_layout") != "csc":
             raise ValueError(f"{path}: metadata sparse_layout must be 'csc'")
@@ -140,7 +142,7 @@ def validate_chrx_sex(sex, where: str) -> str:
 
 
 def validate_manifest_entry_agreement(entry: dict, meta: dict, path: Path) -> None:
-    for key in ("chr", "sex", "num_snp", "nnz", "reference_checksum"):
+    for key in ("chr", "sex", "num_snp", "nnz", "reference_checksum", "reference_bim"):
         if entry.get(key) != meta.get(key):
             raise ValueError(f"{path}: manifest/per-file metadata mismatch for {key}")
     suffix_runtime = runtime_from_suffix(path)

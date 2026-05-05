@@ -130,6 +130,7 @@ The metadata JSON must include:
   "value": "r",
   "num_monomorphic_snps": 0,
   "reference_checksum": "...",
+  "reference_bim": "reference_chr1.bim",
   "build_tool": "plink2",
   "build_command": "plink2 ...",
   "plink_version": "...",
@@ -251,8 +252,8 @@ Required manifest fields:
 `runtime_format` is `"python_npz_csc32"` for Python distributions and
 `"matlab_mat_sparse_double"` for MATLAB/Octave distributions. Manifest entries
 and per-file metadata must agree on `chr`, `sex`, `num_snp`, `nnz`,
-`reference_checksum`, and runtime/storage format. `file`, `file_md5`, and
-`reference_bim` are manifest-only fields. Runtime loaders are not required to
+`reference_checksum`, `reference_bim`, and runtime/storage format. `file` and
+`file_md5` are manifest-only fields. Runtime loaders are not required to
 compute `file_md5` on the default load path.
 
 `reference_bim` must be a plain relative filename with no path separators, no
@@ -316,8 +317,8 @@ read as zero from the resulting sparse LD shard.
 
 After shard jobs finish, `statgen_create_ld_manifest.py --ld <root>` creates
 `ld_manifest.json` from the per-shard metadata in existing `.npz` files,
-discovers bundled `reference_chr*.bim` files, populates `reference_bim` in each
-shard entry, and validates the resulting panel.
+requires each shard's metadata to name its bundled `reference_bim`, and
+validates the resulting panel.
 
 Before publishing an `.npz` shard, the builder must validate at least:
 
@@ -356,18 +357,37 @@ assumptions. If users suppress sex splitting and write only a single combined
 chrX shard, the manifest records `sex: "combined"`.
 
 The MATLAB/Octave converter reads `.npz` shard files and writes `.mat` shard
-files plus a MATLAB/Octave manifest. MATLAB is required for production
-conversion because production artifacts must be v7.3. Octave may write v5
-sparse `.mat` files for fixture-scale tests and local validation, but Octave
-output is not a production distribution artifact. MATLAB remains the normative
-runtime where MATLAB and Octave differ.
+files for one requested reference shard at a time. The shard argument is
+required so conversion can run as independent parallel jobs without manifest
+write races. For chrX, one requested shard label `X` converts all chrX
+sex-label shard files present in the Python manifest (`female`, `male`, and/or
+`combined`).
+
+After all requested shard conversions finish,
+`create_ld_mat_manifest(npz_root, mat_root, shards)` creates the
+MATLAB/Octave `ld_manifest.json`. The finalizer reads the Python
+`ld_manifest.json` only to determine which shard files are expected for the
+requested reference shard labels. For each requested label, absence from the
+Python manifest is an error. For every expected MATLAB/Octave shard file, the
+finalizer must check that the `.mat` file exists, load its `metadata` variable,
+verify that metadata agrees with the expected `(chr, sex)` and corresponding
+`.mat` filename, compute `file_md5` from the `.mat` file, and write a manifest
+entry from the `.mat` metadata plus manifest-only `file` and `file_md5`.
+Missing expected `.mat` files or bundled `reference_bim` files are errors before
+`ld_manifest.json` is written.
+
+MATLAB is required for production conversion because production artifacts must
+be v7.3. Octave may write v5 sparse `.mat` files for fixture-scale tests and
+local validation, but Octave output is not a production distribution artifact.
+MATLAB remains the normative runtime where MATLAB and Octave differ.
 
 The converter may assume `.npz` shards were produced and validated by
 `statgen_build_ld.py`; it must validate metadata consistency before writing but
 is not required to repeat expensive O(nnz) structure checks such as full
-symmetry or diagonal scans. The converter copies bundled `reference_chr*.bim`
-files from the `.npz` panel root into the `.mat` output directory unchanged and
-carries `reference_bim` values through to the MATLAB/Octave manifest.
+symmetry or diagonal scans. The converter copies bundled reference `.bim` files
+named by each shard's `reference_bim` metadata from the `.npz` panel root into
+the `.mat` output directory unchanged and carries `reference_bim` values
+through to the MATLAB/Octave shard metadata.
 
 ## In-memory objects
 

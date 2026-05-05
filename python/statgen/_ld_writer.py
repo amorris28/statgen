@@ -76,10 +76,10 @@ def write_ld_npz_shards(root, shard_specs) -> list[dict]:
         shard_payload = {
             k: v
             for k, v in normalized.items()
-            if k not in {"file", "reference_shard", "reference_bim"}
+            if k not in {"file", "reference_shard"}
         }
         meta = _write_ld_npz_shard(path, **shard_payload)
-        reference_bim = normalized["reference_bim"]
+        reference_bim = meta["reference_bim"]
         _ensure_reference_bim(root / reference_bim, normalized["reference_shard"], meta)
         records.append(
             {
@@ -141,7 +141,7 @@ def _ld_npz_manifest_record(path: Path, root: Path) -> dict:
         "num_snp": meta["num_snp"],
         "nnz": meta["nnz"],
         "reference_checksum": meta["reference_checksum"],
-        "reference_bim": _discover_reference_bim(root, meta),
+        "reference_bim": _require_reference_bim(root, meta),
     }
 
 
@@ -225,6 +225,7 @@ def _write_ld_npz_shard(
     sex,
     num_snp,
     reference_checksum,
+    reference_bim,
     a1freq,
     ld_pairs,
     build_metadata=None,
@@ -245,6 +246,7 @@ def _write_ld_npz_shard(
         nnz=nnz,
         num_monomorphic_snps=int(np.count_nonzero((a1freq == 0.0) | (a1freq == 1.0))),
         reference_checksum=reference_checksum,
+        reference_bim=reference_bim,
         build_metadata=build_metadata,
         extra_metadata=extra_metadata,
     )
@@ -366,6 +368,7 @@ def _ld_npz_metadata(
     nnz,
     num_monomorphic_snps,
     reference_checksum,
+    reference_bim,
     build_metadata=None,
     extra_metadata=None,
 ) -> dict:
@@ -384,6 +387,7 @@ def _ld_npz_metadata(
         "value": "r",
         "num_monomorphic_snps": int(num_monomorphic_snps),
         "reference_checksum": reference_checksum,
+        "reference_bim": reference_bim,
     }
     build = dict(LD_BUILD_METADATA_DEFAULTS)
     if build_metadata:
@@ -391,6 +395,17 @@ def _ld_npz_metadata(
     meta.update(build)
     if extra_metadata:
         meta.update(extra_metadata)
+    meta.update(
+        {
+            "chr": chr_label,
+            "sex": sex,
+            "num_snp": int(num_snp),
+            "nnz": int(nnz),
+            "num_monomorphic_snps": int(num_monomorphic_snps),
+            "reference_checksum": reference_checksum,
+            "reference_bim": reference_bim,
+        }
+    )
     validate_shard_metadata(meta, Path("<generated>"), expected_format=NPZ_FORMAT)
     return meta
 
@@ -426,8 +441,8 @@ def _validate_existing_reference_bim(path: Path, meta: dict) -> None:
     validate_bundled_reference_bim(path, meta, target="LD shard")
 
 
-def _discover_reference_bim(root: Path, meta: dict) -> str:
-    reference_bim = default_reference_bim_filename(meta["chr"])
+def _require_reference_bim(root: Path, meta: dict) -> str:
+    reference_bim = meta["reference_bim"]
     _validate_existing_reference_bim(root / reference_bim, meta)
     return reference_bim
 

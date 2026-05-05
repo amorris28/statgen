@@ -206,6 +206,8 @@ def test_statgen_build_ld_sharded_bfile_default_chrx_sex_split(tmp_path):
 
     female_meta = _metadata(out / "ld_chrX_female.npz")
     male_meta = _metadata(out / "ld_chrX_male.npz")
+    assert female_meta["reference_bim"] == "reference_chrX.bim"
+    assert male_meta["reference_bim"] == "reference_chrX.bim"
     assert female_meta["num_sample"] == 2
     assert male_meta["num_sample"] == 2
     assert female_meta["plink_version"] == "PLINK v2.00 fake"

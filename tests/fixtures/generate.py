@@ -91,8 +91,11 @@ def ld_metadata(
     bim_rows: list[tuple],
     nnz: int,
     runtime_format: str,
+    reference_bim: str | None = None,
     extra_meta: dict | None = None,
 ) -> dict:
+    if reference_bim is None:
+        reference_bim = f"reference_chr{chr_label}.bim"
     meta = {
         "object_type": "ld_shard",
         "schema_version": "1.0",
@@ -106,6 +109,7 @@ def ld_metadata(
         "value": "r",
         "num_monomorphic_snps": 0,
         "reference_checksum": bim_checksum(bim_rows),
+        "reference_bim": reference_bim,
         "build_tool": "generate.py",
         "build_command": "synthetic fixture",
         "plink_version": None,

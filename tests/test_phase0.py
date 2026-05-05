@@ -112,6 +112,7 @@ def test_ld_chr1_npz_payload():
     assert meta["num_snp"] == 5
     assert meta["nnz"] == 13
     assert meta["num_monomorphic_snps"] == 0
+    assert meta["reference_bim"] == "reference_chr1.bim"
 
 
 def test_ld_chrX_npz_metadata():
@@ -122,6 +123,7 @@ def test_ld_chrX_npz_metadata():
     assert meta["chr"] == "X"
     assert meta["sex"] == "female"
     assert meta["diagonal"] == "explicit_unit"
+    assert meta["reference_bim"] == "reference_chrX.bim"
 
 
 def test_ld_matlab_fixture_payload():
@@ -131,6 +133,7 @@ def test_ld_matlab_fixture_payload():
     assert mat["ld_r"].nnz == 13
     assert mat["a1freq"].dtype == np.float64
     assert len(np.atleast_1d(mat["a1freq"])) == 5
+    assert str(mat["metadata"]["reference_bim"]) == "reference_chr1.bim"
 
 
 def test_plink_bed_magic():
