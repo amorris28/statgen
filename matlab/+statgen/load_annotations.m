@@ -181,7 +181,7 @@ function [cols, n_rows] = read_bed_tabular_(path)
         cols = {cell(0,1), cell(0,1), cell(0,1)};
         return
     end
-    data = textscan(strjoin(lines, '\n'), '%s%s%s%*[^\n]', ...
+    data = textscan(strjoin(lines, char(10)), '%s%s%s%*[^\n]', ...
         'Delimiter', '\t', 'Whitespace', '', 'ReturnOnError', false);
     if numel(data{1}) ~= n_rows
         error('statgen:annotations', '%s: BED must have at least 3 tab-separated columns', path);

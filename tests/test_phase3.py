@@ -94,8 +94,8 @@ def test_bed_metadata_and_comment_lines_are_ignored(tmp_path):
     bed = tmp_path / "with_headers.bed"
     _write_text(
         bed,
-        "track name=CodingExon description=test\n"
-        "browser position chr1:1-1000\n"
+        "# track name=CodingExon description=test\n"
+        "# browser position chr1:1-1000\n"
         "# comment\n"
         "\n"
         "1\t99\t200\n"
@@ -110,8 +110,8 @@ def test_metadata_only_bed_file_fails(tmp_path):
     bed = tmp_path / "metadata_only.bed"
     _write_text(
         bed,
-        "track name=foo\n"
-        "browser position chr1:1-100\n"
+        "# track name=foo\n"
+        "# browser position chr1:1-100\n"
         "# note\n"
         "\n",
     )
@@ -119,20 +119,12 @@ def test_metadata_only_bed_file_fails(tmp_path):
         load_annotations(bed, reference)
 
 
-def test_whitespace_delimited_bed_rows_supported(tmp_path):
+def test_non_tab_delimited_bed_rows_fail(tmp_path):
     reference = load_reference(SHARDED_REF)
-    bed = tmp_path / "whitespace_delimited.bed"
-    _write_text(
-        bed,
-        "1  99   200\n"
-        "1\t299 400\n"
-        "X 99\t100\n",
-    )
-    a = load_annotations(bed, reference)
-    np.testing.assert_array_equal(
-        a.annomat.toarray().reshape(-1),
-        np.array([1, 1, 1, 1, 0, 1, 0, 0], dtype=np.uint8),
-    )
+    bed = tmp_path / "space_delimited.bed"
+    _write_text(bed, "1  99   200\n1  299  400\n")
+    with pytest.raises(ValueError, match="BED must have at least 3 tab-separated columns"):
+        load_annotations(bed, reference)
 
 
 def test_boundary_membership_is_start_inclusive_end_exclusive(tmp_path):
@@ -449,8 +441,8 @@ def test_octave_bed_metadata_and_comment_lines_are_ignored(tmp_path):
     bed = tmp_path / "with_headers_octave.bed"
     _write_text(
         bed,
-        "track name=CodingExon description=test\n"
-        "browser position chr1:1-1000\n"
+        "# track name=CodingExon description=test\n"
+        "# browser position chr1:1-1000\n"
         "# comment\n"
         "\n"
         "1\t99\t200\n"
@@ -474,8 +466,8 @@ def test_octave_metadata_only_bed_file_fails(tmp_path):
     bed = tmp_path / "metadata_only_octave.bed"
     _write_text(
         bed,
-        "track name=foo\n"
-        "browser position chr1:1-100\n"
+        "# track name=foo\n"
+        "# browser position chr1:1-100\n"
         "# note\n"
         "\n",
     )
@@ -490,24 +482,16 @@ def test_octave_metadata_only_bed_file_fails(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
-def test_octave_whitespace_delimited_bed_rows_supported(tmp_path):
-    bed = tmp_path / "whitespace_delimited_octave.bed"
-    _write_text(
-        bed,
-        "1  99   200\n"
-        "1\t299 400\n"
-        "X 99\t100\n",
-    )
+def test_octave_non_tab_delimited_bed_rows_fail(tmp_path):
+    bed = tmp_path / "space_delimited_octave.bed"
+    _write_text(bed, "1  99   200\n1  299  400\n")
     script = _octave_script(
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
-        f"a = statgen.load_annotations('{bed}', ref); "
-        "v = full(a.annomat(:,1)); "
-        "fprintf('%d', v(1)); fprintf('%d', v(2)); fprintf('%d', v(3)); fprintf('%d', v(4)); "
-        "fprintf('%d', v(5)); fprintf('%d', v(6)); fprintf('%d', v(7)); fprintf('%d', v(8)); fprintf('\\n');"
+        f"try; statgen.load_annotations('{bed}', ref); fprintf('NOFAIL\\n'); catch; fprintf('FAIL\\n'); end"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "11110100"
+    assert result.stdout.strip() == "FAIL"
 
 
 @pytest.mark.octave
