@@ -63,12 +63,18 @@ correctly represent required input semantics for a specific input shape or
 encoding. Any fallback parser MUST be documented in code and tests for that
 path.
 
-On the default path, SNP-axis conversion and validation MUST be implemented as
-column-wise/vectorized operations. Per-row loops over SNP-axis fields MUST NOT
-be used for routine type conversion or validation on the default path.
+On the default path, SNP-axis and annotation-axis conversion, validation, and
+matrix operations MUST be implemented as column-wise/vectorized operations.
+Per-row loops over SNP-axis fields and per-column loops over annotation fields
+MUST NOT be used for routine type conversion, validation, annotation painting,
+cache serialization, cache loading, or analytical matrix operations on the
+default path.
 
-Row-wise loops are allowed only under documented exceptions where vectorized
-operations cannot correctly express required semantics for a specific input.
+Loops over a small list of source file paths are allowed for file-level
+dispatch only; each file's SNP-axis and annotation-axis payload processing must
+still use vectorized/native tabular operations. Row-wise or annotation-wise
+loops are allowed only under documented exceptions where vectorized operations
+cannot correctly express required semantics for a specific input.
 
 Suggested comment format for retained loops in hot paths:
 

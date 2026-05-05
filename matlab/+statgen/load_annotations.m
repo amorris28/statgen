@@ -163,27 +163,43 @@ function mask = paint_mask_(bp, intervals)
 end
 
 function [cols, n_rows] = read_bed_tabular_(path)
-    % BED fields are tab-separated per spec. Blank and '#'-prefixed lines are
-    % skipped. 'track'/'browser' metadata lines are not supported; prefix
-    % them with '#' if present.
     fid = fopen(path, 'r');
     if fid < 0
         error('statgen:io', 'Cannot open BED file: %s', path);
     end
     cleaner = onCleanup(@() fclose(fid));
-    raw = textscan(fid, '%s', 'Delimiter', '\n', 'Whitespace', '', 'ReturnOnError', false);
-    lines = raw{1};
-    skip = cellfun(@(l) isempty(l) || strncmp(l, '#', 1), lines);
-    lines = lines(~skip);
 
-    n_rows = numel(lines);
-    if n_rows == 0
-        cols = {cell(0,1), cell(0,1), cell(0,1)};
-        return
+    first_data = '';
+    first_pos = -1;
+    while true
+        pos = ftell(fid);
+        line = fgetl(fid);
+        if ~ischar(line)
+            cols = {cell(0, 1), cell(0, 1), cell(0, 1)};
+            n_rows = 0;
+            return
+        end
+        if isempty(line) || strncmp(line, '#', 1)
+            continue
+        end
+        first_data = line;
+        first_pos = pos;
+        break
     end
-    data = textscan(strjoin(lines, char(10)), '%s%s%s%*[^\n]', ...
-        'Delimiter', '\t', 'Whitespace', '', 'ReturnOnError', false);
-    if numel(data{1}) ~= n_rows
+
+    n_cols = numel(strfind(first_data, sprintf('\t'))) + 1;
+    if n_cols < 3
+        error('statgen:annotations', '%s: BED must have at least 3 tab-separated columns', path);
+    end
+    fseek(fid, first_pos, 'bof');
+
+    fmt = repmat('%s', 1, n_cols);
+    data = textscan(fid, fmt, ...
+        'Delimiter', '\t', ...
+        'CommentStyle', '#', ...
+        'ReturnOnError', false);
+    n_rows = numel(data{1});
+    if numel(data{2}) ~= n_rows || numel(data{3}) ~= n_rows
         error('statgen:annotations', '%s: BED must have at least 3 tab-separated columns', path);
     end
     cols = data(1:3);
