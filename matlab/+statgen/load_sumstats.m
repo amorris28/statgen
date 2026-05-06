@@ -16,9 +16,9 @@ end
 
 function sumstats = build_sumstats_(tbl, reference, path)
     if is_table_like_(tbl)
-        var_names = lower(tbl.Properties.VariableNames);
+        var_names = canonicalize_var_names_(tbl.Properties.VariableNames, path);
     else
-        var_names = lower(tbl.statgen_var_names__(:)');
+        var_names = canonicalize_var_names_(tbl.statgen_var_names__(:)', path);
     end
     required = {'chr', 'bp', 'a1', 'a2', 'z', 'n'};
     for i = 1:numel(required)
@@ -131,6 +131,24 @@ function sumstats = build_sumstats_(tbl, reference, path)
     end
 
     sumstats = statgen.Sumstats(shards);
+end
+
+function var_names = canonicalize_var_names_(raw_names, path)
+    var_names = lower(raw_names);
+    for i = 1:numel(var_names)
+        if strcmp(var_names{i}, 'pos')
+            var_names{i} = 'bp';
+        elseif strcmp(var_names{i}, 'effectallele')
+            var_names{i} = 'a1';
+        elseif strcmp(var_names{i}, 'otherallele')
+            var_names{i} = 'a2';
+        end
+    end
+    for i = 1:numel(var_names)
+        if sum(strcmp(var_names, var_names{i})) > 1
+            error('statgen:sumstats', '%s: duplicate columns after column normalization: %s', path, var_names{i});
+        end
+    end
 end
 
 function [tbl, cleanup_fn] = parse_sumstats_table_(path)

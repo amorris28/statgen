@@ -42,6 +42,23 @@ def _valid_sumstats_text(include_optional: bool = True) -> str:
     )
 
 
+def _genomatch_sumstats_text() -> str:
+    return (
+        "CHR\tPOS\tSNP\tEffectAllele\tOtherAllele\tZ\tN\tP\tBETA\tSE\tEAF\tINFO\tDirection\n"
+        "1\t100\trs1\tA\tG\t2.5\t1000\t0.01\t0.2\t0.1\t0.4\t0.9\t+\n"
+        "1\t200\trs2\tC\tT\t1.0\t950\t0.5\t-0.1\t0.2\t0.3\t0.8\t-\n"
+        "X\t100\trsx1\tA\tG\t3.0\t500\t0.003\t0.5\t0.12\t0.45\t0.85\t+\n"
+    )
+
+
+def _mixed_case_vmap_sumstats_text() -> str:
+    return (
+        "ChR\tBp\tA1\ta2\tZ\tn\tP\n"
+        "1\t100\tA\tG\t2.5\t1000\t0.01\n"
+        "X\t100\tA\tG\t3.0\t500\t0.003\n"
+    )
+
+
 def _load_cache_arrays(path: Path) -> dict[str, np.ndarray]:
     with np.load(path, allow_pickle=False) as data:
         return {k: data[k] for k in data.files}
@@ -78,6 +95,36 @@ def test_load_sumstats_alignment_and_accessors(tmp_path):
     assert s.eaf_vec is not None
     assert s.info_vec is not None
     assert np.isnan(s.beta_vec[4]) and np.isnan(s.beta_vec[7])
+
+
+@pytest.mark.parametrize(
+    "text_factory",
+    [_genomatch_sumstats_text, _mixed_case_vmap_sumstats_text],
+)
+def test_load_sumstats_canonicalizes_supported_headers(tmp_path, text_factory):
+    path = tmp_path / "traits.tsv.gz"
+    _write_gz_tsv(path, text_factory())
+    reference = load_reference(SHARDED_REF)
+    s = load_sumstats(path, reference)
+
+    assert s.zvec[0] == 2.5
+    assert s.nvec[0] == 1000
+    assert math.isclose(s.logpvec[0], 2.0)
+    assert s.zvec[5] == 3.0
+    assert s.nvec[5] == 500
+    assert math.isclose(s.logpvec[5], -math.log10(0.003))
+
+
+def test_duplicate_columns_after_column_normalization_fail(tmp_path):
+    path = tmp_path / "duplicate.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tCHR\tbp\ta1\ta2\tz\tn\n"
+        "1\t1\t100\tA\tG\t1.0\t1000\n",
+    )
+    reference = load_reference(SHARDED_REF)
+    with pytest.raises(ValueError, match="duplicate columns after column normalization: chr"):
+        load_sumstats(path, reference)
 
 
 def test_optional_fields_absent_use_sentinel(tmp_path):
@@ -318,6 +365,25 @@ def test_octave_sumstats_roundtrip(tmp_path):
     assert lines[0] == "8"
     assert lines[1] == "1"
     assert lines[2] == "2.500000"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_sumstats_canonicalizes_supported_headers(tmp_path):
+    path = tmp_path / "traits_genomatch.tsv.gz"
+    _write_gz_tsv(path, _genomatch_sumstats_text())
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"s = statgen.load_sumstats('{path}', ref); "
+        "fprintf('%.6f\\n', s.zvec(1)); "
+        "fprintf('%.6f\\n', s.nvec(1)); "
+        "fprintf('%.6f\\n', s.zvec(6)); "
+        "fprintf('%.6f\\n', s.beta_vec(1));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines == ["2.500000", "1000.000000", "3.000000", "0.200000"]
 
 
 @pytest.mark.octave

@@ -10,6 +10,11 @@ from ._utils import validate_requested_shards
 _CACHE_SCHEMA = "sumstats_cache/0.1"
 _REQUIRED_COLS = ("chr", "bp", "a1", "a2", "z", "n")
 _OPTIONAL_COLS = ("p", "beta", "se", "eaf", "info")
+_SUMSTATS_COL_MAP = {
+    "pos": "bp",
+    "effectallele": "a1",
+    "otherallele": "a2",
+}
 
 
 def _key_from_arrays(chr_arr, bp_arr, a1_arr, a2_arr) -> pd.Series:
@@ -19,6 +24,16 @@ def _key_from_arrays(chr_arr, bp_arr, a1_arr, a2_arr) -> pd.Series:
         .str.cat(pd.Series(a1_arr, dtype="string"), sep=":")
         .str.cat(pd.Series(a2_arr, dtype="string"), sep=":")
     )
+
+
+def _canonicalize_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
+    columns = [_SUMSTATS_COL_MAP.get(str(c).lower(), str(c).lower()) for c in df.columns]
+    duplicates = sorted({c for c in columns if columns.count(c) > 1})
+    if duplicates:
+        raise ValueError(f"{path}: duplicate columns after column normalization: {', '.join(duplicates)}")
+    out = df.copy()
+    out.columns = columns
+    return out
 
 
 def _parse_sumstats(path: Path) -> pd.DataFrame:
@@ -33,6 +48,8 @@ def _parse_sumstats(path: Path) -> pd.DataFrame:
         )
     except ParserError as exc:
         raise ValueError(f"{path}: malformed TSV") from exc
+
+    df = _canonicalize_columns(df, path)
 
     missing = [c for c in _REQUIRED_COLS if c not in df.columns]
     if missing:

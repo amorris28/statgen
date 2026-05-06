@@ -16,15 +16,16 @@ Portable disk representation is one gzip-compressed TSV file per trait/source:
 TRAIT.tsv.gz
 ```
 
-Canonical sumstats TSV files are produced by external GWAS pipelines, not by
-`statgen`; `statgen` consumes these files for loading, alignment, and caching.
+Canonical sumstats TSV files are produced by `genomatch` or equivalent
+post-harmonization pipelines, not by `statgen`; `statgen` consumes these files
+for loading, alignment, and caching.
 
 Required columns:
 
-- `chr`
-- `bp`
-- `a1`
-- `a2`
+- `chr` or `CHR`
+- `bp` or `POS`
+- `a1` or `EffectAllele`
+- `a2` or `OtherAllele`
 - `z`
 - `n`
 
@@ -40,6 +41,12 @@ Optional columns:
 - `se`;
 - `eaf`;
 - `info`.
+
+Column recognition is case-insensitive. Apart from case, the only non-internal
+column names accepted by `statgen` are the genomatch cleaned-sumstats names
+`POS`, `EffectAllele`, and `OtherAllele`, which map to internal fields `bp`,
+`a1`, and `a2`. Genomatch vmap-style `bp`, `a1`, and `a2` are accepted
+directly. `SNP` may be present but is not used by the current exact join key.
 
 The TSV does not have to contain every variant in the reference panel. Loading
 against a `ReferencePanel` projects rows into reference order using
@@ -118,6 +125,9 @@ Expected behavior:
 - `reference` is required; rows are projected into reference order on load.
 - `create_sumstats(...)` creates an in-memory `Sumstats` aligned to `reference`
   from full-panel vectors. Canonical sumstats TSV files remain external inputs.
+- sumstats TSV column recognition is case-insensitive and only accepts the
+  internal field names plus `POS`, `EffectAllele`, and `OtherAllele` from the
+  genomatch cleaned-sumstats schema.
 - `chr:bp:a1:a2` joins are exact after basic field parsing; the loader does not
   normalize chromosome labels, swap alleles, or perform strand handling.
 - required numeric fields `z` and `n` must parse as finite numeric values for
