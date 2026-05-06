@@ -32,23 +32,21 @@ def _validate_reference_sort_order(
             f"{path}:{idx + 1}: chr must use canonical labels 1-22 or X"
         )
 
-    order_df = pd.DataFrame(
-        {
-            "chr_rank": chr_rank.to_numpy(dtype=np.int64),
-            "bp": np.asarray(bp_col, dtype=np.int64),
-            "a1": a1_col.to_numpy(dtype=object),
-            "a2": a2_col.to_numpy(dtype=object),
-            "line": np.asarray(line_numbers, dtype=np.int64),
-        }
-    )
+    order_df = pd.DataFrame({
+        "chr_rank": chr_rank.to_numpy(dtype=np.int64),
+        "bp": np.asarray(bp_col, dtype=np.int64),
+        "a1_hash64": allele_hash64(a1_col.to_numpy(dtype=object)),
+        "a2_hash64": allele_hash64(a2_col.to_numpy(dtype=object)),
+        "line": np.asarray(line_numbers, dtype=np.int64),
+    })
 
     dup_mask = order_df.duplicated(
-        subset=["chr_rank", "bp", "a1", "a2"], keep="first"
+        subset=["chr_rank", "bp", "a1_hash64", "a2_hash64"], keep="first"
     )
     if dup_mask.any():
         line = int(order_df.loc[dup_mask.idxmax(), "line"])
         raise ValueError(
-            f"{path}:{line}: duplicate (chr, bp, a1, a2) tuple is not allowed"
+            f"{path}:{line}: duplicate (chr, bp, a1_hash64, a2_hash64) matching key is not allowed"
         )
 
     prev = order_df.shift(1)
@@ -56,26 +54,14 @@ def _validate_reference_sort_order(
         (order_df["chr_rank"] < prev["chr_rank"])
         | (
             (order_df["chr_rank"] == prev["chr_rank"])
-            & (
-                (order_df["bp"] < prev["bp"])
-                | (
-                    (order_df["bp"] == prev["bp"])
-                    & (
-                        (order_df["a1"] < prev["a1"])
-                        | (
-                            (order_df["a1"] == prev["a1"])
-                            & (order_df["a2"] < prev["a2"])
-                        )
-                    )
-                )
-            )
+            & (order_df["bp"] < prev["bp"])
         )
     )
     bad_order = bad_order.fillna(False)
     if bad_order.any():
         line = int(order_df.loc[bad_order.idxmax(), "line"])
         raise ValueError(
-            f"{path}:{line}: rows must be sorted by (chr_rank, bp, a1, a2) in canonical contig order"
+            f"{path}:{line}: rows must be sorted by (chr_rank, bp) in canonical contig order"
         )
 
 

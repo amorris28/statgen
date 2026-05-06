@@ -354,7 +354,7 @@ def test_bim_unsorted_bp_fails(tmp_path):
         "1\trs1\t0\t200\tA\tG\n"
         "1\trs2\t0\t100\tC\tT\n"
     )
-    with pytest.raises(ValueError, match=r"\(chr_rank, bp, a1, a2\)"):
+    with pytest.raises(ValueError, match=r"\(chr_rank, bp\)"):
         load_reference(bad)
 
 
@@ -364,7 +364,7 @@ def test_bim_unsorted_chr_fails(tmp_path):
         "X\trsX\t0\t100\tA\tG\n"
         "1\trs1\t0\t200\tC\tT\n"
     )
-    with pytest.raises(ValueError, match=r"\(chr_rank, bp, a1, a2\)"):
+    with pytest.raises(ValueError, match=r"\(chr_rank, bp\)"):
         load_reference(bad)
 
 
@@ -395,14 +395,25 @@ def test_bim_bad_allele_syntax_fails(tmp_path):
         load_reference(bad)
 
 
-def test_bim_unsorted_by_a1_a2_fails(tmp_path):
+def test_bim_multibase_alleles_are_valid(tmp_path):
+    path = tmp_path / "multibase.bim"
+    path.write_text(
+        "1\trs1\t0\t100\tAC\tG\n"
+        "1\trs2\t0\t200\tA\tGTT\n"
+    )
+    panel = load_reference(path)
+    assert list(panel.a1) == ["AC", "A"]
+    assert list(panel.a2) == ["G", "GTT"]
+
+
+def test_bim_allele_order_not_validated_when_chr_bp_sorted(tmp_path):
     bad = tmp_path / "unsorted_a1.bim"
     bad.write_text(
         "1\trs1\t0\t100\tC\tA\n"
         "1\trs2\t0\t100\tA\tG\n"
     )
-    with pytest.raises(ValueError, match=r"\(chr_rank, bp, a1, a2\)"):
-        load_reference(bad)
+    panel = load_reference(bad)
+    assert panel.num_snp == 2
 
 
 def test_bim_duplicate_tuple_fails(tmp_path):

@@ -29,8 +29,13 @@ This contract applies to both non-sharded files (enforced across the full file)
 and sharded files (shard sequence must follow canonical contig order; rows
 within each shard must follow row order).
 
-Loaders validate and fail clearly on violations. They must not reorder or
-deduplicate rows.
+For performance, reference loaders validate only the ordering fields relied on
+by in-memory matching: `chr_rank` and `bp_numeric`. They do not inspect
+`a1_lexicographic`/`a2_lexicographic` ordering because sumstats/reference
+matching uses `(shard label, bp, a1_hash64, a2_hash64)` rather than source row
+order among alleles at the same base-pair coordinate. The full tuple sort order
+remains a normative input contract. Loaders must not reorder or deduplicate
+rows.
 
 ## Shard discovery
 

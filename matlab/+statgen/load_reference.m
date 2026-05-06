@@ -115,13 +115,13 @@ function bim = parse_bim_(path)
         error('statgen:bim', '%s:%d: a1 and a2 must be non-empty', path, lineno);
     end
 
-    bad_a1 = cellfun(@(a) isempty(regexp(a, '^[ACGT]+$', 'once')), a1_out);
+    bad_a1 = invalid_dna_allele_(a1_out);
     if any(bad_a1)
         lineno = find(bad_a1, 1, 'first');
         error('statgen:bim', ...
             '%s:%d: a1 must be uppercase DNA bases (A/C/G/T): %s', path, lineno, a1_out{lineno});
     end
-    bad_a2 = cellfun(@(a) isempty(regexp(a, '^[ACGT]+$', 'once')), a2_out);
+    bad_a2 = invalid_dna_allele_(a2_out);
     if any(bad_a2)
         lineno = find(bad_a2, 1, 'first');
         error('statgen:bim', ...
@@ -167,37 +167,40 @@ function validate_reference_sort_order_(chr_col, bp_col, a1_col, a2_col, path, l
     end
 
     n = numel(chr_col);
-    rank_str = arrayfun(@(x) sprintf('%03d', x), chr_rank(:), 'UniformOutput', false);
-    bp_str = arrayfun(@(x) sprintf('%012d', round(x)), bp_col(:), 'UniformOutput', false);
-    keys = strcat(rank_str, ':', bp_str, ':', a1_col(:), ':', a2_col(:));
-
     if n > 1
-        sorted_keys = sort(keys);
-        dup_sorted = strcmp(sorted_keys(2:end), sorted_keys(1:end-1));
+        bad_order = (chr_rank(2:end) < chr_rank(1:end-1)) | ...
+            ((chr_rank(2:end) == chr_rank(1:end-1)) & (bp_col(2:end) < bp_col(1:end-1)));
+        bad = find(bad_order, 1, 'first') + 1;
+        if ~isempty(bad)
+            bad_line = line_idx(bad);
+            error('statgen:bim', ...
+                '%s:%d: rows must be sorted by (chr_rank, bp) in canonical contig order', ...
+                path, bad_line);
+        end
+
+        a1_hash64 = statgen.internal.allele_hash64(a1_col);
+        a2_hash64 = statgen.internal.allele_hash64(a2_col);
+        keys = [uint64(chr_rank(:)), uint64(round(bp_col(:))), a1_hash64(:), a2_hash64(:)];
+        [sorted_keys, sort_idx] = sortrows(keys);
+        dup_sorted = all(sorted_keys(2:end, :) == sorted_keys(1:end-1, :), 2);
         if any(dup_sorted)
             dup_pos = find(dup_sorted, 1, 'first') + 1;
-            dup_key = sorted_keys{dup_pos};
-            occ = find(strcmp(keys, dup_key), 2, 'first');
-            if numel(occ) >= 2
-                bad_line = line_idx(occ(2));
-            else
-                bad_line = line_idx(occ(1));
-            end
+            bad_line = line_idx(sort_idx(dup_pos));
             error('statgen:bim', ...
-                '%s:%d: duplicate (chr, bp, a1, a2) tuple is not allowed', ...
+                '%s:%d: duplicate (chr, bp, a1_hash64, a2_hash64) matching key is not allowed', ...
                 path, bad_line);
         end
     end
+end
 
-    [~, sort_idx] = sort(keys);
-    expected = (1:n)';
-    bad = find(sort_idx(:) ~= expected, 1, 'first');
-    if ~isempty(bad)
-        bad_line = line_idx(bad);
-        error('statgen:bim', ...
-            '%s:%d: rows must be sorted by (chr_rank, bp, a1, a2) in canonical contig order', ...
-            path, bad_line);
-    end
+function bad = invalid_dna_allele_(alleles)
+    alleles = statgen.internal.ensure_cell_col(alleles);
+    lens = cellfun('length', alleles);
+    chars = char(alleles);
+    cols = 1:size(chars, 2);
+    padding = bsxfun(@gt, cols, lens);
+    invalid = chars ~= 'A' & chars ~= 'C' & chars ~= 'G' & chars ~= 'T';
+    bad = any(invalid & ~padding, 2);
 end
 
 function [cols, n_rows] = read_bim_tabular_(path)
