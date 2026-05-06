@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-05-06
+
+### Added
+- Sumstats loaders now accept genomatch-style summary-statistic headers in
+  Python and MATLAB/Octave.
+- MATLAB/Octave flat cache layouts now expose user-inspectable top-level
+  variables for reference, sumstats, and annotation caches.
+- Reference objects now cache deterministic `a1_hash64` and `a2_hash64` vectors
+  for fast variant matching across Python and MATLAB/Octave.
+- MATLAB/Octave can save thin reference caches with
+  `statgen.save_reference_cache(..., 'mode', 'thin')`; thin caches store only
+  metadata, base-pair positions, and allele hashes, improving
+  `load_reference_cache` performance.
+
+### Fixed
+- Improved MATLAB/Octave reference and sumstats loading performance.
+
 ## [0.2.1] - 2026-05-05
 
 ### Added
