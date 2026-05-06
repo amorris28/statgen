@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from pandas.errors import ParserError
 
-from ._utils import CANONICAL_CHR_ORDER, CHR_RANK, validate_requested_shards
+from ._utils import CANONICAL_CHR_ORDER, CHR_RANK, allele_hash64, validate_requested_shards
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,6 @@ _CACHE_SCHEMA = "reference_cache/0.1"
 _BIM_NCOLS = 6
 _IGNORED_CHR = {"Y", "MT"}
 _DNA_ALLELE_RE = re.compile(r"^[ACGT]+$")
-
-
 def _validate_reference_sort_order(
     chr_col: pd.Series,
     bp_col: np.ndarray,
@@ -221,6 +219,18 @@ class ReferenceShard:
         self._bp = np.asarray(bp_arr, dtype=np.int64)
         self._a1 = np.asarray(a1_arr, dtype=object)
         self._a2 = np.asarray(a2_arr, dtype=object)
+        if not (
+            self._chr.size
+            == self._snp.size
+            == self._bp.size
+            == self._a1.size
+            == self._a2.size
+        ):
+            raise ValueError("ReferenceShard vector lengths must match")
+        if self._chr.size and not np.all(self._chr == self._label):
+            raise ValueError(f"Reference shard {self._label} contains multiple chr labels")
+        self._a1_hash64 = allele_hash64(self._a1)
+        self._a2_hash64 = allele_hash64(self._a2)
         self._checksum = _checksum_from_arrays(self._chr, self._bp, self._a1, self._a2)
 
     @property
@@ -252,11 +262,30 @@ class ReferenceShard:
         return self._a2
 
     @property
+    def a1_hash64(self) -> np.ndarray:
+        return self._a1_hash64
+
+    @property
+    def a2_hash64(self) -> np.ndarray:
+        return self._a2_hash64
+
+    @property
     def checksum(self) -> str:
         return self._checksum
 
     @classmethod
-    def _from_arrays(cls, label, chr_arr, snp_arr, bp_arr, a1_arr, a2_arr, checksum):
+    def _from_arrays(
+        cls,
+        label,
+        chr_arr,
+        snp_arr,
+        bp_arr,
+        a1_arr,
+        a2_arr,
+        checksum,
+        a1_hash64=None,
+        a2_hash64=None,
+    ):
         obj = cls.__new__(cls)
         obj._label = label
         obj._chr = np.asarray(chr_arr, dtype=object)
@@ -264,6 +293,28 @@ class ReferenceShard:
         obj._bp = np.asarray(bp_arr, dtype=np.int64)
         obj._a1 = np.asarray(a1_arr, dtype=object)
         obj._a2 = np.asarray(a2_arr, dtype=object)
+        if not (
+            obj._chr.size
+            == obj._snp.size
+            == obj._bp.size
+            == obj._a1.size
+            == obj._a2.size
+        ):
+            raise ValueError("Invalid reference cache: panel-wide vector lengths mismatch")
+        if obj._chr.size and not np.all(obj._chr == obj._label):
+            raise ValueError(f"Invalid reference cache: shard {obj._label} contains multiple chr labels")
+        obj._a1_hash64 = (
+            allele_hash64(obj._a1)
+            if a1_hash64 is None
+            else np.asarray(a1_hash64, dtype=np.uint64).reshape(-1)
+        )
+        obj._a2_hash64 = (
+            allele_hash64(obj._a2)
+            if a2_hash64 is None
+            else np.asarray(a2_hash64, dtype=np.uint64).reshape(-1)
+        )
+        if obj._a1_hash64.size != obj._bp.size or obj._a2_hash64.size != obj._bp.size:
+            raise ValueError("Invalid reference cache: allele hash vector lengths mismatch")
         obj._checksum = checksum
         return obj
 
@@ -312,6 +363,18 @@ class ReferencePanel:
         if not self._shards:
             return np.array([], dtype=object)
         return np.concatenate([s.a2 for s in self._shards])
+
+    @property
+    def a1_hash64(self) -> np.ndarray:
+        if not self._shards:
+            return np.array([], dtype=np.uint64)
+        return np.concatenate([s.a1_hash64 for s in self._shards])
+
+    @property
+    def a2_hash64(self) -> np.ndarray:
+        if not self._shards:
+            return np.array([], dtype=np.uint64)
+        return np.concatenate([s.a2_hash64 for s in self._shards])
 
     @property
     def shard_offsets(self) -> list:
@@ -467,6 +530,8 @@ def save_reference_cache(panel: ReferencePanel, path) -> None:
         arrays[p + "bp"]  = s.bp
         arrays[p + "a1"]  = np.asarray(s.a1, dtype=str)
         arrays[p + "a2"]  = np.asarray(s.a2, dtype=str)
+        arrays[p + "a1_hash64"] = s.a1_hash64
+        arrays[p + "a2_hash64"] = s.a2_hash64
     np.savez_compressed(path, **arrays)
 
 
@@ -488,6 +553,8 @@ def load_reference_cache(path, shards=None) -> ReferencePanel:
         for label in selected:
             i = label_to_index[label]
             p = f"s{i}_"
+            if p + "a1_hash64" not in data or p + "a2_hash64" not in data:
+                raise ValueError("reference cache missing a1_hash64/a2_hash64; rebuild cache")
             shard_objs.append(
                 ReferenceShard._from_arrays(
                     label,
@@ -497,6 +564,8 @@ def load_reference_cache(path, shards=None) -> ReferencePanel:
                     data[p + "a1"],
                     data[p + "a2"],
                     checksums[i],
+                    data[p + "a1_hash64"],
+                    data[p + "a2_hash64"],
                 )
             )
     return ReferencePanel(shard_objs)

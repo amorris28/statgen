@@ -61,6 +61,16 @@ def test_sharded_checksums():
     assert panel.shards[1].checksum == CHRX_CHECKSUM
 
 
+def test_reference_allele_hashes_are_uint64_and_panel_wide():
+    panel = load_reference(SHARDED)
+    assert panel.a1_hash64.dtype == np.uint64
+    assert panel.a2_hash64.dtype == np.uint64
+    assert panel.a1_hash64.shape == (panel.num_snp,)
+    assert panel.a2_hash64.shape == (panel.num_snp,)
+    assert np.array_equal(panel.a1_hash64[:5], panel.shards[0].a1_hash64)
+    assert np.array_equal(panel.a2_hash64[5:], panel.shards[1].a2_hash64)
+
+
 def test_validate_checksums_passes_for_loaded_reference():
     panel = load_reference(SHARDED)
     assert panel.validate_checksums() is True
@@ -529,20 +539,28 @@ def test_octave_cache_roundtrip(tmp_path):
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         f"statgen.save_reference_cache(ref, '{cache_path}'); "
         f"ref2 = statgen.load_reference_cache('{cache_path}'); "
+        f"ref3 = statgen.load_reference_cache('{cache_path}', 'full', true); "
         f"fprintf('%d\\n', ref2.num_snp); "
         f"for i = 1:numel(ref2.shards); "
         f"  fprintf('%s %s\\n', ref2.shards{{i}}.label, ref2.shards{{i}}.checksum); "
         f"end; "
+        f"thin_ok = isequal(ref.chr, ref2.chr) && isequal(ref.bp, ref2.bp) && isequal(ref.a1_hash64, ref2.a1_hash64) && isequal(ref.a2_hash64, ref2.a2_hash64); "
+        f"thin_snp_fails = 0; try; ref2.snp; catch; thin_snp_fails = 1; end; "
+        f"thin_validate_fails = 0; try; ref2.validate_checksums(); catch; thin_validate_fails = 1; end; "
+        f"fprintf('%d\\n', thin_ok); "
+        f"fprintf('%d\\n', thin_snp_fails); "
+        f"fprintf('%d\\n', thin_validate_fails); "
         f"ok = 1; "
         f"for i = 1:numel(ref.shards); "
-        f"  s1 = ref.shards{{i}}; s2 = ref2.shards{{i}}; "
+        f"  s1 = ref.shards{{i}}; s2 = ref3.shards{{i}}; "
         f"  ok = ok && isequal(s1.chr, s2.chr) && isequal(s1.snp, s2.snp) "
-        f"           && isequal(s1.bp, s2.bp) && isequal(s1.a1, s2.a1) && isequal(s1.a2, s2.a2); "
+        f"           && isequal(s1.bp, s2.bp) && isequal(s1.a1, s2.a1) && isequal(s1.a2, s2.a2) "
+        f"           && isequal(s1.a1_hash64, s2.a1_hash64) && isequal(s1.a2_hash64, s2.a2_hash64); "
         f"end; "
         f"fprintf('%d\\n', ok); "
-        f"fprintf('%d\\n', ref2.validate_checksums()); "
+        f"fprintf('%d\\n', ref3.validate_checksums()); "
         f"s = load('{cache_path}'); "
-        f"fprintf('%d %d %d %d\\n', isfield(s, 'metadata'), isfield(s, 'chr'), isfield(s, 'cache_shards'), isfield(s, 'cm')); "
+        f"fprintf('%d %d %d %d %d %d\\n', isfield(s, 'metadata'), isfield(s, 'chr'), isfield(s, 'a1_hash64'), isfield(s, 'a2_hash64'), isfield(s, 'cache_shards'), isfield(s, 'cm')); "
         f"fprintf('%d %d %d\\n', numel(s.chr), s.metadata.shard_start0(1), s.metadata.shard_stop0(end));"
     )
     result = run_octave(script)
@@ -553,8 +571,11 @@ def test_octave_cache_roundtrip(tmp_path):
     assert lines[2] == f"X {CHRX_CHECKSUM}"
     assert lines[3] == "1"
     assert lines[4] == "1"
-    assert lines[5] == "1 1 0 0"
-    assert lines[6] == "8 0 8"
+    assert lines[5] == "1"
+    assert lines[6] == "1"
+    assert lines[7] == "1"
+    assert lines[8] == "1 1 1 1 0 0"
+    assert lines[9] == "8 0 8"
 
 
 @pytest.mark.octave
@@ -566,10 +587,10 @@ def test_octave_reference_cache_trusts_checksum_until_explicit_validation(tmp_pa
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         f"statgen.save_reference_cache(ref, '{cache_path}'); "
         f"L = load('{cache_path}'); "
-        "metadata = L.metadata; chr = L.chr; snp = L.snp; bp = L.bp; a1 = L.a1; a2 = L.a2; "
+        "metadata = L.metadata; chr = L.chr; snp = L.snp; bp = L.bp; a1 = L.a1; a2 = L.a2; a1_hash64 = L.a1_hash64; a2_hash64 = L.a2_hash64; "
         "a1{1} = 'T'; "
-        f"save('{bad_cache_path}', 'metadata', 'chr', 'snp', 'bp', 'a1', 'a2'); "
-        f"ref2 = statgen.load_reference_cache('{bad_cache_path}'); "
+        f"save('{bad_cache_path}', 'metadata', 'chr', 'snp', 'bp', 'a1', 'a2', 'a1_hash64', 'a2_hash64'); "
+        f"ref2 = statgen.load_reference_cache('{bad_cache_path}', 'full', true); "
         "ok1 = ref2.num_snp == 8; "
         "ok2 = 0; try; ref2.validate_checksums(); catch; ok2 = 1; end; "
         "fprintf('%d\\n', ok1); "

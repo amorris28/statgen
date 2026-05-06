@@ -1,5 +1,5 @@
 function sumstats = load_sumstats(path, reference)
-% Load sumstats TSV(.gz) and align to reference by exact chr:bp:a1:a2 key.
+% Load sumstats TSV(.gz) and align to reference by shard-local numeric keys.
     if nargin < 2
         error('statgen:arg', 'load_sumstats requires path and reference');
     end
@@ -28,11 +28,11 @@ function sumstats = build_sumstats_(tbl, reference, path)
     end
 
     chr_col = ensure_cellstr_col_(get_col_(tbl, var_names, 'chr'));
-    bp_raw = ensure_cellstr_col_(get_col_(tbl, var_names, 'bp'));
-    a1_col = ensure_cellstr_col_(get_col_(tbl, var_names, 'a1'));
-    a2_col = ensure_cellstr_col_(get_col_(tbl, var_names, 'a2'));
-    z_raw = ensure_cellstr_col_(get_col_(tbl, var_names, 'z'));
-    n_raw = ensure_cellstr_col_(get_col_(tbl, var_names, 'n'));
+    bp_num  = to_numeric_col_(get_col_(tbl, var_names, 'bp'));
+    a1_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a1'));
+    a2_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a2'));
+    z_num   = to_numeric_col_(get_col_(tbl, var_names, 'z'));
+    n_num   = to_numeric_col_(get_col_(tbl, var_names, 'n'));
 
     bad_chr = cellfun('isempty', chr_col);
     if any(bad_chr), error('statgen:sumstats', '%s: row %d: chr must be non-empty', path, find(bad_chr, 1, 'first') + 1); end
@@ -41,25 +41,22 @@ function sumstats = build_sumstats_(tbl, reference, path)
     bad_a2 = cellfun('isempty', a2_col);
     if any(bad_a2), error('statgen:sumstats', '%s: row %d: a2 must be non-empty', path, find(bad_a2, 1, 'first') + 1); end
 
-    bp_num = str2double(bp_raw);
     bad_bp = isnan(bp_num) | (bp_num ~= floor(bp_num));
     if any(bad_bp)
         i = find(bad_bp, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: bp is not an integer: %s', path, i + 1, bp_raw{i});
+        error('statgen:sumstats', '%s: row %d: bp is not an integer', path, i + 1);
     end
 
-    z_num = str2double(z_raw);
     bad_z = ~isfinite(z_num);
     if any(bad_z)
         i = find(bad_z, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: z must be finite numeric: %s', path, i + 1, z_raw{i});
+        error('statgen:sumstats', '%s: row %d: z must be finite numeric', path, i + 1);
     end
 
-    n_num = str2double(n_raw);
     bad_n = ~isfinite(n_num);
     if any(bad_n)
         i = find(bad_n, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: n must be finite numeric: %s', path, i + 1, n_raw{i});
+        error('statgen:sumstats', '%s: row %d: n must be finite numeric', path, i + 1);
     end
 
     optional_map = struct('p', [], 'beta', [], 'se', [], 'eaf', [], 'info', []);
@@ -67,38 +64,23 @@ function sumstats = build_sumstats_(tbl, reference, path)
     for i = 1:numel(optional_names)
         nm = optional_names{i};
         if any(strcmp(var_names, nm))
-            raw = ensure_cellstr_col_(get_col_(tbl, var_names, nm));
-            optional_map.(nm) = str2double(raw);
+            optional_map.(nm) = to_numeric_col_(get_col_(tbl, var_names, nm));
         end
     end
 
-    src_key = make_key_(chr_col, bp_num, a1_col, a2_col);
+    n_ref = double(reference.num_snp);
+    src_a1_hash64 = statgen.internal.allele_hash64(a1_col);
+    src_a2_hash64 = statgen.internal.allele_hash64(a2_col);
 
-    ref_chr = reference.chr;
-    ref_bp = reference.bp;
-    ref_a1 = reference.a1;
-    ref_a2 = reference.a2;
-    ref_key = make_key_(ref_chr, ref_bp, ref_a1, ref_a2);
-
-    [has_match, loc] = ismember(ref_key, src_key);
-
-    aligned_z = nan(numel(ref_key), 1);
-    aligned_n = nan(numel(ref_key), 1);
-    aligned_z(has_match) = z_num(loc(has_match));
-    aligned_n(has_match) = n_num(loc(has_match));
+    aligned_z = nan(n_ref, 1);
+    aligned_n = nan(n_ref, 1);
 
     if isempty(optional_map.p)
-        aligned_logp = nan(numel(ref_key), 1);
+        p_aligned = [];
+        aligned_logp = nan(n_ref, 1);
     else
-        p_aligned = nan(numel(ref_key), 1);
-        p_aligned(has_match) = optional_map.p(loc(has_match));
-        aligned_logp = nan(numel(ref_key), 1);
-        finite_mask = isfinite(p_aligned);
-        in_range = finite_mask & p_aligned >= 0 & p_aligned <= 1;
-        zero_mask = in_range & p_aligned == 0;
-        pos_mask = in_range & p_aligned > 0;
-        aligned_logp(zero_mask) = inf;
-        aligned_logp(pos_mask) = -log10(p_aligned(pos_mask));
+        p_aligned = nan(n_ref, 1);
+        aligned_logp = [];
     end
 
     aligned_optional = struct('beta', [], 'se', [], 'eaf', [], 'info', []);
@@ -108,10 +90,47 @@ function sumstats = build_sumstats_(tbl, reference, path)
         if isempty(vals)
             aligned_optional.(nm) = [];
         else
-            x = nan(numel(ref_key), 1);
-            x(has_match) = vals(loc(has_match));
-            aligned_optional.(nm) = x;
+            aligned_optional.(nm) = nan(n_ref, 1);
         end
+    end
+
+    for i = 1:numel(reference.shards)
+        s_ref = reference.shards{i};
+        off = reference.shard_offsets(i);
+        ix = (off.start0 + 1):off.stop0;
+        src_idx = find(strcmp(chr_col, s_ref.label));
+        loc = statgen.internal.match_shard_numeric( ...
+            s_ref.bp, s_ref.a1_hash64, s_ref.a2_hash64, ...
+            bp_num(src_idx), src_a1_hash64(src_idx), src_a2_hash64(src_idx), ...
+            s_ref.label, 'sumstats');
+        has_match = loc > 0;
+        matched_ref_ix = ix(has_match);
+        matched_src_ix = src_idx(loc(has_match));
+
+        aligned_z(matched_ref_ix) = z_num(matched_src_ix);
+        aligned_n(matched_ref_ix) = n_num(matched_src_ix);
+        if ~isempty(p_aligned)
+            p_aligned(matched_ref_ix) = optional_map.p(matched_src_ix);
+        end
+        for j = 1:numel(optional_names)
+            nm = optional_names{j};
+            if ~isempty(aligned_optional.(nm))
+                vals = optional_map.(nm);
+                tmp = aligned_optional.(nm);
+                tmp(matched_ref_ix) = vals(matched_src_ix);
+                aligned_optional.(nm) = tmp;
+            end
+        end
+    end
+
+    if ~isempty(p_aligned)
+        aligned_logp = nan(n_ref, 1);
+        finite_mask = isfinite(p_aligned);
+        in_range = finite_mask & p_aligned >= 0 & p_aligned <= 1;
+        zero_mask = in_range & p_aligned == 0;
+        pos_mask = in_range & p_aligned > 0;
+        aligned_logp(zero_mask) = inf;
+        aligned_logp(pos_mask) = -log10(p_aligned(pos_mask));
     end
 
     shards = cell(numel(reference.shards), 1);
@@ -174,13 +193,17 @@ function [tbl, cleanup_fn] = parse_sumstats_table_(path)
         error('statgen:sumstats', 'sumstats file is empty: %s', path);
     end
     names = strsplit(hdr, '\t');
-    fmt = repmat('%s', 1, numel(names));
+    fmt = build_col_formats_(names);
     cols = textscan(fid, fmt, 'Delimiter', '\t', 'Whitespace', '', 'MultipleDelimsAsOne', false, 'ReturnOnError', false);
     clear closer;
     S = struct();
     S.statgen_var_names__ = names;
     for i = 1:numel(names)
-        S.(names{i}) = ensure_cellstr_col_(cols{i});
+        if isnumeric(cols{i})
+            S.(names{i}) = double(cols{i}(:));
+        else
+            S.(names{i}) = ensure_cellstr_col_(cols{i});
+        end
     end
     tbl = S;
 end
@@ -208,11 +231,6 @@ function tf = is_table_like_(x)
     else
         tf = isa(x, 'table');
     end
-end
-
-function key = make_key_(chr_col, bp_col, a1_col, a2_col)
-    bp_str = cellstr(num2str(double(bp_col(:)), '%d'));
-    key = strcat(ensure_cellstr_col_(chr_col), {':'}, bp_str, {':'}, ensure_cellstr_col_(a1_col), {':'}, ensure_cellstr_col_(a2_col));
 end
 
 function out = pick_optional_(vec, ix)
@@ -265,6 +283,27 @@ end
 function tf = ends_with_(s, suffix)
     n = length(suffix);
     tf = length(s) >= n && strcmp(s(end - n + 1:end), suffix);
+end
+
+function fmt = build_col_formats_(raw_names)
+    numeric_set = {'bp', 'pos', 'z', 'n', 'p', 'beta', 'se', 'eaf', 'info'};
+    parts = cell(1, numel(raw_names));
+    for i = 1:numel(raw_names)
+        if any(strcmp(numeric_set, lower(raw_names{i})))
+            parts{i} = '%f';
+        else
+            parts{i} = '%s';
+        end
+    end
+    fmt = [parts{:}];
+end
+
+function out = to_numeric_col_(x)
+    if isnumeric(x)
+        out = double(x(:));
+    else
+        out = str2double(ensure_cellstr_col_(x));
+    end
 end
 
 function out = ensure_cellstr_col_(x)

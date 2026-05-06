@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from pandas.errors import ParserError
 
-from ._utils import validate_requested_shards
+from ._utils import allele_hash64, validate_requested_shards
 
 _CACHE_SCHEMA = "sumstats_cache/0.1"
 _REQUIRED_COLS = ("chr", "bp", "a1", "a2", "z", "n")
@@ -17,13 +17,55 @@ _SUMSTATS_COL_MAP = {
 }
 
 
-def _key_from_arrays(chr_arr, bp_arr, a1_arr, a2_arr) -> pd.Series:
-    return (
-        pd.Series(chr_arr, dtype="string")
-        .str.cat(pd.Series(bp_arr, dtype=np.int64).astype("string"), sep=":")
-        .str.cat(pd.Series(a1_arr, dtype="string"), sep=":")
-        .str.cat(pd.Series(a2_arr, dtype="string"), sep=":")
-    )
+_KEY_DTYPE = np.dtype([("bp", "<i8"), ("a1_hash64", "<u8"), ("a2_hash64", "<u8")])
+
+
+def _numeric_keys(bp_arr, a1_hash64, a2_hash64) -> np.ndarray:
+    bp = np.asarray(bp_arr, dtype=np.int64).reshape(-1)
+    a1h = np.asarray(a1_hash64, dtype=np.uint64).reshape(-1)
+    a2h = np.asarray(a2_hash64, dtype=np.uint64).reshape(-1)
+    if not (bp.size == a1h.size == a2h.size):
+        raise ValueError("numeric key vector lengths mismatch")
+    keys = np.empty(bp.size, dtype=_KEY_DTYPE)
+    keys["bp"] = bp
+    keys["a1_hash64"] = a1h
+    keys["a2_hash64"] = a2h
+    return keys
+
+
+def _check_unique_sorted_keys(sorted_keys: np.ndarray, where: str) -> None:
+    if sorted_keys.size < 2:
+        return
+    dup = sorted_keys[1:] == sorted_keys[:-1]
+    if np.any(dup):
+        pos = int(np.flatnonzero(dup)[0] + 1)
+        key = sorted_keys[pos]
+        raise ValueError(
+            f"Ambiguous duplicate sumstats/reference matching key in {where}: "
+            f"bp={int(key['bp'])}, a1_hash64={int(key['a1_hash64'])}, "
+            f"a2_hash64={int(key['a2_hash64'])}"
+        )
+
+
+def _match_shard_numeric(ref_keys: np.ndarray, src_keys: np.ndarray, shard_label: str) -> np.ndarray:
+    if src_keys.size == 0:
+        return np.full(ref_keys.size, -1, dtype=np.int64)
+
+    ref_order = np.argsort(ref_keys, kind="mergesort", order=("bp", "a1_hash64", "a2_hash64"))
+    src_order = np.argsort(src_keys, kind="mergesort", order=("bp", "a1_hash64", "a2_hash64"))
+    ref_sorted = ref_keys[ref_order]
+    src_sorted = src_keys[src_order]
+    _check_unique_sorted_keys(ref_sorted, f"reference shard {shard_label}")
+    _check_unique_sorted_keys(src_sorted, f"sumstats shard {shard_label}")
+
+    pos = np.searchsorted(src_sorted, ref_keys)
+    in_range = pos < src_sorted.size
+    matched = np.zeros(ref_keys.size, dtype=bool)
+    matched[in_range] = src_sorted[pos[in_range]] == ref_keys[in_range]
+
+    out = np.full(ref_keys.size, -1, dtype=np.int64)
+    out[matched] = src_order[pos[matched]]
+    return out
 
 
 def _canonicalize_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
@@ -306,40 +348,45 @@ def _build_sumstats_from_aligned(
 
 
 def _build_sumstats_panel(df: pd.DataFrame, reference) -> Sumstats:
-    ref_chr = np.asarray(reference.chr, dtype=object)
-    ref_bp = np.asarray(reference.bp, dtype=np.int64)
-    ref_a1 = np.asarray(reference.a1, dtype=object)
-    ref_a2 = np.asarray(reference.a2, dtype=object)
-    ref_keys = _key_from_arrays(ref_chr, ref_bp, ref_a1, ref_a2)
+    n = int(reference.num_snp)
+    aligned_z = np.full(n, np.nan, dtype=float)
+    aligned_n = np.full(n, np.nan, dtype=float)
+    aligned_p = np.full(n, np.nan, dtype=float) if "p" in df.columns else None
 
-    src_keys = _key_from_arrays(
-        df["chr"].to_numpy(dtype=object),
-        df["bp"].to_numpy(dtype=np.int64),
-        df["a1"].to_numpy(dtype=object),
-        df["a2"].to_numpy(dtype=object),
-    )
-    src = df.copy()
-    src["_key"] = src_keys
+    aligned_optional = {
+        col: (np.full(n, np.nan, dtype=float) if col in df.columns else None)
+        for col in ("beta", "se", "eaf", "info")
+    }
 
-    key_to = {}
-    for col in ("z", "n") + _OPTIONAL_COLS:
-        if col in src.columns:
-            key_to[col] = src.set_index("_key")[col]
+    src_chr = df["chr"].to_numpy(dtype=object)
+    src_bp = df["bp"].to_numpy(dtype=np.int64)
+    src_a1_hash64 = allele_hash64(df["a1"].to_numpy(dtype=object))
+    src_a2_hash64 = allele_hash64(df["a2"].to_numpy(dtype=object))
 
-    aligned_z = key_to["z"].reindex(ref_keys).to_numpy(dtype=float)
-    aligned_n = key_to["n"].reindex(ref_keys).to_numpy(dtype=float)
-    if "p" in key_to:
-        aligned_p = key_to["p"].reindex(ref_keys).to_numpy(dtype=float)
-        aligned_logp = _derive_logp(aligned_p)
+    for ref_shard, off in zip(reference.shards, reference.shard_offsets):
+        start = int(off["start0"])
+        stop = int(off["stop0"])
+        src_mask = src_chr == ref_shard.label
+        src_idx = np.flatnonzero(src_mask)
+        ref_keys = _numeric_keys(ref_shard.bp, ref_shard.a1_hash64, ref_shard.a2_hash64)
+        src_keys = _numeric_keys(src_bp[src_idx], src_a1_hash64[src_idx], src_a2_hash64[src_idx])
+        local_match = _match_shard_numeric(ref_keys, src_keys, ref_shard.label)
+        has_match = local_match >= 0
+        matched_src = src_idx[local_match[has_match]]
+        aligned_ix = np.arange(start, stop, dtype=np.int64)[has_match]
+
+        aligned_z[aligned_ix] = df["z"].to_numpy(dtype=float)[matched_src]
+        aligned_n[aligned_ix] = df["n"].to_numpy(dtype=float)[matched_src]
+        if aligned_p is not None:
+            aligned_p[aligned_ix] = df["p"].to_numpy(dtype=float)[matched_src]
+        for col, out in aligned_optional.items():
+            if out is not None:
+                out[aligned_ix] = df[col].to_numpy(dtype=float)[matched_src]
+
+    if aligned_p is None:
+        aligned_logp = np.full(n, np.nan, dtype=float)
     else:
-        aligned_logp = np.full(ref_keys.size, np.nan, dtype=float)
-
-    aligned_optional = {}
-    for col in ("beta", "se", "eaf", "info"):
-        if col in key_to:
-            aligned_optional[col] = key_to[col].reindex(ref_keys).to_numpy(dtype=float)
-        else:
-            aligned_optional[col] = None
+        aligned_logp = _derive_logp(aligned_p)
 
     return _build_sumstats_from_aligned(
         reference,

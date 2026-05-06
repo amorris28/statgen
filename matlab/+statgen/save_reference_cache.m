@@ -26,6 +26,8 @@ function save_reference_cache(panel, path, varargin)
     bp = panel.bp;
     a1 = panel.a1;
     a2 = panel.a2;
+    a1_hash64 = panel.a1_hash64;
+    a2_hash64 = panel.a2_hash64;
 
-    save(path, 'metadata', 'chr', 'snp', 'bp', 'a1', 'a2', save_arg);
+    save(path, 'metadata', 'chr', 'snp', 'bp', 'a1', 'a2', 'a1_hash64', 'a2_hash64', save_arg);
 end

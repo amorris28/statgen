@@ -46,14 +46,19 @@ Column recognition is case-insensitive. Apart from case, the only non-internal
 column names accepted by `statgen` are the genomatch cleaned-sumstats names
 `POS`, `EffectAllele`, and `OtherAllele`, which map to internal fields `bp`,
 `a1`, and `a2`. Genomatch vmap-style `bp`, `a1`, and `a2` are accepted
-directly. `SNP` may be present but is not used by the current exact join key.
+directly. `SNP` may be present but is not used for matching.
 
 The TSV does not have to contain every variant in the reference panel. Loading
-against a `ReferencePanel` projects rows into reference order using
-`chr:bp:a1:a2` as the exact join key, splits the result into
-`SumstatsShard`s matching the reference shards, and represents variants absent
-from the TSV as missing values. The loader does not normalize or alias contig
-labels; sumstats `chr` values must already match the reference labels.
+against a `ReferencePanel` projects rows into reference order by matching each
+source row to a reference shard with the same `chr` label, then matching within
+that shard on the tuple `(bp, a1_hash64, a2_hash64)` defined in
+[reference.md](reference.md). The allele hashes are computed from each source
+row's exact `a1` and `a2` strings. This is semantically an exact
+`chr:bp:a1:a2` join; the hashes are only fixed-width implementation keys for
+sumstats-to-reference matching. The result is split into `SumstatsShard`s
+matching the reference shards, and variants absent from the TSV are represented
+as missing values. The loader does not normalize or alias contig labels;
+sumstats `chr` values must already match the reference labels.
 
 ## In-memory objects
 
@@ -167,8 +172,13 @@ Expected behavior:
 - sumstats TSV column recognition is case-insensitive and only accepts the
   internal field names plus `POS`, `EffectAllele`, and `OtherAllele` from the
   genomatch cleaned-sumstats schema.
-- `chr:bp:a1:a2` joins are exact after basic field parsing; the loader does not
-  normalize chromosome labels, swap alleles, or perform strand handling.
+- sumstats-to-reference matching uses shard label plus `(bp, a1_hash64,
+  a2_hash64)` from [reference.md](reference.md). Joins are exact after basic
+  field parsing; the loader does not normalize chromosome labels, swap alleles,
+  or perform strand handling. MATLAB/Octave implementations should use
+  a native numeric sort/merge within each shard; equivalent native numeric
+  approaches are allowed, but implementations must not reconstruct string join
+  keys or cast `uint64` allele hashes to `double` for matching.
 - required numeric fields `z` and `n` must parse as finite numeric values for
   all source rows; non-numeric, `NaN`, or infinite values are validation
   errors and must fail load with a clear message.

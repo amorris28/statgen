@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from statgen._utils import allele_hash64
 from statgen.reference import load_reference
 from statgen.sumstats import create_sumstats, load_sumstats, save_sumstats_cache, load_sumstats_cache
 from tests.conftest import FIXTURES_DIR, MATLAB_DIR, run_octave, skipif_no_octave
@@ -95,6 +96,39 @@ def test_load_sumstats_alignment_and_accessors(tmp_path):
     assert s.eaf_vec is not None
     assert s.info_vec is not None
     assert np.isnan(s.beta_vec[4]) and np.isnan(s.beta_vec[7])
+
+
+def test_allele_hash64_known_values():
+    hashes = allele_hash64(["A", "C", "ACGT", "ATCGGCTA"])
+    assert hashes.dtype == np.uint64
+    assert [f"{int(x):016X}" for x in hashes] == [
+        "0000014300000149",
+        "000001450000014B",
+        "47119B266503B322",
+        "1A8AE73A00B4D922",
+    ]
+
+
+def test_allele_hash64_warns_and_truncates_long_alleles():
+    long = "A" * 151
+    prefix = "A" * 150
+    with pytest.warns(RuntimeWarning, match="first 150 characters"):
+        long_hash = allele_hash64([long])
+    prefix_hash = allele_hash64([prefix])
+    assert long_hash[0] == prefix_hash[0]
+
+
+def test_load_sumstats_duplicate_matching_key_fails(tmp_path):
+    path = tmp_path / "duplicate_key.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tz\tn\n"
+        "1\t100\tA\tG\t2.5\t1000\n"
+        "1\t100\tA\tG\t2.6\t1000\n",
+    )
+    reference = load_reference(SHARDED_REF)
+    with pytest.raises(ValueError, match="Ambiguous duplicate sumstats/reference matching key"):
+        load_sumstats(path, reference)
 
 
 @pytest.mark.parametrize(
@@ -346,6 +380,54 @@ def test_octave_load_sumstats_fixture_fails_required_z():
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_allele_hash64_matches_python():
+    expected = [f"{int(x):016X}" for x in allele_hash64(["A", "C", "ACGT", "ATCGGCTA"])]
+    script = _octave_script(
+        "h = statgen.internal.allele_hash64({'A','C','ACGT','ATCGGCTA'}); "
+        "for i = 1:numel(h); fprintf('%s\\n', dec2hex(h(i), 16)); end"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines() == expected
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_allele_hash64_warns_and_truncates_long_alleles():
+    expected = f"{int(allele_hash64(['A' * 150])[0]):016X}"
+    script = _octave_script(
+        "warning('off', 'statgen:allele_hash'); "
+        "h = statgen.internal.allele_hash64({repmat('A', 1, 151)}); "
+        "fprintf('%s\\n', dec2hex(h(1), 16)); "
+        "warning('on', 'statgen:allele_hash');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_sumstats_duplicate_matching_key_fails(tmp_path):
+    path = tmp_path / "duplicate_key.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tz\tn\n"
+        "1\t777\tACGT\tATCGGCTA\t2.5\t1000\n"
+        "1\t777\tACGT\tATCGGCTA\t2.6\t1000\n",
+    )
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"try; statgen.load_sumstats('{path}', ref); fprintf('NOFAIL\\n'); catch ME; fprintf('%s\\n', ME.message); end"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert "a1_hash64=47119B266503B322" in result.stdout
+    assert "a2_hash64=1A8AE73A00B4D922" in result.stdout
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_sumstats_roundtrip(tmp_path):
     path = tmp_path / "traits.tsv.gz"
     _write_gz_tsv(path, _valid_sumstats_text(include_optional=True))
@@ -470,6 +552,33 @@ def test_octave_strict_required_numeric_validation(tmp_path):
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().splitlines()[-1] == "1 1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_sumstats_explicit_nan_tokens(tmp_path):
+    optional_nan = tmp_path / "optional_nan.tsv.gz"
+    _write_gz_tsv(
+        optional_nan,
+        "chr\tbp\ta1\ta2\tz\tn\tp\tbeta\tse\teaf\tinfo\n"
+        "1\t100\tA\tG\t1.0\t1000\tNaN\tNaN\tNaN\tNaN\tNaN\n",
+    )
+    required_nan = tmp_path / "required_nan.tsv.gz"
+    _write_gz_tsv(
+        required_nan,
+        "chr\tbp\ta1\ta2\tz\tn\n"
+        "1\t100\tA\tG\tNaN\t1000\n",
+    )
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"s = statgen.load_sumstats('{optional_nan}', ref); "
+        "ok = [isnan(s.logpvec(1)), isnan(s.beta_vec(1)), isnan(s.se_vec(1)), isnan(s.eaf_vec(1)), isnan(s.info_vec(1))]; "
+        f"required_fails = 0; try; statgen.load_sumstats('{required_nan}', ref); catch; required_fails = 1; end; "
+        "fprintf('%d %d %d %d %d %d\\n', ok, required_fails);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1 1"
 
 
 @pytest.mark.octave

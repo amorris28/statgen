@@ -83,8 +83,8 @@ function bim = parse_bim_(path)
 
     chr_out = raw_cols{1};
     snp_out = raw_cols{2};
-    cm_raw  = raw_cols{3};
-    bp_raw  = raw_cols{4};
+    cm_out  = raw_cols{3};
+    bp_out  = raw_cols{4};
     a1_out  = raw_cols{5};
     a2_out  = raw_cols{6};
 
@@ -128,18 +128,16 @@ function bim = parse_bim_(path)
             '%s:%d: a2 must be uppercase DNA bases (A/C/G/T): %s', path, lineno, a2_out{lineno});
     end
 
-    cm_out = str2double(cm_raw);
     bad_cm = isnan(cm_out);
     if any(bad_cm)
         lineno = find(bad_cm, 1, 'first');
-        error('statgen:bim', '%s:%d: cm is not a number: %s', path, lineno, cm_raw{lineno});
+        error('statgen:bim', '%s:%d: cm is not a number', path, lineno);
     end
 
-    bp_out = str2double(bp_raw);
     bad_bp = isnan(bp_out) | (bp_out ~= floor(bp_out));
     if any(bad_bp)
         lineno = find(bad_bp, 1, 'first');
-        error('statgen:bim', '%s:%d: bp is not an integer: %s', path, lineno, bp_raw{lineno});
+        error('statgen:bim', '%s:%d: bp is not an integer', path, lineno);
     end
 
     keep = ismember(chr_out, canonical);
@@ -208,7 +206,7 @@ function [cols, n_rows] = read_bim_tabular_(path)
         error('statgen:io', 'Cannot open BIM file: %s', path);
     end
     cleaner = onCleanup(@() fclose(fid));
-    raw_cols = textscan(fid, '%s%s%s%s%s%s', ...
+    raw_cols = textscan(fid, '%s%s%f%f%s%s', ...
         'Delimiter', '\t', ...
         'Whitespace', '', ...
         'MultipleDelimsAsOne', false, ...
@@ -216,8 +214,11 @@ function [cols, n_rows] = read_bim_tabular_(path)
     clear cleaner;
 
     cols = cell(1, 6);
-    for c = 1:6
+    for c = [1 2 5 6]
         cols{c} = statgen.internal.ensure_cell_col(raw_cols{c});
+    end
+    for c = [3 4]
+        cols{c} = double(raw_cols{c}(:));
     end
     n_rows = numel(cols{1});
 end

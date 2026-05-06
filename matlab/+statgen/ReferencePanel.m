@@ -11,6 +11,8 @@ classdef ReferencePanel
         bp             % num_snp×1 double vector of base-pair positions
         a1             % num_snp×1 cell array
         a2             % num_snp×1 cell array
+        a1_hash64      % num_snp×1 uint64 vector
+        a2_hash64      % num_snp×1 uint64 vector
     end
 
     methods
@@ -76,6 +78,24 @@ classdef ReferencePanel
             vals = cell(numel(obj.shards), 1);
             for i = 1:numel(obj.shards)
                 vals{i} = obj.shards{i}.a2;
+            end
+            out = vertcat(vals{:});
+        end
+
+        function out = get.a1_hash64(obj)
+            if isempty(obj.shards), out = zeros(0, 1, 'uint64'); return; end
+            vals = cell(numel(obj.shards), 1);
+            for i = 1:numel(obj.shards)
+                vals{i} = obj.shards{i}.a1_hash64;
+            end
+            out = vertcat(vals{:});
+        end
+
+        function out = get.a2_hash64(obj)
+            if isempty(obj.shards), out = zeros(0, 1, 'uint64'); return; end
+            vals = cell(numel(obj.shards), 1);
+            for i = 1:numel(obj.shards)
+                vals{i} = obj.shards{i}.a2_hash64;
             end
             out = vertcat(vals{:});
         end
@@ -186,10 +206,16 @@ classdef ReferencePanel
 end
 
 function validate_reference_checksum_(shard)
-    bp_str = cellstr(num2str(round(shard.bp), '%d'));
-    parts = strcat(shard.chr, {':'}, bp_str, {':'}, shard.a1, {':'}, shard.a2, {sprintf('\n')});
-    text_payload = [parts{:}];
-    computed = statgen.internal.md5_hex(text_payload);
+    try
+        bp_str = cellstr(num2str(round(shard.bp), '%d'));
+        parts = strcat(shard.chr, {':'}, bp_str, {':'}, shard.a1, {':'}, shard.a2, {sprintf('\n')});
+        text_payload = [parts{:}];
+        computed = statgen.internal.md5_hex(text_payload);
+    catch ME
+        error('statgen:cache', ...
+            'Reference checksum validation requires full reference fields; reload cache with full=true (%s)', ...
+            ME.message);
+    end
     if ~strcmp(computed, shard.checksum)
         error('statgen:cache', 'Reference checksum mismatch for shard %s', shard.label);
     end
