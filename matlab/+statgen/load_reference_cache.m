@@ -3,18 +3,22 @@ function panel = load_reference_cache(path, varargin)
 %
 %   panel = statgen.load_reference_cache(path)
 %   panel = statgen.load_reference_cache(path, shards)
-%   panel = statgen.load_reference_cache(path, 'full', true)
-%   panel = statgen.load_reference_cache(path, shards, 'full', true)
-    [shards, full_load] = parse_args_(varargin{:});
+%
+% The cache mode is read from metadata.mode. Save full or thin caches with
+% statgen.save_reference_cache(..., 'mode', 'full'|'thin').
+    shards = parse_args_(varargin{:});
 
     path = char(path);
-    if full_load
-        loaded = load(path, 'metadata', 'chr', 'snp', 'bp', 'a1', 'a2', 'a1_hash64', 'a2_hash64');
+    meta_loaded = load(path, 'metadata');
+    require_field_(meta_loaded, 'metadata');
+    meta = meta_loaded.metadata;
+    mode = validate_cache_mode_(meta);
+    if strcmp(mode, 'full')
+        loaded = load(path, 'chr', 'snp', 'bp', 'a1', 'a2', 'a1_hash64', 'a2_hash64');
     else
-        loaded = load(path, 'metadata', 'bp', 'a1_hash64', 'a2_hash64');
+        loaded = load(path, 'bp', 'a1_hash64', 'a2_hash64');
     end
 
-    meta = loaded.metadata;
     require_field_(loaded, 'bp');
     require_field_(loaded, 'a1_hash64');
     require_field_(loaded, 'a2_hash64');
@@ -27,7 +31,7 @@ function panel = load_reference_cache(path, varargin)
         error('statgen:cache', 'Invalid reference cache: allele hash vector lengths mismatch');
     end
 
-    if full_load
+    if strcmp(mode, 'full')
         require_field_(loaded, 'chr');
         require_field_(loaded, 'snp');
         require_field_(loaded, 'a1');
@@ -49,7 +53,7 @@ function panel = load_reference_cache(path, varargin)
         idx = find(strcmp(labels, label), 1, 'first');
         ix = (start0(idx) + 1):stop0(idx);
 
-        if full_load
+        if strcmp(mode, 'full')
             shard_obj = statgen.ReferenceShard( ...
                 labels{idx}, chr(ix), snp(ix), bp(ix), a1(ix), a2(ix), ...
                 checksums{idx});
@@ -64,32 +68,21 @@ function panel = load_reference_cache(path, varargin)
     panel = statgen.ReferencePanel(shard_objs);
 end
 
-function [shards, full_load] = parse_args_(varargin)
+function shards = parse_args_(varargin)
     shards = [];
-    full_load = false;
-    args = varargin;
-    if ~isempty(args) && ~(is_name_(args{1}, 'full'))
-        shards = args{1};
-        args = args(2:end);
+    if numel(varargin) > 1
+        error('statgen:arg', 'load_reference_cache accepts path and optional shards; cache mode is saved in metadata');
     end
-    if isempty(args)
-        return
+    if ~isempty(varargin)
+        if is_name_(varargin{1}, 'full') || is_name_(varargin{1}, 'mode')
+            error('statgen:arg', 'load_reference_cache no longer accepts full/mode options; save full or thin cache mode with save_reference_cache');
+        end
+        shards = varargin{1};
     end
-    if numel(args) ~= 2 || ~is_name_(args{1}, 'full')
-        error('statgen:arg', 'load_reference_cache accepts path, optional shards, and optional full name-value');
-    end
-    full_load = parse_logical_scalar_(args{2}, 'full');
 end
 
 function tf = is_name_(x, name)
     tf = (ischar(x) || isstring(x)) && strcmpi(char(x), name);
-end
-
-function out = parse_logical_scalar_(x, name)
-    if ~(islogical(x) || isnumeric(x)) || ~isscalar(x)
-        error('statgen:arg', '%s must be a logical scalar', name);
-    end
-    out = logical(x);
 end
 
 function require_field_(loaded, name)
@@ -98,6 +91,22 @@ function require_field_(loaded, name)
             error('statgen:cache', 'reference cache missing a1_hash64/a2_hash64; rebuild cache');
         end
         error('statgen:cache', 'Invalid reference cache: missing %s', name);
+    end
+end
+
+function mode = validate_cache_mode_(meta)
+    if ~isfield(meta, 'schema') || ~strcmp(meta.schema, 'reference_cache/0.1')
+        if isfield(meta, 'schema')
+            error('statgen:cache', 'Unsupported reference cache schema: %s', meta.schema);
+        end
+        error('statgen:cache', 'Unsupported reference cache schema');
+    end
+    if ~isfield(meta, 'mode')
+        error('statgen:cache', 'reference cache missing mode; delete and rebuild old cache');
+    end
+    mode = lower(char(meta.mode));
+    if ~any(strcmp(mode, {'full', 'thin'}))
+        error('statgen:cache', 'Invalid reference cache mode: %s', mode);
     end
 end
 

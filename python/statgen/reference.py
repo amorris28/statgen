@@ -511,12 +511,18 @@ def load_reference(path, shards=None) -> ReferencePanel:
     return ReferencePanel(out_shards)
 
 
-def save_reference_cache(panel: ReferencePanel, path) -> None:
+def save_reference_cache(panel: ReferencePanel, path, mode: str = "full") -> None:
+    mode = str(mode).lower()
+    if mode not in {"full", "thin"}:
+        raise ValueError("save_reference_cache mode must be 'full' or 'thin'")
+
     # Metadata (schema, labels, checksums) as a compact JSON blob stored in the npz.
     # SNP-axis numeric vectors (bp) and string arrays are stored as native
     # binary numpy arrays — not JSON — per the performance contract.
+    # Python keeps reference caches full even when mode='thin' is requested.
     meta = {
         "schema": _CACHE_SCHEMA,
+        "mode": "full",
         "shard_labels": [s.label for s in panel.shards],
         "shard_checksums": [s.checksum for s in panel.shards],
     }
@@ -541,6 +547,11 @@ def load_reference_cache(path, shards=None) -> ReferencePanel:
         schema = meta.get("schema")
         if schema != _CACHE_SCHEMA:
             raise ValueError(f"Unsupported reference cache schema: {schema!r}")
+        mode = meta.get("mode")
+        if mode is None:
+            raise ValueError("reference cache missing mode; delete and rebuild old cache")
+        if mode != "full":
+            raise ValueError(f"Unsupported Python reference cache mode: {mode!r}")
 
         labels = list(meta.get("shard_labels", []))
         checksums = list(meta.get("shard_checksums", []))

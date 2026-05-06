@@ -143,6 +143,7 @@ a2_hash64
 
 ```text
 schema = "reference_cache/0.1"
+mode = "full" | "thin"
 n_shards
 shard_labels
 shard_checksums
@@ -150,54 +151,54 @@ shard_start0
 shard_stop0
 ```
 
-`chr`, `snp`, `a1`, and `a2` are panel-wide cell arrays of strings. `bp` is a
+`mode` is a cache-file property selected when the cache is saved. In `full`
+mode, `chr`, `snp`, `a1`, and `a2` are panel-wide cell arrays of strings. In
+`thin` mode, those string variables are omitted from the cache file. `bp` is a
 panel-wide numeric vector. `a1_hash64` and `a2_hash64` are panel-wide `uint64`
 vectors. The BIM `cm` field is not cached. Shard offsets are zero-based
 half-open intervals into the panel-wide variables and are sufficient to
 reconstruct `ReferenceShard` objects. Cache metadata validation should be cheap,
 depending on shard count and array dimensions rather than scanning all SNP
-values. `load_reference_cache` trusts stored shard checksums, matching the
-cache behavior of reference-aligned objects that cannot recompute those
-checksums themselves. Callers who want to verify reference cache integrity may
-explicitly call `ReferencePanel.validate_checksums()`.
+values. Cache loaders must reject caches without `metadata.mode`; users must
+delete and rebuild old caches after this format change. `load_reference_cache`
+trusts stored shard checksums, matching the cache behavior of reference-aligned
+objects that cannot recompute those checksums themselves. Callers who want to
+verify reference cache integrity may explicitly call
+`ReferencePanel.validate_checksums()`.
 
-## MATLAB/Octave thin cache loading
+## Full and thin reference caches
 
 The `a1_hash64`/`a2_hash64` cache fields and sumstats matching semantics are
-cross-runtime object contracts. Thin reference-cache loading is
-MATLAB/Octave-specific implementation behavior, motivated by the high cost of
-deserializing large `.mat` cell arrays of strings.
-
-MATLAB/Octave `load_reference_cache` defaults to a thin load. The thin load
-reads only `metadata`, `bp`, `a1_hash64`, and `a2_hash64`; it does not deserialize
-the cached `chr`, `snp`, `a1`, or `a2` string cell arrays. A full load is
-requested explicitly:
+cross-runtime object contracts. Thin reference caches are motivated by the high
+cost of deserializing large `.mat` cell arrays of strings in MATLAB/Octave.
+Users who need both fast matching and full inspection/export workflows should
+save both versions from the same source reference:
 
 ```text
-load_reference_cache(path, optional shards, full=true) -> ReferencePanel
+save_reference_cache(reference, "reference.full.mat", mode="full")
+save_reference_cache(reference, "reference.thin.mat", mode="thin")
 ```
 
-or, in MATLAB/Octave name-value syntax:
+`full` is the default `save_reference_cache` mode. `load_reference_cache` does
+not accept a full/thin preference; it loads the mode declared by cache metadata.
+Thin references synthesize `ReferencePanel.chr` lazily on access, without
+caching the synthesized vector. For each internal shard, synthesis repeats that
+shard's label `num_snp` times; the panel accessor concatenates those shard-level
+vectors in panel order. Thin-reference `snp`, `a1`, and `a2` accessors must fail
+clearly and instruct the caller to load a full reference cache. `bp`,
+`a1_hash64`, and `a2_hash64` are available in both thin and full caches. Full
+cache loads may validate that saved `chr` agrees with shard labels.
 
-```matlab
-reference = statgen.load_reference_cache(path, 'full', true)
-reference = statgen.load_reference_cache(path, shards, 'full', true)
-```
-
-Thin-loaded references synthesize `ReferencePanel.chr` lazily on access,
-without caching the synthesized vector. For each internal shard, synthesis
-repeats that shard's label `num_snp` times; the panel accessor concatenates
-those shard-level vectors in panel order. Thin-loaded `snp`, `a1`, and `a2`
-accessors must fail clearly and instruct the caller to reload with `full=true`.
-`bp`, `a1_hash64`, and `a2_hash64` are available in both thin and full loads.
-Full loads may validate that saved `chr` agrees with shard labels.
+Python implementations may accept the `mode` save option but always emit full
+reference caches. In that case the saved metadata must still declare
+`mode = "full"`.
 
 ## API
 
 ```text
 load_reference(path, optional shards) -> ReferencePanel
-save_reference_cache(panel, path, optional format)
-load_reference_cache(path, optional shards, optional full=false) -> ReferencePanel
+save_reference_cache(panel, path, optional mode="full", optional format) -> void
+load_reference_cache(path, optional shards) -> ReferencePanel
 
 ReferencePanel.num_snp -> int
 ReferencePanel.chr -> num_snp chromosome-label vector
@@ -229,13 +230,13 @@ Expected behavior:
   `a1_hash64` and `a2_hash64` value.
 - Accessors are read-only, concatenate shard columns in reference panel order,
   and return plain language-native vectors or tables.
-- MATLAB/Octave thin-loaded cache references may omit `snp`, `a1`, and `a2`
-  payloads in memory; those accessors must fail clearly unless the reference
-  was loaded with `full=true`. Thin-loaded `chr` is synthesized lazily by
-  repeating each shard label `num_snp` times and concatenating shard vectors in
-  panel order, without caching. Thin-loaded `bp`, `a1_hash64`, and `a2_hash64`
-  are available. Other runtimes may load all cache fields by default while
-  preserving the same object contract.
+- Thin cache references omit `snp`, `a1`, and `a2` payloads; those accessors
+  must fail clearly unless a full reference cache was loaded. Thin `chr` is
+  synthesized lazily by repeating each shard label `num_snp` times and
+  concatenating shard vectors in panel order, without caching. Thin `bp`,
+  `a1_hash64`, and `a2_hash64` are available. Other runtimes may accept the
+  thin save option while still writing full caches, as long as the metadata
+  accurately records `mode = "full"`.
 - `shard_offsets` uses zero-based half-open intervals into genome-wide arrays.
 - `shard_offsets.start0`/`stop0` are cross-language coordinate metadata, not
   direct language indices. MATLAB/Octave callers convert at use-site
@@ -243,11 +244,12 @@ Expected behavior:
 - `load_reference_cache` skips source-style row validation; `shards` subsetting
   applies against cached shard labels per
   [contigs-and-shards.md](contigs-and-shards.md).
-- `load_reference_cache` validates shard-offset metadata and panel-wide vector
-  lengths cheaply before reconstructing shard objects. MATLAB/Octave's default
-  thin load validates only the loaded panel-wide payloads (`bp`, `a1_hash64`,
-  and `a2_hash64`) plus metadata. A full load also validates full-field vector
-  lengths. Cache loaders trust stored shard checksums and do not recompute them.
+- `load_reference_cache` validates cache mode, shard-offset metadata, and
+  panel-wide vector lengths cheaply before reconstructing shard objects. A thin
+  cache load validates only the loaded panel-wide payloads (`bp`, `a1_hash64`,
+  and `a2_hash64`) plus metadata. A full cache load also validates full-field
+  vector lengths. Cache loaders trust stored shard checksums and do not
+  recompute them.
 - `ReferencePanel.validate_checksums()` recomputes each shard checksum from the
   current `chr`, `bp`, `a1`, and `a2` values, compares it to the stored
   `ReferenceShard.checksum`, fails on mismatch with the shard label, and

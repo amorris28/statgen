@@ -243,6 +243,23 @@ def test_cache_roundtrip(tmp_path):
         assert list(s1.a1) == list(s2.a1)
         assert list(s1.a2) == list(s2.a2)
         assert not hasattr(s2, "cm")
+    with np.load(cache, allow_pickle=False) as data:
+        import json
+        meta = json.loads(bytes(data["_meta"]).decode())
+    assert meta["mode"] == "full"
+
+
+def test_cache_thin_mode_request_is_accepted_but_python_saves_full(tmp_path):
+    panel = load_reference(SHARDED)
+    cache = tmp_path / "ref.npz"
+    save_reference_cache(panel, cache, mode="thin")
+    loaded = load_reference_cache(cache)
+    assert list(loaded.snp) == list(panel.snp)
+    with np.load(cache, allow_pickle=False) as data:
+        import json
+        meta = json.loads(bytes(data["_meta"]).decode())
+        assert meta["mode"] == "full"
+        assert "s0_snp" in data.files
 
 
 def test_cache_shards_subset(tmp_path):
@@ -272,6 +289,19 @@ def test_cache_wrong_schema(tmp_path):
     bad_npz = tmp_path / "bad.npz"
     np.savez_compressed(bad_npz, _meta=np.frombuffer(bad_meta, dtype=np.uint8))
     with pytest.raises(ValueError, match="Unsupported"):
+        load_reference_cache(bad_npz)
+
+
+def test_cache_missing_mode_rejected(tmp_path):
+    import json
+    bad_meta = json.dumps({
+        "schema": "reference_cache/0.1",
+        "shard_labels": [],
+        "shard_checksums": [],
+    }).encode()
+    bad_npz = tmp_path / "bad.npz"
+    np.savez_compressed(bad_npz, _meta=np.frombuffer(bad_meta, dtype=np.uint8))
+    with pytest.raises(ValueError, match="delete and rebuild old cache"):
         load_reference_cache(bad_npz)
 
 
@@ -534,48 +564,57 @@ def test_octave_bp_vector():
 @pytest.mark.octave
 @skipif_no_octave
 def test_octave_cache_roundtrip(tmp_path):
-    cache_path = str(tmp_path / "ref_cache.mat")
+    full_cache_path = str(tmp_path / "ref_cache_full.mat")
+    thin_cache_path = str(tmp_path / "ref_cache_thin.mat")
     script = _octave_script(
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
-        f"statgen.save_reference_cache(ref, '{cache_path}'); "
-        f"ref2 = statgen.load_reference_cache('{cache_path}'); "
-        f"ref3 = statgen.load_reference_cache('{cache_path}', 'full', true); "
+        f"statgen.save_reference_cache(ref, '{full_cache_path}'); "
+        f"statgen.save_reference_cache(ref, '{thin_cache_path}', 'mode', 'thin'); "
+        f"ref2 = statgen.load_reference_cache('{full_cache_path}'); "
+        f"ref3 = statgen.load_reference_cache('{thin_cache_path}'); "
         f"fprintf('%d\\n', ref2.num_snp); "
+        f"fprintf('%d\\n', ref3.num_snp); "
         f"for i = 1:numel(ref2.shards); "
         f"  fprintf('%s %s\\n', ref2.shards{{i}}.label, ref2.shards{{i}}.checksum); "
         f"end; "
-        f"thin_ok = isequal(ref.chr, ref2.chr) && isequal(ref.bp, ref2.bp) && isequal(ref.a1_hash64, ref2.a1_hash64) && isequal(ref.a2_hash64, ref2.a2_hash64); "
-        f"thin_snp_fails = 0; try; ref2.snp; catch; thin_snp_fails = 1; end; "
-        f"thin_validate_fails = 0; try; ref2.validate_checksums(); catch; thin_validate_fails = 1; end; "
-        f"fprintf('%d\\n', thin_ok); "
-        f"fprintf('%d\\n', thin_snp_fails); "
-        f"fprintf('%d\\n', thin_validate_fails); "
-        f"ok = 1; "
+        f"full_ok = 1; "
         f"for i = 1:numel(ref.shards); "
-        f"  s1 = ref.shards{{i}}; s2 = ref3.shards{{i}}; "
-        f"  ok = ok && isequal(s1.chr, s2.chr) && isequal(s1.snp, s2.snp) "
+        f"  s1 = ref.shards{{i}}; s2 = ref2.shards{{i}}; "
+        f"  full_ok = full_ok && isequal(s1.chr, s2.chr) && isequal(s1.snp, s2.snp) "
         f"           && isequal(s1.bp, s2.bp) && isequal(s1.a1, s2.a1) && isequal(s1.a2, s2.a2) "
         f"           && isequal(s1.a1_hash64, s2.a1_hash64) && isequal(s1.a2_hash64, s2.a2_hash64); "
         f"end; "
-        f"fprintf('%d\\n', ok); "
-        f"fprintf('%d\\n', ref3.validate_checksums()); "
-        f"s = load('{cache_path}'); "
-        f"fprintf('%d %d %d %d %d %d\\n', isfield(s, 'metadata'), isfield(s, 'chr'), isfield(s, 'a1_hash64'), isfield(s, 'a2_hash64'), isfield(s, 'cache_shards'), isfield(s, 'cm')); "
-        f"fprintf('%d %d %d\\n', numel(s.chr), s.metadata.shard_start0(1), s.metadata.shard_stop0(end));"
+        f"thin_ok = isequal(ref.chr, ref3.chr) && isequal(ref.bp, ref3.bp) && isequal(ref.a1_hash64, ref3.a1_hash64) && isequal(ref.a2_hash64, ref3.a2_hash64); "
+        f"thin_snp_fails = 0; try; ref3.snp; catch; thin_snp_fails = 1; end; "
+        f"thin_validate_fails = 0; try; ref3.validate_checksums(); catch; thin_validate_fails = 1; end; "
+        f"fprintf('%d\\n', full_ok); "
+        f"fprintf('%d\\n', ref2.validate_checksums()); "
+        f"fprintf('%d\\n', thin_ok); "
+        f"fprintf('%d\\n', thin_snp_fails); "
+        f"fprintf('%d\\n', thin_validate_fails); "
+        f"s_full = load('{full_cache_path}'); "
+        f"s_thin = load('{thin_cache_path}'); "
+        f"fprintf('%d %d %d %d %d %d\\n', isfield(s_full, 'metadata'), isfield(s_full, 'chr'), isfield(s_full, 'a1_hash64'), isfield(s_full, 'a2_hash64'), isfield(s_full, 'cache_shards'), isfield(s_full, 'cm')); "
+        f"fprintf('%s %d %d %d\\n', s_full.metadata.mode, numel(s_full.chr), s_full.metadata.shard_start0(1), s_full.metadata.shard_stop0(end)); "
+        f"fprintf('%d %d %d %d %d %d\\n', isfield(s_thin, 'metadata'), isfield(s_thin, 'chr'), isfield(s_thin, 'snp'), isfield(s_thin, 'bp'), isfield(s_thin, 'a1_hash64'), isfield(s_thin, 'a2_hash64')); "
+        f"fprintf('%s %d %d %d\\n', s_thin.metadata.mode, numel(s_thin.bp), s_thin.metadata.shard_start0(1), s_thin.metadata.shard_stop0(end));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     lines = result.stdout.strip().splitlines()
     assert lines[0] == "8"
-    assert lines[1] == f"1 {CHR1_CHECKSUM}"
-    assert lines[2] == f"X {CHRX_CHECKSUM}"
-    assert lines[3] == "1"
+    assert lines[1] == "8"
+    assert lines[2] == f"1 {CHR1_CHECKSUM}"
+    assert lines[3] == f"X {CHRX_CHECKSUM}"
     assert lines[4] == "1"
     assert lines[5] == "1"
     assert lines[6] == "1"
     assert lines[7] == "1"
-    assert lines[8] == "1 1 1 1 0 0"
-    assert lines[9] == "8 0 8"
+    assert lines[8] == "1"
+    assert lines[9] == "1 1 1 1 0 0"
+    assert lines[10] == "full 8 0 8"
+    assert lines[11] == "1 0 0 1 1 1"
+    assert lines[12] == "thin 8 0 8"
 
 
 @pytest.mark.octave
@@ -590,7 +629,7 @@ def test_octave_reference_cache_trusts_checksum_until_explicit_validation(tmp_pa
         "metadata = L.metadata; chr = L.chr; snp = L.snp; bp = L.bp; a1 = L.a1; a2 = L.a2; a1_hash64 = L.a1_hash64; a2_hash64 = L.a2_hash64; "
         "a1{1} = 'T'; "
         f"save('{bad_cache_path}', 'metadata', 'chr', 'snp', 'bp', 'a1', 'a2', 'a1_hash64', 'a2_hash64'); "
-        f"ref2 = statgen.load_reference_cache('{bad_cache_path}', 'full', true); "
+        f"ref2 = statgen.load_reference_cache('{bad_cache_path}'); "
         "ok1 = ref2.num_snp == 8; "
         "ok2 = 0; try; ref2.validate_checksums(); catch; ok2 = 1; end; "
         "fprintf('%d\\n', ok1); "

@@ -59,21 +59,21 @@ classdef ReferenceShard
 
         function out = get.snp(obj)
             if obj.is_thin
-                error('statgen:cache', 'Reference field snp is unavailable in thin cache load; reload with full=true');
+                error('statgen:cache', 'Reference field snp is unavailable in thin reference cache; load a full reference cache');
             end
             out = obj.snp_data;
         end
 
         function out = get.a1(obj)
             if obj.is_thin
-                error('statgen:cache', 'Reference field a1 is unavailable in thin cache load; reload with full=true');
+                error('statgen:cache', 'Reference field a1 is unavailable in thin reference cache; load a full reference cache');
             end
             out = obj.a1_data;
         end
 
         function out = get.a2(obj)
             if obj.is_thin
-                error('statgen:cache', 'Reference field a2 is unavailable in thin cache load; reload with full=true');
+                error('statgen:cache', 'Reference field a2 is unavailable in thin reference cache; load a full reference cache');
             end
             out = obj.a2_data;
         end
