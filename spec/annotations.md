@@ -29,6 +29,10 @@ BED comment lines are skipped before parsing columns 1–3:
 - empty lines;
 - lines starting with `#`.
 
+Comment and blank lines are only valid before the first data row. A `#`-prefixed
+or blank line after a data row has begun is not supported and will be treated as
+a parse error.
+
 `track` and `browser` metadata lines are not supported. If present in a file,
 they must be prefixed with `#` before loading.
 

@@ -203,29 +203,6 @@ function validate_reference_sort_order_(chr_col, bp_col, a1_col, a2_col, path, l
 end
 
 function [cols, n_rows] = read_bim_tabular_(path)
-    if exist('readtable', 'file') == 2
-        tbl = readtable(path, ...
-            'FileType', 'text', ...
-            'Delimiter', '\t', ...
-            'Format', '%s%s%s%s%s%s', ...
-            'ReadVariableNames', false, ...
-            'TextType', 'char');
-
-        if width(tbl) ~= 6
-            error('statgen:bim', '%s: expected 6 tab-separated columns, got %d', ...
-                path, width(tbl));
-        end
-
-        n_rows = height(tbl);
-        cols = cell(1, 6);
-        for c = 1:6
-            cols{c} = statgen.internal.ensure_cell_col(tbl{:, c});
-        end
-        return
-    end
-
-    % Octave compatibility: readtable is unavailable in some builds.
-    % Use textscan as a native tabular-reader equivalent.
     fid = fopen(path, 'r');
     if fid < 0
         error('statgen:io', 'Cannot open BIM file: %s', path);

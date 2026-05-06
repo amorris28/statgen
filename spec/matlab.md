@@ -127,18 +127,23 @@ They return a scalar logical and do not throw.
   schema for mixed-label columns (for example `chr`) rather than auto-inference.
   This avoids label coercion (for example `X` becoming `NaN`) and preserves
   input-contract semantics.
-- Tabular file reading uses one of two patterns depending on whether the file
-  format requires comment/blank-line filtering before column parsing:
-  - **No filtering needed** (e.g. BIM): try `readtable` first (MATLAB), fall back
-    to a column-format `textscan` call for Octave, guarded by
-    `exist('readtable', 'file') == 2`. See `load_reference.m:read_bim_tabular_`.
-  - **Comment/blank-line filtering needed** (e.g. BED): two-pass `textscan`.
-    First pass reads all lines with `'Delimiter', '\n'`; `cellfun` filters blank
-    and `'#'`-prefixed lines; second pass re-parses the filtered content with a
-    column format via `textscan(strjoin(lines, '\n'), '%s%s...', 'Delimiter', '\t', ...)`.
-    `readtable` is not used for this case because it does not support the
-    required pre-filter step portably across MATLAB and Octave.
-    See `load_annotations.m:read_bed_tabular_`.
+- Tabular file reading uses `textscan` throughout. `readtable` is not used;
+  `textscan` runs identically under MATLAB and Octave and keeps a single code
+  path on both runtimes. Two patterns cover all current formats:
+  - **Fixed schema, no filtering** (e.g. BIM): `textscan` with a fixed
+    6-column `'%s%s%s%s%s%s'` format, `'Delimiter', '\t'`,
+    `'Whitespace', ''`, `'MultipleDelimsAsOne', false`.
+    See `load_reference.m:read_bim_tabular_`.
+  - **Dynamic schema or leading comment/blank filtering** (e.g. BED, sumstats
+    TSV): probe-and-seek or header-read `textscan`. For BED, a `fgetl` loop
+    skips leading blank and `'#'`-prefixed lines to find the first data line,
+    then `fseek` repositions there; for TSV, a single `fgetl` reads the header
+    line and the file position advances naturally. In both cases the format
+    string is built dynamically as `repmat('%s', 1, n_cols)` from the probed
+    column count. `textscan` requires an exact column count with tab delimiter;
+    a fixed under-count confuses the parser. For BED, `#`-prefixed lines are
+    not permitted after the first data row so `CommentStyle` is not needed.
+    See `load_annotations.m:read_bed_tabular_`, `load_sumstats.m`.
 - Internal struct metadata keys must be valid MATLAB identifiers (for example
   `statgen_var_names__`), not names that rely on permissive dynamic-field
   behavior (for example leading-underscore keys such as `_var_names`), because
