@@ -12,8 +12,9 @@ classdef ReferenceShard
     end
 
     methods
-        function obj = ReferenceShard(label, chr_vec, snp_vec, bp_vec, a1_vec, a2_vec)
+        function obj = ReferenceShard(label, chr_vec, snp_vec, bp_vec, a1_vec, a2_vec, checksum)
             if nargin == 0, return; end
+            if nargin < 7, checksum = ''; end
             obj.label   = char(label);
             obj.num_snp = numel(chr_vec);
             obj.chr     = chr_vec(:);
@@ -21,26 +22,19 @@ classdef ReferenceShard
             obj.bp      = double(bp_vec(:));
             obj.a1      = a1_vec(:);
             obj.a2      = a2_vec(:);
-            % MD5 over 'chr:bp:a1:a2\n' lines in row order
-            bp_str = cellstr(num2str(round(obj.bp), '%d'));
-            parts = strcat(obj.chr, {':'}, bp_str, {':'}, obj.a1, {':'}, obj.a2, {sprintf('\n')});
-            text_payload = [parts{:}];
-            computed = md5_hex_(text_payload);
-            obj.checksum = computed;
+            if ~isempty(checksum)
+                obj.checksum = char(checksum);
+            else
+                obj.checksum = reference_checksum_(obj.chr, obj.bp, obj.a1, obj.a2);
+            end
         end
     end
 end
 
-function out = md5_hex_(text_payload)
-    try
-        out = lower(hash('md5', text_payload));
-        return
-    catch
-        % MATLAB path: use Java MessageDigest when hash(...) is unavailable.
-    end
-
-    md = java.security.MessageDigest.getInstance('MD5');
-    md.update(uint8(text_payload));
-    d = typecast(md.digest(), 'uint8');
-    out = lower(reshape(dec2hex(d)', 1, []));
+function out = reference_checksum_(chr, bp, a1, a2)
+    % MD5 over 'chr:bp:a1:a2\n' lines in row order
+    bp_str = cellstr(num2str(round(bp), '%d'));
+    parts = strcat(chr, {':'}, bp_str, {':'}, a1, {':'}, a2, {sprintf('\n')});
+    text_payload = [parts{:}];
+    out = statgen.internal.md5_hex(text_payload);
 end

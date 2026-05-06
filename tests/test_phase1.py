@@ -61,6 +61,11 @@ def test_sharded_checksums():
     assert panel.shards[1].checksum == CHRX_CHECKSUM
 
 
+def test_validate_checksums_passes_for_loaded_reference():
+    panel = load_reference(SHARDED)
+    assert panel.validate_checksums() is True
+
+
 def test_nonsharded_split_by_chr():
     panel = load_reference(NONSHARDED)
     assert [s.label for s in panel.shards] == ["1", "X"]
@@ -258,6 +263,24 @@ def test_cache_wrong_schema(tmp_path):
     np.savez_compressed(bad_npz, _meta=np.frombuffer(bad_meta, dtype=np.uint8))
     with pytest.raises(ValueError, match="Unsupported"):
         load_reference_cache(bad_npz)
+
+
+def test_cache_load_trusts_checksum_until_explicit_validation(tmp_path):
+    panel = load_reference(SHARDED)
+    cache = tmp_path / "ref.npz"
+    save_reference_cache(panel, cache)
+
+    with np.load(cache, allow_pickle=False) as data:
+        arrays = {k: data[k] for k in data.files}
+    arrays["s0_a1"] = arrays["s0_a1"].copy()
+    arrays["s0_a1"][0] = "T"
+    bad_cache = tmp_path / "bad_payload.npz"
+    np.savez_compressed(bad_cache, **arrays)
+
+    loaded = load_reference_cache(bad_cache)
+    assert loaded.shards[0].checksum == CHR1_CHECKSUM
+    with pytest.raises(ValueError, match="Reference checksum mismatch for shard 1"):
+        loaded.validate_checksums()
 
 
 # ---------------------------------------------------------------------------
@@ -517,8 +540,10 @@ def test_octave_cache_roundtrip(tmp_path):
         f"           && isequal(s1.bp, s2.bp) && isequal(s1.a1, s2.a1) && isequal(s1.a2, s2.a2); "
         f"end; "
         f"fprintf('%d\\n', ok); "
+        f"fprintf('%d\\n', ref2.validate_checksums()); "
         f"s = load('{cache_path}'); "
-        f"fprintf('%d\\n', isfield(s.cache_shards, 'cm'));"
+        f"fprintf('%d %d %d %d\\n', isfield(s, 'metadata'), isfield(s, 'chr'), isfield(s, 'cache_shards'), isfield(s, 'cm')); "
+        f"fprintf('%d %d %d\\n', numel(s.chr), s.metadata.shard_start0(1), s.metadata.shard_stop0(end));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
@@ -527,7 +552,36 @@ def test_octave_cache_roundtrip(tmp_path):
     assert lines[1] == f"1 {CHR1_CHECKSUM}"
     assert lines[2] == f"X {CHRX_CHECKSUM}"
     assert lines[3] == "1"
-    assert lines[4] == "0"
+    assert lines[4] == "1"
+    assert lines[5] == "1 1 0 0"
+    assert lines[6] == "8 0 8"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_reference_cache_trusts_checksum_until_explicit_validation(tmp_path):
+    cache_path = str(tmp_path / "ref_cache.mat")
+    bad_cache_path = str(tmp_path / "ref_cache_bad_payload.mat")
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"statgen.save_reference_cache(ref, '{cache_path}'); "
+        f"L = load('{cache_path}'); "
+        "metadata = L.metadata; chr = L.chr; snp = L.snp; bp = L.bp; a1 = L.a1; a2 = L.a2; "
+        "a1{1} = 'T'; "
+        f"save('{bad_cache_path}', 'metadata', 'chr', 'snp', 'bp', 'a1', 'a2'); "
+        f"ref2 = statgen.load_reference_cache('{bad_cache_path}'); "
+        "ok1 = ref2.num_snp == 8; "
+        "ok2 = 0; try; ref2.validate_checksums(); catch; ok2 = 1; end; "
+        "fprintf('%d\\n', ok1); "
+        "fprintf('%d\\n', ok2); "
+        "fprintf('%s\\n', ref2.shards{1}.checksum);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "1"
+    assert lines[1] == "1"
+    assert lines[2] == CHR1_CHECKSUM
 
 
 @pytest.mark.octave

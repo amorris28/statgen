@@ -72,6 +72,41 @@ Implementations may use language-native containers. They must preserve shard
 order, expose the required vectors, retain per-shard checksums, and provide
 zero-based shard offsets for compatibility with portable metadata.
 
+## Cache layout
+
+MATLAB/Octave reference caches are `.mat` files with user-inspectable
+panel-wide variables at top level:
+
+```text
+metadata
+chr
+snp
+bp
+a1
+a2
+```
+
+`metadata` is a struct with:
+
+```text
+schema = "reference_cache/0.1"
+n_shards
+shard_labels
+shard_checksums
+shard_start0
+shard_stop0
+```
+
+`chr`, `snp`, `a1`, and `a2` are panel-wide cell arrays of strings. `bp` is a
+panel-wide numeric vector. The BIM `cm` field is not cached. Shard offsets are
+zero-based half-open intervals into the panel-wide variables and are sufficient
+to reconstruct `ReferenceShard` objects. Cache metadata validation should be
+cheap, depending on shard count and array dimensions rather than scanning all
+SNP values. `load_reference_cache` trusts stored shard checksums, matching the
+cache behavior of reference-aligned objects that cannot recompute those
+checksums themselves. Callers who want to verify reference cache integrity may
+explicitly call `ReferencePanel.validate_checksums()`.
+
 ## API
 
 ```text
@@ -88,6 +123,7 @@ ReferencePanel.a2  -> num_snp string vector
 ReferencePanel.shard_offsets -> table with shard_label, start0, stop0
 ReferencePanel.select_shards(shards) -> ReferencePanel
 ReferencePanel.is_object_compatible(object) -> bool
+ReferencePanel.validate_checksums() -> bool
 ```
 
 Expected behavior:
@@ -96,7 +132,8 @@ Expected behavior:
   files. LD distribution builders (`statgen_build_ld.py` and the MATLAB/Octave
   converter) are the only tools that write `.bim` files, and only as exact
   copies of input BIM rows bundled alongside LD shards.
-- Cache is a single file (non-sharded); internal layout is implementation-specific.
+- Cache is a single file (non-sharded). The MATLAB/Octave cache layout is
+  specified in the "Cache layout" section above.
 - Shard discovery, contig validation, row-order validation, and shard subsetting
   follow [contigs-and-shards.md](contigs-and-shards.md).
 - Compute and retain each shard reference checksum.
@@ -109,6 +146,13 @@ Expected behavior:
 - `load_reference_cache` skips source-style row validation; `shards` subsetting
   applies against cached shard labels per
   [contigs-and-shards.md](contigs-and-shards.md).
+- `load_reference_cache` validates shard-offset metadata and panel-wide vector
+  lengths cheaply before reconstructing shard objects. It trusts stored shard
+  checksums and does not recompute them.
+- `ReferencePanel.validate_checksums()` recomputes each shard checksum from the
+  current `chr`, `bp`, `a1`, and `a2` values, compares it to the stored
+  `ReferenceShard.checksum`, fails on mismatch with the shard label, and
+  returns `true` on success.
 - `is_object_compatible` checks whether a loaded statgen object is aligned to
   this reference panel. Compatibility requires the same ordered shard labels,
   matching shard row counts, and matching shard checksums where available.

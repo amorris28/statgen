@@ -176,9 +176,12 @@ MATLAB/Octave may return double because the stored MATLAB LD matrix is sparse
 double. Cross-runtime tests compare numerical values with dtype-aware
 tolerances, not dtype identity.
 
-`fast_prune(logpvec, ld_panel, optional r2_threshold, optional chrX_sex)` uses
-the same signed `ld_r` representation and compares squared correlations, or
-equivalently compares `abs(r)` against `sqrt(r2_threshold)`.
+`fast_prune(logpvec, ld_panel, optional r2_threshold, optional chrX_sex)`
+returns a floating vector with the same shape as `logpvec`. Retained SNPs keep
+their original `logpvec` values; pruned SNPs are set to `NaN`. Input `NaN`
+entries are treated as pre-excluded and remain `NaN` in output. Python preserves
+`float32` and `float64` inputs and promotes non-floating inputs to `float64` so
+pruned values can be represented as `NaN`. MATLAB/Octave returns double.
 
 ---
 
@@ -367,7 +370,9 @@ Conversion steps:
 5. Convert row and column indices from zero-based to one-based.
 6. Validate metadata consistency before sparse construction.
 7. Construct native sparse `ld_r = sparse(row, col, data, n, n)`.
-8. Save `ld_r`, `a1freq`, and `metadata` to `.mat`.
+8. Copy `reference_checksum` and `reference_bim` from the `.npz` metadata
+   into the `.mat` metadata struct unchanged.
+9. Save `ld_r`, `a1freq`, and `metadata` to `.mat`.
 
 The sparse construction cost is paid once by the reference-panel maintainer,
 not by end users.
@@ -411,8 +416,16 @@ Not all chrX sex labels need to be present. `female` and `male` remain the
 default sex-specific build outputs. `combined` is optional and
 assumption-dependent.
 
-A panel root is a directory containing one or more LD shard files. A loader may
-also accept a single shard file.
+The Python and MATLAB/Octave distributions are separate directory trees, each
+with its own `ld_manifest.json`. A Python distribution root contains `.npz`
+shard files and a manifest with `runtime_format: "python_npz_csc32"`. A
+MATLAB/Octave distribution root contains `.mat` shard files and a manifest with
+`runtime_format: "matlab_mat_sparse_double"`. Bundled reference `.bim` files
+are present in both roots and are byte-identical.
+
+A panel root is a directory containing one or more LD shard files, bundled
+`.bim` files, and `ld_manifest.json`. A loader may also accept a single shard
+file.
 
 For panel-root loads, the directory must contain `ld_manifest.json`. The
 manifest is authoritative for file discovery; loaders must not infer the panel
@@ -481,12 +494,15 @@ LD should expose one user-facing load path:
 ```text
 load_ld(path, reference, optional default_chrX_sex) -> LDPanel
 validate_ld_distribution(path, optional check_payload_structure=false) -> report
+statgen_create_ld_manifest.py --ld <root>               creates Python ld_manifest.json
+create_ld_mat_manifest(npz_root, mat_root, shards)       creates MATLAB/Octave ld_manifest.json
 
 LDPanel.a1freq(optional chrX_sex) -> num_snp float vector
 LDPanel.default_chrX_sex -> "female" | "male" | "combined"
 LDPanel.select_shards(shards) -> LDPanel
 LDPanel.multiply_r2(M, optional chrX_sex) -> vector or matrix with same shape as M
-fast_prune(logpvec, ld_panel, optional r2_threshold, optional chrX_sex) -> logpvec
+fast_prune(logpvec, ld_panel, optional r2_threshold, optional chrX_sex)
+    -> logpvec with same shape; pruned SNPs set to NaN, retained SNPs unchanged
 ```
 
 `load_ld` reads the runtime distribution artifact:

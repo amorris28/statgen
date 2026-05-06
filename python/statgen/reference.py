@@ -327,6 +327,13 @@ class ReferencePanel:
         by_label = {s.label: s for s in self._shards}
         return ReferencePanel([by_label[label] for label in selected])
 
+    def validate_checksums(self) -> bool:
+        for shard in self._shards:
+            computed = _checksum_from_arrays(shard.chr, shard.bp, shard.a1, shard.a2)
+            if computed != shard.checksum:
+                raise ValueError(f"Reference checksum mismatch for shard {shard.label}")
+        return True
+
     def is_object_compatible(self, obj) -> bool:
         log_fn = logger.warning
 

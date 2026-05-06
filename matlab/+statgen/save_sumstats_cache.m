@@ -3,32 +3,36 @@ function save_sumstats_cache(sumstats, path, varargin)
     path = char(path);
     [~, save_arg] = statgen.internal.parse_mat_format( ...
         'save_sumstats_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});
+
     n_shards = numel(sumstats.shards);
-
-    cache_meta.schema = 'sumstats_cache/0.1';
-    cache_meta.n_shards = n_shards;
-    cache_meta.shard_labels = cell(n_shards, 1);
-    cache_meta.shard_checksums = cell(n_shards, 1);
-    cache_meta.has_beta = ~isempty(sumstats.beta_vec);
-    cache_meta.has_se = ~isempty(sumstats.se_vec);
-    cache_meta.has_eaf = ~isempty(sumstats.eaf_vec);
-    cache_meta.has_info = ~isempty(sumstats.info_vec);
-
-    cache_shards = struct('zvec', {}, 'nvec', {}, 'logpvec', {}, ...
-        'beta_vec', {}, 'se_vec', {}, 'eaf_vec', {}, 'info_vec', {});
+    metadata.schema = 'sumstats_cache/0.1';
+    metadata.n_shards = n_shards;
+    metadata.shard_labels = cell(n_shards, 1);
+    metadata.shard_checksums = cell(n_shards, 1);
+    metadata.shard_start0 = zeros(n_shards, 1);
+    metadata.shard_stop0 = zeros(n_shards, 1);
+    metadata.has_beta = ~isempty(sumstats.beta_vec);
+    metadata.has_se = ~isempty(sumstats.se_vec);
+    metadata.has_eaf = ~isempty(sumstats.eaf_vec);
+    metadata.has_info = ~isempty(sumstats.info_vec);
 
     for i = 1:n_shards
         s = sumstats.shards{i};
-        cache_meta.shard_labels{i} = s.label;
-        cache_meta.shard_checksums{i} = s.checksum;
-        cache_shards(i).zvec = s.zvec;
-        cache_shards(i).nvec = s.nvec;
-        cache_shards(i).logpvec = s.logpvec;
-        cache_shards(i).beta_vec = s.beta_vec;
-        cache_shards(i).se_vec = s.se_vec;
-        cache_shards(i).eaf_vec = s.eaf_vec;
-        cache_shards(i).info_vec = s.info_vec;
+        off = sumstats.shard_offsets(i);
+        metadata.shard_labels{i} = s.label;
+        metadata.shard_checksums{i} = s.checksum;
+        metadata.shard_start0(i) = off.start0;
+        metadata.shard_stop0(i) = off.stop0;
     end
 
-    save(path, 'cache_meta', 'cache_shards', save_arg);
+    zvec = sumstats.zvec;
+    nvec = sumstats.nvec;
+    logpvec = sumstats.logpvec;
+    beta_vec = sumstats.beta_vec;
+    se_vec = sumstats.se_vec;
+    eaf_vec = sumstats.eaf_vec;
+    info_vec = sumstats.info_vec;
+
+    save(path, 'metadata', 'zvec', 'nvec', 'logpvec', ...
+        'beta_vec', 'se_vec', 'eaf_vec', 'info_vec', save_arg);
 end

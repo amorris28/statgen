@@ -3,21 +3,26 @@ function save_annotations_cache(panel, path, varargin)
     path = char(path);
     [~, save_arg] = statgen.internal.parse_mat_format( ...
         'save_annotations_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});
+
     n_shards = numel(panel.shards);
+    metadata.schema = 'annotations_cache/0.1';
+    metadata.n_shards = n_shards;
+    metadata.shard_labels = cell(n_shards, 1);
+    metadata.shard_checksums = cell(n_shards, 1);
+    metadata.shard_start0 = zeros(n_shards, 1);
+    metadata.shard_stop0 = zeros(n_shards, 1);
 
-    cache_meta.schema = 'annotations_cache/0.1';
-    cache_meta.n_shards = n_shards;
-    cache_meta.shard_labels = cell(n_shards, 1);
-    cache_meta.shard_checksums = cell(n_shards, 1);
-    cache_meta.annonames = panel.annonames;
-
-    cache_shards = struct('annomat', {});
     for i = 1:n_shards
         s = panel.shards{i};
-        cache_meta.shard_labels{i} = s.label;
-        cache_meta.shard_checksums{i} = s.checksum;
-        cache_shards(i).annomat = s.annomat;
+        off = panel.shard_offsets(i);
+        metadata.shard_labels{i} = s.label;
+        metadata.shard_checksums{i} = s.checksum;
+        metadata.shard_start0(i) = off.start0;
+        metadata.shard_stop0(i) = off.stop0;
     end
 
-    save(path, 'cache_meta', 'cache_shards', save_arg);
+    annomat = panel.annomat;
+    annonames = panel.annonames;
+
+    save(path, 'metadata', 'annomat', 'annonames', save_arg);
 end

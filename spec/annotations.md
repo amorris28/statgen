@@ -99,6 +99,35 @@ sparse binary matrix in both runtimes (`scipy.sparse.csr_matrix` in Python;
 MATLAB/Octave sparse matrix). Dense materialization is caller-driven and
 explicit (for example `toarray()`/`full(...)`).
 
+## Cache layout
+
+MATLAB/Octave annotation caches are `.mat` files with user-inspectable
+panel-wide variables at top level:
+
+```text
+metadata
+annomat
+annonames
+```
+
+`metadata` is a struct with:
+
+```text
+schema = "annotations_cache/0.1"
+n_shards
+shard_labels
+shard_checksums
+shard_start0
+shard_stop0
+```
+
+`annomat` is a panel-wide sparse binary matrix with rows aligned to the
+reference panel. `annonames` is a column cell array of annotation names. Shard
+offsets are zero-based half-open intervals into `annomat` rows and are
+sufficient to reconstruct `AnnotationShard` objects. Cache metadata validation
+should be cheap, depending on shard count, matrix dimensions, and annotation
+name count rather than scanning all SNP rows.
+
 ## Panel-level accessors
 
 `AnnotationPanel` is immutable after loading. It exposes read-only genome-wide
@@ -145,7 +174,9 @@ Expected behavior:
 - caching saves and restores the painted `annomat`; the cache is a single file
   (non-sharded). `load_annotations_cache` performs cache-internal validation
   only and supports optional `shards` subsetting.
-- internal per-shard layout within the cache file is implementation-specific.
+- the MATLAB/Octave cache layout is specified in the "Cache layout" section
+  above; per-shard checksums are trusted from cache metadata (the painted matrix
+  does not contain the raw SNP data needed to recompute them).
 - Accessors are read-only, concatenate shards in reference panel order, and
   return plain language-native matrices or vectors.
 - `annonames` must be identical across shards and is returned once.

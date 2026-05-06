@@ -5,28 +5,59 @@ function panel = load_annotations_cache(path, shards)
     end
 
     path = char(path);
-    loaded = load(path, 'cache_meta', 'cache_shards');
-    meta = loaded.cache_meta;
-    shards_data = loaded.cache_shards;
+    loaded = load(path, 'metadata', 'annomat', 'annonames');
+    meta = loaded.metadata;
+    annomat = sparse(loaded.annomat);
+    annonames = statgen.internal.ensure_cell_col(loaded.annonames);
 
+    [labels, checksums, start0, stop0] = validate_metadata_(meta, size(annomat, 1));
+    validate_annonames_(annonames);
+
+    selected = statgen.internal.validate_requested_shards(shards, labels, 'load_annotations_cache');
+    out_shards = cell(numel(selected), 1);
+    for i = 1:numel(selected)
+        label = selected{i};
+        idx = find(strcmp(labels, label), 1, 'first');
+        ix = (start0(idx) + 1):stop0(idx);
+        out_shards{i} = statgen.AnnotationShard(labels{idx}, checksums{idx}, annomat(ix, :), false);
+    end
+
+    panel = statgen.AnnotationPanel(out_shards, annonames);
+end
+
+function [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp)
     if ~strcmp(meta.schema, 'annotations_cache/0.1')
         error('statgen:cache', 'Unsupported annotations cache schema: %s', meta.schema);
     end
 
     labels = statgen.internal.ensure_cell_col(meta.shard_labels);
     checksums = statgen.internal.ensure_cell_col(meta.shard_checksums);
-    if ~isfield(meta, 'n_shards') || ~isscalar(meta.n_shards) || meta.n_shards ~= numel(labels)
+    start0 = double(meta.shard_start0(:));
+    stop0 = double(meta.shard_stop0(:));
+
+    n_shards = numel(labels);
+    if ~isfield(meta, 'n_shards') || ~isscalar(meta.n_shards) || meta.n_shards ~= n_shards
         error('statgen:cache', 'Invalid annotations cache: n_shards mismatch');
     end
-    if numel(labels) ~= numel(checksums)
-        error('statgen:cache', 'Invalid annotations cache: shard_labels and shard_checksums length mismatch');
+    if numel(checksums) ~= n_shards || numel(start0) ~= n_shards || numel(stop0) ~= n_shards
+        error('statgen:cache', 'Invalid annotations cache: shard metadata length mismatch');
     end
-    if numel(shards_data) ~= numel(labels)
-        error('statgen:cache', ...
-            'Invalid annotations cache: cache_shards length does not match shard labels');
-    end
+    validate_offsets_(start0, stop0, num_snp);
+end
 
-    annonames = statgen.internal.ensure_cell_col(meta.annonames);
+function validate_offsets_(start0, stop0, num_snp)
+    if isempty(start0)
+        if num_snp ~= 0
+            error('statgen:cache', 'Invalid annotations cache: empty shard offsets for non-empty payload');
+        end
+        return
+    end
+    if start0(1) ~= 0 || stop0(end) ~= num_snp || any(stop0 < start0) || any(start0(2:end) ~= stop0(1:end-1))
+        error('statgen:cache', 'Invalid annotations cache: shard offsets are not contiguous');
+    end
+end
+
+function validate_annonames_(annonames)
     if isempty(annonames)
         error('statgen:cache', 'Invalid annotations cache: annonames must be non-empty');
     end
@@ -36,15 +67,4 @@ function panel = load_annotations_cache(path, shards)
     if numel(unique(annonames)) ~= numel(annonames)
         error('statgen:cache', 'Invalid annotations cache: annonames must be unique');
     end
-
-    selected = statgen.internal.validate_requested_shards(shards, labels, 'load_annotations_cache');
-    out_shards = cell(numel(selected), 1);
-    for i = 1:numel(selected)
-        label = selected{i};
-        idx = find(strcmp(labels, label), 1, 'first');
-        sd = shards_data(idx);
-        out_shards{i} = statgen.AnnotationShard(labels{idx}, checksums{idx}, sd.annomat);
-    end
-
-    panel = statgen.AnnotationPanel(out_shards, annonames);
 end

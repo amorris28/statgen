@@ -96,6 +96,14 @@ classdef ReferencePanel
             out = statgen.ReferencePanel(out_shards);
         end
 
+        function ok = validate_checksums(obj)
+            for i = 1:numel(obj.shards)
+                s = obj.shards{i};
+                validate_reference_checksum_(s);
+            end
+            ok = true;
+        end
+
         function ok = is_object_compatible(obj, other)
             ok = true;
 
@@ -174,5 +182,15 @@ classdef ReferencePanel
             msg = sprintf(fmt, varargin{:});
             warning('statgen:compat', '%s', msg);
         end
+    end
+end
+
+function validate_reference_checksum_(shard)
+    bp_str = cellstr(num2str(round(shard.bp), '%d'));
+    parts = strcat(shard.chr, {':'}, bp_str, {':'}, shard.a1, {':'}, shard.a2, {sprintf('\n')});
+    text_payload = [parts{:}];
+    computed = statgen.internal.md5_hex(text_payload);
+    if ~strcmp(computed, shard.checksum)
+        error('statgen:cache', 'Reference checksum mismatch for shard %s', shard.label);
     end
 end

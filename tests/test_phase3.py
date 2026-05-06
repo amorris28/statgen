@@ -372,7 +372,9 @@ def test_octave_annotations_cache_roundtrip_and_subset(tmp_path):
         "fprintf('%d\\n', ref.is_object_compatible(b)); "
         "fprintf('%d\\n', b.num_snp); "
         "fprintf('%d\\n', x.num_snp); "
-        "fprintf('%s\\n', x.shards{1}.label);"
+        "fprintf('%s\\n', x.shards{1}.label); "
+        f"L = load('{cache}'); "
+        "fprintf('%d %d %d\\n', isfield(L, 'metadata'), isfield(L, 'annomat'), isfield(L, 'cache_shards'));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
@@ -380,6 +382,7 @@ def test_octave_annotations_cache_roundtrip_and_subset(tmp_path):
     assert lines[0] == "1"
     assert lines[1] == "8"
     assert lines[2] == "3"
+    assert lines[4] == "1 1 0"
     assert lines[3] == "X"
 
 

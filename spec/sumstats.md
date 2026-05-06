@@ -82,6 +82,45 @@ reference panel: each shard's vector length and row order correspond to the
 paired `ReferenceShard`, and any aligned cache is valid only for that
 reference.
 
+## Cache layout
+
+MATLAB/Octave sumstats caches are `.mat` files with user-inspectable
+panel-wide variables at top level:
+
+```text
+metadata
+zvec
+nvec
+logpvec
+beta_vec
+se_vec
+eaf_vec
+info_vec
+```
+
+`metadata` is a struct with:
+
+```text
+schema = "sumstats_cache/0.1"
+n_shards
+shard_labels
+shard_checksums
+shard_start0
+shard_stop0
+has_beta
+has_se
+has_eaf
+has_info
+```
+
+Required vectors are panel-wide numeric vectors. Optional vectors are also
+panel-wide numeric vectors when present; absent optional fields are saved as
+`[]` and indicated by the corresponding `has_*` flag. Shard offsets are
+zero-based half-open intervals into the panel-wide vectors and are sufficient
+to reconstruct `SumstatsShard` objects. Cache metadata validation should be
+cheap, depending on shard count and vector dimensions rather than scanning all
+SNP values.
+
 ## Panel-level accessors
 
 `Sumstats` exposes read-only genome-wide accessors that concatenate across
@@ -133,9 +172,13 @@ Expected behavior:
 - required numeric fields `z` and `n` must parse as finite numeric values for
   all source rows; non-numeric, `NaN`, or infinite values are validation
   errors and must fail load with a clear message.
-- cache is a single file (non-sharded); internal per-shard layout is implementation-specific.
+- cache is a single file (non-sharded). The MATLAB/Octave cache layout is
+  specified in the "Cache layout" section above; absent optional fields are
+  serialized as empty arrays (`[]`) so all field variables are always present
+  in the `.mat` file, distinguished by the `has_*` flags in metadata.
 - `load_sumstats_cache` performs cache-internal validation only and supports
-  optional `shards` subsetting.
+  optional `shards` subsetting; per-shard checksums are trusted from cache
+  metadata.
 - missing variants are represented as `NaN` or masks; row order matches the
   reference panel.
 - `logpvec` is derived only from an optional `p` column as `-log10(p)`.

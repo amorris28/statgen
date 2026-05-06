@@ -357,7 +357,9 @@ def test_octave_sumstats_roundtrip(tmp_path):
         f"s2 = statgen.load_sumstats_cache('{cache}'); "
         "fprintf('%d\\n', s2.num_snp); "
         "fprintf('%d\\n', ref.is_object_compatible(s2)); "
-        "fprintf('%.6f\\n', s2.zvec(1));"
+        "fprintf('%.6f\\n', s2.zvec(1)); "
+        f"L = load('{cache}'); "
+        "fprintf('%d %d %d\\n', isfield(L, 'metadata'), isfield(L, 'zvec'), isfield(L, 'cache_shards'));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
@@ -365,6 +367,7 @@ def test_octave_sumstats_roundtrip(tmp_path):
     assert lines[0] == "8"
     assert lines[1] == "1"
     assert lines[2] == "2.500000"
+    assert lines[3] == "1 1 0"
 
 
 @pytest.mark.octave
@@ -539,15 +542,17 @@ def test_octave_cache_validation_errors(tmp_path):
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         f"s = statgen.load_sumstats('{path}', ref); "
         f"statgen.save_sumstats_cache(s, '{cache}'); "
-        f"L = load('{cache}', 'cache_meta', 'cache_shards'); "
-        "cache_meta = L.cache_meta; cache_shards = L.cache_shards; "
-        "cache_meta.schema = 'sumstats_cache/bad'; "
-        f"save('{bad_schema}', 'cache_meta', 'cache_shards'); "
+        f"L = load('{cache}'); "
+        "metadata = L.metadata; zvec = L.zvec; nvec = L.nvec; logpvec = L.logpvec; "
+        "beta_vec = L.beta_vec; se_vec = L.se_vec; eaf_vec = L.eaf_vec; info_vec = L.info_vec; "
+        "metadata.schema = 'sumstats_cache/bad'; "
+        f"save('{bad_schema}', 'metadata', 'zvec', 'nvec', 'logpvec', 'beta_vec', 'se_vec', 'eaf_vec', 'info_vec'); "
         f"ok1 = 0; try; statgen.load_sumstats_cache('{bad_schema}'); catch; ok1 = 1; end; "
-        f"L2 = load('{cache}', 'cache_meta', 'cache_shards'); "
-        "cache_meta = L2.cache_meta; cache_shards = L2.cache_shards; "
-        "cache_meta.shard_checksums = cache_meta.shard_checksums(1:end-1); "
-        f"save('{bad_lengths}', 'cache_meta', 'cache_shards'); "
+        f"L2 = load('{cache}'); "
+        "metadata = L2.metadata; zvec = L2.zvec; nvec = L2.nvec; logpvec = L2.logpvec; "
+        "beta_vec = L2.beta_vec; se_vec = L2.se_vec; eaf_vec = L2.eaf_vec; info_vec = L2.info_vec; "
+        "metadata.shard_checksums = metadata.shard_checksums(1:end-1); "
+        f"save('{bad_lengths}', 'metadata', 'zvec', 'nvec', 'logpvec', 'beta_vec', 'se_vec', 'eaf_vec', 'info_vec'); "
         f"ok2 = 0; try; statgen.load_sumstats_cache('{bad_lengths}'); catch; ok2 = 1; end; "
         f"ok3 = 0; try; statgen.load_sumstats_cache('{cache}', {{'2'}}); catch; ok3 = 1; end; "
         "fprintf('%d %d %d\\n', ok1, ok2, ok3);"
