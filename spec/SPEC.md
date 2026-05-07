@@ -35,7 +35,7 @@ Objects:
 1. [reference.md](reference.md): `ReferenceShard` / `ReferencePanel` —
    SNP tables close to PLINK BIM files.
 1. [genotype.md](genotype.md): `GenotypeShard` / `GenotypePanel` —
-   PLINK bfile-backed genotype objects.
+   reference-aligned PLINK bfile-backed genotype access objects.
 1. [ld.md](ld.md): `LDShard` / `LDPanel` —
    per-chromosome LD objects and multi-shard panels.
 1. [annotations.md](annotations.md): `AnnotationShard` / `AnnotationPanel` —

@@ -2,7 +2,7 @@ classdef SumstatsShard
 % Immutable in-memory aligned sumstats vectors for one reference shard.
     properties (SetAccess = private)
         label
-        checksum
+        reference_checksum
         num_snp
         zvec
         nvec
@@ -14,10 +14,10 @@ classdef SumstatsShard
     end
 
     methods
-        function obj = SumstatsShard(label, checksum, zvec, nvec, logpvec, beta_vec, se_vec, eaf_vec, info_vec)
+        function obj = SumstatsShard(label, reference_checksum, zvec, nvec, logpvec, beta_vec, se_vec, eaf_vec, info_vec)
             if nargin == 0, return; end
             obj.label = char(label);
-            obj.checksum = char(checksum);
+            obj.reference_checksum = char(reference_checksum);
             obj.zvec = double(zvec(:));
             obj.nvec = double(nvec(:));
             obj.logpvec = double(logpvec(:));

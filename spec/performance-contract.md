@@ -54,8 +54,8 @@ For performance-sensitive tabular source inputs (for example BIM/TSV-like
 files), implementations MUST use language-native tabular readers instead of
 line-by-line manual parsing.
 
-- MATLAB/Octave: `readtable` (or a semantically equivalent native table reader)
-  is the required default path.
+- MATLAB/Octave: `textscan` with an explicit schema, as documented in
+  [matlab.md](matlab.md), is the required default path.
 - Python: dataframe-style readers are the required default path.
 
 Documented exceptions are allowed only when a native table reader cannot

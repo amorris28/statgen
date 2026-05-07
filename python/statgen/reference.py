@@ -69,7 +69,7 @@ def _parse_bim(path: Path) -> pd.DataFrame:
     try:
         df = pd.read_csv(
             path,
-            sep="\t",
+            sep=r"\s+",
             header=None,
             dtype=str,
             keep_default_na=False,
@@ -77,12 +77,12 @@ def _parse_bim(path: Path) -> pd.DataFrame:
         )
     except ParserError as exc:
         raise ValueError(
-            f"{path}: expected 6 tab-separated columns"
+            f"{path}: expected 6 whitespace-delimited columns"
         ) from exc
 
     if df.shape[1] != _BIM_NCOLS:
         raise ValueError(
-            f"{path}: expected 6 tab-separated columns, got {df.shape[1]}"
+            f"{path}: expected 6 whitespace-delimited columns, got {df.shape[1]}"
         )
 
     chr_col = df[0]
@@ -430,10 +430,12 @@ class ReferencePanel:
                 )
                 ok = False
                 continue
-            obj_chk = getattr(obj_s, "checksum", None)
+            obj_chk = getattr(obj_s, "reference_checksum", None)
+            if obj_chk is None:
+                obj_chk = getattr(obj_s, "checksum", None)
             if obj_chk is not None and obj_chk != ref_s.checksum:
                 log_fn(
-                    f"statgen: is_object_compatible: shard {ref_s.label}: checksum mismatch"
+                    f"statgen: is_object_compatible: shard {ref_s.label}: reference_checksum mismatch"
                 )
                 ok = False
         return ok

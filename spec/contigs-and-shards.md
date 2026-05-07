@@ -6,7 +6,10 @@
 canonical contig order used for all shard sequences, row-order keys, and
 shard-label validation.
 
-- `Y` and `MT` are recognized but silently ignored on load.
+- `Y` and `MT` are recognized non-supported contigs. They are ignored when
+  outside a loader's supported output/projection rather than normalized into a
+  supported shard. Source loaders drop `Y`/`MT` rows before row-order and
+  duplicate-key validation for supported output shards.
 - Labels such as `chr1`/`chrX` indicate non-preprocessed input and are rejected.
 - Contig labels are never normalized: `chr1`, `1`, and `NC_000001.11` are
   distinct labels; mismatches are not resolved silently.
@@ -41,8 +44,12 @@ rows.
 
 Sharded paths use `@` as the shard-label placeholder.
 
-- **Reference and genotype loaders**: substitute `@` with canonical contig
-  labels in order (no glob-based discovery) and load existing matches.
+- **Reference loaders**: substitute `@` with canonical contig labels in order
+  (no glob-based discovery) and load existing matches.
+- **Genotype loaders**: substitute `@` with reference shard labels in order
+  when a reference is supplied. Every requested reference shard must have a
+  matching bfile shard; users who want a shard subset should first subset the
+  reference and load genotype against that smaller reference.
 - **LD loaders**: always resolve shard files through `ld_manifest.json`.
   When `reference` is supplied to `load_ld`, expected files are derived from
   it; when omitted, the manifest is consulted directly. In both cases the
@@ -50,18 +57,22 @@ Sharded paths use `@` as the shard-label placeholder.
   requesting a shard absent from the reference or LD panel is an error.
 
 Non-sharded single-file inputs are split by the `chr` column into
-per-chromosome shards in canonical order.
+per-chromosome shards in canonical order. For source loaders with an explicit
+`reference` argument, the split is a reference-driven projection: validated
+source rows outside the supplied reference shard set are ignored for alignment.
+Invalid or ambiguous contig labels remain errors.
 
 ## Shard subsetting
 
 All panel objects expose `select_shards(shards)`.
 Cache loaders that operate without a required reference
-(`load_reference_cache`, `load_annotations_cache`, `load_sumstats_cache`)
-accept an optional `shards` parameter.
+(`load_reference_cache`, `load_annotations_cache`, `load_sumstats_cache`,
+`load_genotype_cache`) accept an optional `shards` parameter.
 Source loaders with an explicit `reference` argument
-(`load_annotations`, `load_sumstats`) use the supplied reference shard
-structure; subsetting is done via `select_shards` on the reference before
-passing it in.
+(`load_annotations`, `load_sumstats`, `load_genotype`) use the supplied
+reference shard structure; subsetting is done via `select_shards` on the
+reference before passing it in. Such loaders do not accept an additional
+`shards` parameter.
 `load_ld` bridges both patterns: `reference` is optional because the LD
 distribution bundles its own `.bim` files; `shards` is always honored as a
 further subset regardless of whether `reference` is supplied.

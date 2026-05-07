@@ -456,6 +456,7 @@ returns `a1freq` as double.
 load_ld(path, optional reference, optional shards, optional default_chrX_sex) -> LDPanel
 validate_ld_distribution(path, optional check_payload_structure) -> report
 
+LDPanel.num_snp -> int
 LDPanel.reference -> ReferencePanel
 LDPanel.a1freq(optional chrX_sex) -> num_snp float vector
 LDPanel.default_chrX_sex -> "female" | "male" | "combined"

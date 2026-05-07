@@ -20,7 +20,7 @@ function save_sumstats_cache(sumstats, path, varargin)
         s = sumstats.shards{i};
         off = sumstats.shard_offsets(i);
         metadata.shard_labels{i} = s.label;
-        metadata.shard_checksums{i} = s.checksum;
+        metadata.shard_checksums{i} = s.reference_checksum;
         metadata.shard_start0(i) = off.start0;
         metadata.shard_stop0(i) = off.stop0;
     end

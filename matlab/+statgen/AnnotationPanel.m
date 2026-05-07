@@ -75,7 +75,7 @@ classdef AnnotationPanel
             out_shards = cell(numel(obj.shards), 1);
             for i = 1:numel(obj.shards)
                 s = obj.shards{i};
-                out_shards{i} = statgen.AnnotationShard(s.label, s.checksum, s.annomat(:, idx));
+                out_shards{i} = statgen.AnnotationShard(s.label, s.reference_checksum, s.annomat(:, idx));
             end
             out = statgen.AnnotationPanel(out_shards, req);
         end
@@ -117,20 +117,20 @@ classdef AnnotationPanel
                 end
                 b_has_checksum = false;
                 if isobject(b)
-                    b_has_checksum = isprop(b, 'checksum');
+                    b_has_checksum = isprop(b, 'reference_checksum');
                 elseif isstruct(b)
-                    b_has_checksum = isfield(b, 'checksum');
+                    b_has_checksum = isfield(b, 'reference_checksum');
                 end
                 if b_has_checksum
-                    b_checksum = b.checksum;
-                    if ~strcmp(a.checksum, b_checksum)
+                    b_checksum = b.reference_checksum;
+                    if ~strcmp(a.reference_checksum, b_checksum)
                         error('statgen:annotations', ...
                             'union_annotations requires checksum-compatible reference alignment');
                     end
                 end
 
                 out_shards{i} = statgen.AnnotationShard( ...
-                    a.label, a.checksum, [a.annomat, sparse(double(b.annomat))]);
+                    a.label, a.reference_checksum, [a.annomat, sparse(double(b.annomat))]);
             end
 
             out = statgen.AnnotationPanel(out_shards, [obj.annonames; rhs_names]);

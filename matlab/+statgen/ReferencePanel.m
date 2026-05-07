@@ -183,15 +183,19 @@ classdef ReferencePanel
                 end
 
                 try
-                    os_chk = os.checksum;
-                    if ~strcmp(os_chk, rs.checksum)
-                        statgen.ReferencePanel.compat_warn_( ...
-                            'statgen: is_object_compatible: shard %s: checksum mismatch', ...
-                            rs.label);
-                        ok = false;
-                    end
+                    os_chk = os.reference_checksum;
                 catch
-                    % no checksum field — skip check
+                    try
+                        os_chk = os.checksum;
+                    catch
+                        os_chk = [];
+                    end
+                end
+                if ~isempty(os_chk) && ~strcmp(os_chk, rs.checksum)
+                    statgen.ReferencePanel.compat_warn_( ...
+                        'statgen: is_object_compatible: shard %s: reference_checksum mismatch', ...
+                        rs.label);
+                    ok = false;
                 end
             end
         end

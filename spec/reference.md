@@ -25,6 +25,9 @@ Canonical disk representation is PLINK-style `.bim`:
 chr  snp  cm  bp  a1  a2
 ```
 
+The six BIM columns may be separated by tabs or by runs of ASCII whitespace.
+Fields must not contain embedded whitespace.
+
 The `cm` column is a legacy placeholder required only for 6-column schema
 compatibility. Loaders MUST validate that the `cm` column is present; `cm`
 MUST NOT be stored in in-memory objects and MUST NOT participate in checksums,
@@ -260,7 +263,9 @@ Expected behavior:
   runtimes with thin loading, must fail clearly on thin-loaded references.
 - `is_object_compatible` checks whether a loaded statgen object is aligned to
   this reference panel. Compatibility requires the same ordered shard labels,
-  matching shard row counts, and matching shard checksums where available.
+  matching shard row counts, and matching shard reference checksums where
+  available. Reference-aligned object shards expose `reference_checksum`;
+  `ReferenceShard` itself exposes `checksum`.
   Returns `true` when compatible, `false` otherwise. Implementations may log
   informational messages or warnings. Compatibility mismatches do not raise
   exceptions; callers branch on the returned boolean.

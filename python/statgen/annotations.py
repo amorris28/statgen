@@ -203,9 +203,9 @@ def _paint_annotations(bed_paths: list[Path], reference) -> tuple[sparse.csr_mat
 
 
 class AnnotationShard:
-    def __init__(self, label: str, checksum: str, annomat):
+    def __init__(self, label: str, reference_checksum: str, annomat):
         self._label = str(label)
-        self._checksum = str(checksum)
+        self._reference_checksum = str(reference_checksum)
         self._annomat = _as_sparse_binary(annomat)
 
     @property
@@ -213,8 +213,8 @@ class AnnotationShard:
         return self._label
 
     @property
-    def checksum(self) -> str:
-        return self._checksum
+    def reference_checksum(self) -> str:
+        return self._reference_checksum
 
     @property
     def num_snp(self) -> int:
@@ -229,8 +229,8 @@ class AnnotationShard:
         return self._annomat
 
     @classmethod
-    def _from_arrays(cls, label, checksum, annomat):
-        return cls(label=label, checksum=checksum, annomat=annomat)
+    def _from_arrays(cls, label, reference_checksum, annomat):
+        return cls(label=label, reference_checksum=reference_checksum, annomat=annomat)
 
 
 class AnnotationPanel:
@@ -297,7 +297,7 @@ class AnnotationPanel:
 
         idx = np.asarray([idx_map[name] for name in names_list], dtype=np.int64)
         out_shards = [
-            AnnotationShard._from_arrays(s.label, s.checksum, s.annomat[:, idx])
+            AnnotationShard._from_arrays(s.label, s.reference_checksum, s.annomat[:, idx])
             for s in self._shards
         ]
         return AnnotationPanel(out_shards, names_list)
@@ -322,15 +322,15 @@ class AnnotationPanel:
                 raise ValueError("union_annotations requires matching shard labels")
             if a.num_snp != getattr(b, "num_snp", None):
                 raise ValueError("union_annotations requires matching shard row counts")
-            b_checksum = getattr(b, "checksum", None)
-            if b_checksum is not None and b_checksum != a.checksum:
+            b_checksum = getattr(b, "reference_checksum", None)
+            if b_checksum is not None and b_checksum != a.reference_checksum:
                 raise ValueError("union_annotations requires checksum-compatible reference alignment")
 
             b_anno = getattr(b, "annomat", None)
             if b_anno is None:
                 raise ValueError("union_annotations requires other shards to expose annomat")
             union_mat = sparse.hstack([a.annomat, _as_sparse_binary(b_anno)], format="csr")
-            out_shards.append(AnnotationShard._from_arrays(a.label, a.checksum, union_mat))
+            out_shards.append(AnnotationShard._from_arrays(a.label, a.reference_checksum, union_mat))
 
         return AnnotationPanel(out_shards, lhs_names + rhs_names)
 
@@ -351,7 +351,7 @@ def create_annotations(reference, annomat, annonames) -> AnnotationPanel:
         out_shards.append(
             AnnotationShard(
                 label=ref_shard.label,
-                checksum=ref_shard.checksum,
+                reference_checksum=ref_shard.checksum,
                 annomat=mat[start:stop, :],
             )
         )
@@ -386,7 +386,7 @@ def save_annotations_cache(panel: AnnotationPanel, path) -> None:
     meta = {
         "schema": _CACHE_SCHEMA,
         "shard_labels": [s.label for s in panel.shards],
-        "shard_checksums": [s.checksum for s in panel.shards],
+        "shard_checksums": [s.reference_checksum for s in panel.shards],
         "annonames": panel.annonames.tolist(),
     }
     arrays = {
@@ -437,7 +437,7 @@ def load_annotations_cache(path, shards=None) -> AnnotationPanel:
             shard_objs.append(
                 AnnotationShard._from_arrays(
                     label=label,
-                    checksum=checksums[i],
+                    reference_checksum=checksums[i],
                     annomat=mat,
                 )
             )

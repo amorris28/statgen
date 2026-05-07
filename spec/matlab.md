@@ -21,6 +21,7 @@ matlab/
     load_ld.m
     load_sumstats.m
     load_annotations.m
+    load_genotype.m
     fast_prune.m
     ReferenceShard.m
     ReferencePanel.m
@@ -30,11 +31,14 @@ matlab/
     AnnotationPanel.m
     SumstatsShard.m
     Sumstats.m
+    GenotypeShard.m
+    GenotypePanel.m
     +internal/          % shared implementation helpers, not public API
   statgen_load_reference.m
   statgen_load_ld.m
   statgen_load_sumstats.m
   statgen_load_annotations.m
+  statgen_load_genotype.m
   statgen_fast_prune.m
 ```
 
@@ -59,7 +63,8 @@ caller discards all outputs. The internal `statgen.*` function is responsible
 for all argument validation and logic; wrappers contain no other code.
 
 Wrappers exist only for: `statgen_load_reference`, `statgen_load_ld`,
-`statgen_load_sumstats`, `statgen_load_annotations`, `statgen_fast_prune`.
+`statgen_load_sumstats`, `statgen_load_annotations`, `statgen_load_genotype`,
+`statgen_fast_prune`.
 No wrappers are created for classes or internal helpers.
 
 ## Naming conventions
@@ -80,7 +85,11 @@ No wrappers are created for classes or internal helpers.
 ## Types and return values
 
 - Per-SNP vectors are column vectors (shape `n × 1`).
-- Matrices have SNPs along rows (shape `n × k`).
+- Matrices have SNPs along rows (shape `n × k`), except genotype fetch matrices:
+  `GenotypePanel.fetch_genotypes_int8` and `GenotypePanel.fetch_genotypes`
+  deliberately return samples as rows and requested SNPs as columns
+  (`num_sample × length(snp_indices)`) to match the natural hardcall matrix
+  layout and the Python API.
 - Missing numeric values use `NaN`.
 - Optional arguments use `[]` as the absent sentinel; implementations test
   with `isempty(arg)`.
@@ -131,8 +140,8 @@ They return a scalar logical and do not throw.
   `textscan` runs identically under MATLAB and Octave and keeps a single code
   path on both runtimes. Two patterns cover all current formats:
   - **Fixed schema, no filtering** (e.g. BIM): `textscan` with a fixed
-    6-column `'%s%s%s%s%s%s'` format, `'Delimiter', '\t'`,
-    `'Whitespace', ''`, `'MultipleDelimsAsOne', false`.
+    6-column `'%s%s%f%f%s%s'` format accepting tabs or runs of spaces as
+    delimiters.
     See `load_reference.m:read_bim_tabular_`.
   - **Dynamic schema or leading comment/blank filtering** (e.g. BED, sumstats
     TSV): probe-and-seek or header-read `textscan`. For BED, a `fgetl` loop

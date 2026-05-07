@@ -47,7 +47,7 @@ files onto a `ReferenceShard`; an `AnnotationPanel` is an ordered collection of
 `AnnotationShard` objects aligned to a `ReferencePanel`. The per-shard
 representation keeps annotation data partitioned by chromosome, matching the
 shard structure of the reference. Each shard retains the paired reference
-checksum.
+checksum as `reference_checksum`.
 
 Annotations loaded from BED files are binary. Non-binary annotation values are
 out of scope for this phase. LD-weighted or otherwise numeric annotation
@@ -57,6 +57,8 @@ matrices are user-space arrays derived from `annomat`, not
 After painting, each annotation occupies one column in `annomat`. The full set
 of annotations is:
 
+- `reference_checksum`: MD5 reference checksum for the paired
+  `ReferenceShard`;
 - `annomat`: binary matrix, shape `num_snp x num_annot`, one column per
   annotation, rows aligned to the reference shard;
 - `annonames`: string vector, length `num_annot`.
@@ -128,9 +130,11 @@ shard_stop0
 `annomat` is a panel-wide sparse binary matrix with rows aligned to the
 reference panel. `annonames` is a column cell array of annotation names. Shard
 offsets are zero-based half-open intervals into `annomat` rows and are
-sufficient to reconstruct `AnnotationShard` objects. Cache metadata validation
-should be cheap, depending on shard count, matrix dimensions, and annotation
-name count rather than scanning all SNP rows.
+sufficient to reconstruct `AnnotationShard` objects. `shard_checksums` stores
+the per-shard reference checksums used to restore
+`AnnotationShard.reference_checksum`. Cache metadata validation should be cheap,
+depending on shard count, matrix dimensions, and annotation name count rather
+than scanning all SNP rows.
 
 ## Panel-level accessors
 
@@ -155,6 +159,7 @@ load_annotations_cache(path, optional shards) -> AnnotationPanel
 create_annotations(reference, annomat, annonames) -> AnnotationPanel
 create_annotation(reference, annovec, annoname) -> AnnotationPanel
 
+AnnotationPanel.num_snp -> int
 AnnotationPanel.annomat -> num_snp × num_annot sparse binary matrix
 AnnotationPanel.annonames -> num_annot string vector
 AnnotationPanel.select_shards(shards) -> AnnotationPanel

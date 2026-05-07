@@ -97,8 +97,8 @@ should report matching:
 - vector values;
 - reference shard/panel ordering;
 - sparse LD matrices and aligned `a1freq` vectors;
-- genotype metadata; genotype slices only after the deferred genotype access
-  contract is specified;
+- genotype metadata and selected genotype slices through the public on-demand
+  accessor;
 - annotation masks and LD-weighted annotation arrays within numeric tolerance.
 
 Cache conversion tests should verify that native cache outputs match portable
@@ -122,7 +122,8 @@ Tests should also cover:
 - exact BED/reference chromosome matching and interval boundary behavior;
 - mismatch fixtures proving that `statgen` does not normalize aliases such as
   `chr1` to `1` or `23` to `X`;
-- genotype tests only after the deferred genotype access contract is specified.
+- genotype metadata alignment, cache round-trips, missing-source masks, ploidy
+  vectors, and selected on-demand genotype slices.
 
 ## Success criteria
 

@@ -330,7 +330,7 @@ def test_cache_load_trusts_checksum_until_explicit_validation(tmp_path):
 def test_bim_wrong_column_count(tmp_path):
     bad = tmp_path / "bad.bim"
     bad.write_text("1\trs1\t0\t100\tA\n")  # 5 columns
-    with pytest.raises(ValueError, match="6 tab-separated"):
+    with pytest.raises(ValueError, match="6 whitespace-delimited"):
         load_reference(bad)
 
 

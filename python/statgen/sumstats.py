@@ -132,7 +132,7 @@ class SumstatsShard:
     def __init__(
         self,
         label: str,
-        checksum: str,
+        reference_checksum: str,
         zvec,
         nvec,
         logpvec,
@@ -142,7 +142,7 @@ class SumstatsShard:
         info_vec=None,
     ):
         self._label = label
-        self._checksum = checksum
+        self._reference_checksum = str(reference_checksum)
         self._zvec = np.asarray(zvec, dtype=float)
         self._nvec = np.asarray(nvec, dtype=float)
         self._logpvec = np.asarray(logpvec, dtype=float)
@@ -156,8 +156,8 @@ class SumstatsShard:
         return self._label
 
     @property
-    def checksum(self) -> str:
-        return self._checksum
+    def reference_checksum(self) -> str:
+        return self._reference_checksum
 
     @property
     def num_snp(self) -> int:
@@ -195,7 +195,7 @@ class SumstatsShard:
     def _from_arrays(
         cls,
         label,
-        checksum,
+        reference_checksum,
         zvec,
         nvec,
         logpvec,
@@ -206,7 +206,7 @@ class SumstatsShard:
     ):
         return cls(
             label=label,
-            checksum=checksum,
+            reference_checksum=reference_checksum,
             zvec=zvec,
             nvec=nvec,
             logpvec=logpvec,
@@ -334,7 +334,7 @@ def _build_sumstats_from_aligned(
         shards.append(
             SumstatsShard(
                 label=ref_shard.label,
-                checksum=ref_shard.checksum,
+                reference_checksum=ref_shard.checksum,
                 zvec=aligned_z[start:stop],
                 nvec=aligned_n[start:stop],
                 logpvec=aligned_logp[start:stop],
@@ -442,7 +442,7 @@ def save_sumstats_cache(sumstats: Sumstats, path) -> None:
     meta = {
         "schema": _CACHE_SCHEMA,
         "shard_labels": [s.label for s in sumstats.shards],
-        "shard_checksums": [s.checksum for s in sumstats.shards],
+        "shard_checksums": [s.reference_checksum for s in sumstats.shards],
         "has_beta": sumstats.beta_vec is not None,
         "has_se": sumstats.se_vec is not None,
         "has_eaf": sumstats.eaf_vec is not None,
@@ -492,7 +492,7 @@ def load_sumstats_cache(path, shards=None) -> Sumstats:
             shard_objs.append(
                 SumstatsShard._from_arrays(
                     label=label,
-                    checksum=checksums[i],
+                    reference_checksum=checksums[i],
                     zvec=data[p + "zvec"],
                     nvec=data[p + "nvec"],
                     logpvec=data[p + "logpvec"],

@@ -48,26 +48,32 @@ column names accepted by `statgen` are the genomatch cleaned-sumstats names
 `a1`, and `a2`. Genomatch vmap-style `bp`, `a1`, and `a2` are accepted
 directly. `SNP` may be present but is not used for matching.
 
-The TSV does not have to contain every variant in the reference panel. Loading
-against a `ReferencePanel` projects rows into reference order by matching each
-source row to a reference shard with the same `chr` label, then matching within
-that shard on the tuple `(bp, a1_hash64, a2_hash64)` defined in
-[reference.md](reference.md). The allele hashes are computed from each source
-row's exact `a1` and `a2` strings. This is semantically an exact
-`chr:bp:a1:a2` join; the hashes are only fixed-width implementation keys for
-sumstats-to-reference matching. The result is split into `SumstatsShard`s
-matching the reference shards, and variants absent from the TSV are represented
-as missing values. The loader does not normalize or alias contig labels;
-sumstats `chr` values must already match the reference labels.
+The TSV does not have to contain every variant in the reference panel.
+`load_sumstats` is a reference-driven projection from a possibly larger source.
+Loading against a `ReferencePanel` projects rows into reference order by taking
+validated source rows whose `chr` label is in the supplied reference shard set,
+then matching within that shard on the tuple `(bp, a1_hash64, a2_hash64)`
+defined in [reference.md](reference.md). Validated source rows outside the
+supplied reference shard set are ignored for alignment. The allele hashes are
+computed from each source row's exact `a1` and `a2` strings. This is
+semantically an exact `chr:bp:a1:a2` join; the hashes are only fixed-width
+implementation keys for sumstats-to-reference matching. The result is split
+into `SumstatsShard`s matching the reference shards, and variants absent from
+the TSV are represented as missing values. If a supplied reference shard has no
+matching source rows at all, the loader warns and represents that shard as all
+missing. The loader does not normalize or alias contig labels; matched sumstats
+`chr` values must already match the reference labels.
 
 ## In-memory objects
 
 A `SumstatsShard` is aligned to one `ReferenceShard`; a `Sumstats` object is an
 ordered collection of `SumstatsShard` objects aligned to a `ReferencePanel`.
-Each shard retains the paired reference checksum.
+Each shard retains the paired reference checksum as `reference_checksum`.
 
 Each `SumstatsShard` contains:
 
+- `reference_checksum`: MD5 reference checksum for the paired
+  `ReferenceShard`;
 - `zvec`: float vector, length `num_snp`, containing signed Z scores;
 - `nvec`: float vector, length `num_snp`, containing effective sample size;
 - `logpvec`: float vector, length `num_snp`, containing `-log10(p)` with the
@@ -122,9 +128,10 @@ Required vectors are panel-wide numeric vectors. Optional vectors are also
 panel-wide numeric vectors when present; absent optional fields are saved as
 `[]` and indicated by the corresponding `has_*` flag. Shard offsets are
 zero-based half-open intervals into the panel-wide vectors and are sufficient
-to reconstruct `SumstatsShard` objects. Cache metadata validation should be
-cheap, depending on shard count and vector dimensions rather than scanning all
-SNP values.
+to reconstruct `SumstatsShard` objects. `shard_checksums` stores the per-shard
+reference checksums used to restore `SumstatsShard.reference_checksum`. Cache
+metadata validation should be cheap, depending on shard count and vector
+dimensions rather than scanning all SNP values.
 
 ## Panel-level accessors
 
@@ -154,6 +161,7 @@ load_sumstats_cache(path, optional shards) -> Sumstats
 create_sumstats(reference, zvec, nvec, optional pvec, optional beta_vec,
                 optional se_vec, optional eaf_vec, optional info_vec) -> Sumstats
 
+Sumstats.num_snp -> int
 Sumstats.zvec -> num_snp float vector
 Sumstats.nvec -> num_snp float vector
 Sumstats.logpvec -> num_snp float vector
