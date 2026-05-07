@@ -12,12 +12,14 @@ from ._bfile_utils import (
     _parse_bim,
     _parse_fam,
     _parse_ploidy,
+    _read_bed_rows_int8,
     _validate_bed,
 )
 from ._utils import allele_hash64, validate_requested_shards
 from ._variant_match import match_shard_numeric, numeric_variant_keys
 
 _CACHE_SCHEMA = "genotype_cache/0.1"
+_BED_MISSING_INT8 = np.int8(-1)
 
 
 def _freeze(arr) -> np.ndarray:
@@ -36,6 +38,25 @@ def _require_source_paths(prefix: str, label: str | None) -> tuple[Path, Path, P
             raise FileNotFoundError(f"Missing genotype source{where}: {path}")
     ploidy = Path(prefix + ".ploidy")
     return bed, bim, fam, ploidy if ploidy.is_file() else None
+
+
+def _normalize_snp_indices(snp_indices, num_snp: int) -> np.ndarray:
+    arr = np.asarray(snp_indices)
+    if arr.ndim == 0:
+        arr = arr.reshape(1)
+    else:
+        arr = arr.reshape(-1)
+    if arr.size == 0:
+        return np.array([], dtype=np.int64)
+    if arr.dtype.kind not in {"i", "u"}:
+        raise ValueError("GenotypePanel.fetch_genotypes_int8: snp_indices must be integer indices")
+    out = arr.astype(np.int64, copy=False)
+    if np.any(out < 0) or np.any(out >= num_snp):
+        bad = int(out[(out < 0) | (out >= num_snp)][0])
+        raise ValueError(
+            f"GenotypePanel.fetch_genotypes_int8: SNP index {bad} is out of bounds for num_snp={num_snp}"
+        )
+    return out
 
 @dataclass(frozen=True)
 class _SourceRecord:
@@ -363,11 +384,80 @@ class GenotypePanel:
             source_layout=self._source_layout,
         )
 
+    def _addressed_shards(self, snp_indices: np.ndarray) -> list[tuple[GenotypeShard, np.ndarray, np.ndarray]]:
+        addressed = []
+        for shard, offset in zip(self._shards, self._shard_offsets, strict=True):
+            start = int(offset["start0"])
+            stop = int(offset["stop0"])
+            cols = np.flatnonzero((snp_indices >= start) & (snp_indices < stop))
+            if cols.size:
+                addressed.append((shard, cols, snp_indices[cols] - start))
+        return addressed
+
+    def _resolve_bed_paths(self, addressed, bed_path) -> dict[str, Path]:
+        if bed_path is None:
+            return {shard.label: shard.bed_path for shard, _, _ in addressed}
+
+        override = str(bed_path)
+        if "@" in override:
+            if self._source_layout == "non_sharded":
+                raise ValueError(
+                    "GenotypePanel.fetch_genotypes_int8: @ override incompatible with non-sharded panel metadata"
+                )
+            return {shard.label: Path(override.replace("@", shard.label)) for shard, _, _ in addressed}
+
+        if self._source_layout == "sharded" and addressed:
+            source_num_snp = {shard.source_num_snp for shard, _, _ in addressed}
+            source_num_sample = {shard.source_num_sample for shard, _, _ in addressed}
+            if len(source_num_snp) != 1 or len(source_num_sample) != 1:
+                raise ValueError(
+                    "GenotypePanel.fetch_genotypes_int8: flat bed_path override requires equal "
+                    "source_num_snp and source_num_sample across addressed shards"
+                )
+        flat = Path(override)
+        return {shard.label: flat for shard, _, _ in addressed}
+
+    @staticmethod
+    def _validate_requested_present(addressed) -> None:
+        for shard, _cols, local_indices in addressed:
+            present = shard.is_present[local_indices]
+            if not np.all(present):
+                j = int(np.flatnonzero(~present)[0])
+                raise ValueError(
+                    "GenotypePanel.fetch_genotypes_int8: requested SNP "
+                    f"{int(local_indices[j])} in shard {shard.label!r} is not present in the genotype source"
+                )
+
     def fetch_genotypes_int8(self, snp_indices, bed_path=None):
-        raise NotImplementedError("GenotypePanel.fetch_genotypes_int8 is implemented in genotype phase 2")
+        indices = _normalize_snp_indices(snp_indices, self._num_snp)
+        out = np.full((self.num_sample, indices.size), _BED_MISSING_INT8, dtype=np.int8)
+        if indices.size == 0:
+            return out
+
+        addressed = self._addressed_shards(indices)
+        bed_paths = self._resolve_bed_paths(addressed, bed_path)
+        self._validate_requested_present(addressed)
+
+        for shard, cols, local_indices in addressed:
+            effective_bed = bed_paths[shard.label]
+            _validate_bed(effective_bed, shard.source_num_sample, shard.source_num_snp)
+            source_rows = shard.source_row0[local_indices]
+            source_geno = _read_bed_rows_int8(
+                effective_bed,
+                source_rows,
+                shard.source_num_sample,
+            )
+            panel_rows = np.flatnonzero(shard.subject_present)
+            if panel_rows.size:
+                source_subject_rows = shard.source_subject_row0[panel_rows]
+                out[np.ix_(panel_rows, cols)] = source_geno[source_subject_rows, :]
+        return out
 
     def fetch_genotypes(self, snp_indices, bed_path=None):
-        raise NotImplementedError("GenotypePanel.fetch_genotypes is implemented in genotype phase 2")
+        geno_int8 = self.fetch_genotypes_int8(snp_indices, bed_path=bed_path)
+        geno = geno_int8.astype(np.float64)
+        geno[geno_int8 == _BED_MISSING_INT8] = np.nan
+        return geno
 
 
 def _fam_equal(lhs: pd.DataFrame, rhs: pd.DataFrame) -> bool:

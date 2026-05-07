@@ -16,6 +16,7 @@ _BIM_NAMES = ["chr", "snp", "cm", "bp", "a1", "a2"]
 _FAM_NAMES = ["fid", "iid", "father_id", "mother_id", "sex", "pheno"]
 _PLOIDY_NAMES = ["ploidy_male", "ploidy_female"]
 _DNA_ALLELE_RE = re.compile(r"^[ACGT]+$")
+_BED_LOOKUP_INT8 = None
 
 
 def _read_csv_strict(path: Path, *, sep, names, description: str | None = None) -> pd.DataFrame:
@@ -230,3 +231,41 @@ def _validate_bed(path: Path, source_num_sample: int, source_num_snp: int) -> in
     if size != expected:
         raise ValueError(f"{path}: BED file size mismatch: expected {expected}, got {size}")
     return int(size)
+
+
+def _bed_lookup_int8() -> np.ndarray:
+    global _BED_LOOKUP_INT8
+    if _BED_LOOKUP_INT8 is None:
+        values = np.arange(256, dtype=np.uint16)[:, None]
+        shifts = (np.arange(4, dtype=np.uint16) * 2)[None, :]
+        two_bit = ((values >> shifts) & 0b11).astype(np.uint8)
+        lookup = np.empty((256, 4), dtype=np.int8)
+        lookup[two_bit == 0b00] = 2
+        lookup[two_bit == 0b01] = -1
+        lookup[two_bit == 0b10] = 1
+        lookup[two_bit == 0b11] = 0
+        lookup.setflags(write=False)
+        _BED_LOOKUP_INT8 = lookup
+    return _BED_LOOKUP_INT8
+
+
+def _read_bed_rows_int8(path: Path, source_rows: np.ndarray, source_num_sample: int) -> np.ndarray:
+    path = Path(path)
+    source_rows = np.asarray(source_rows, dtype=np.int64).reshape(-1)
+    bytes_per_snp = (int(source_num_sample) + 3) // 4
+    decoded = np.empty((int(source_num_sample), source_rows.size), dtype=np.int8)
+    lookup = _bed_lookup_int8()
+    with open(path, "rb") as f:
+        # PERF: loop over requested SNPs retained; each SNP is a separate BED row
+        #       requiring an individual seek. Inner decode is vectorized across subjects.
+        for j, source_row0 in enumerate(source_rows):
+            f.seek(3 + int(source_row0) * bytes_per_snp)
+            packed = f.read(bytes_per_snp)
+            if len(packed) != bytes_per_snp:
+                raise ValueError(
+                    f"{path}: short BED read for source SNP row {int(source_row0)}: "
+                    f"expected {bytes_per_snp} bytes, got {len(packed)}"
+                )
+            byte_values = np.frombuffer(packed, dtype=np.uint8)
+            decoded[:, j] = lookup[byte_values].reshape(-1)[:source_num_sample]
+    return decoded
