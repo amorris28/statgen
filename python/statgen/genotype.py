@@ -20,6 +20,21 @@ from ._variant_match import match_shard_numeric, numeric_variant_keys
 
 _CACHE_SCHEMA = "genotype_cache/0.1"
 _BED_MISSING_INT8 = np.int8(-1)
+_CACHE_ARRAY_FIELDS = (
+    "is_present",
+    "ploidy_male",
+    "ploidy_female",
+    "source_row0",
+    "subject_present",
+    "source_subject_row0",
+    "fid",
+    "iid",
+    "father_id",
+    "mother_id",
+    "sex",
+    "is_male",
+    "is_female",
+)
 
 
 def _freeze(arr) -> np.ndarray:
@@ -49,12 +64,12 @@ def _normalize_snp_indices(snp_indices, num_snp: int) -> np.ndarray:
     if arr.size == 0:
         return np.array([], dtype=np.int64)
     if arr.dtype.kind not in {"i", "u"}:
-        raise ValueError("GenotypePanel.fetch_genotypes_int8: snp_indices must be integer indices")
+        raise ValueError("GenotypePanel.fetch_genotypes: snp_indices must be integer indices")
     out = arr.astype(np.int64, copy=False)
     if np.any(out < 0) or np.any(out >= num_snp):
         bad = int(out[(out < 0) | (out >= num_snp)][0])
         raise ValueError(
-            f"GenotypePanel.fetch_genotypes_int8: SNP index {bad} is out of bounds for num_snp={num_snp}"
+            f"GenotypePanel.fetch_genotypes: SNP index {bad} is out of bounds for num_snp={num_snp}"
         )
     return out
 
@@ -85,7 +100,6 @@ def _load_source_record(prefix: str, label: str | None) -> _SourceRecord:
                 f"{bim}:{int(source_bim.loc[idx, 'line'])}: sharded genotype BIM for {label!r} "
                 f"contains chr {source_bim.loc[idx, 'chr']!r}"
             )
-    source_bim = source_bim.copy()
     source_bim["a1_hash64"] = allele_hash64(source_bim["a1"].to_numpy(dtype=object))
     source_bim["a2_hash64"] = allele_hash64(source_bim["a2"].to_numpy(dtype=object))
     source_fam = _parse_fam(fam)
@@ -402,7 +416,7 @@ class GenotypePanel:
         if "@" in override:
             if self._source_layout == "non_sharded":
                 raise ValueError(
-                    "GenotypePanel.fetch_genotypes_int8: @ override incompatible with non-sharded panel metadata"
+                    "GenotypePanel.fetch_genotypes: @ override incompatible with non-sharded panel metadata"
                 )
             return {shard.label: Path(override.replace("@", shard.label)) for shard, _, _ in addressed}
 
@@ -411,21 +425,22 @@ class GenotypePanel:
             source_num_sample = {shard.source_num_sample for shard, _, _ in addressed}
             if len(source_num_snp) != 1 or len(source_num_sample) != 1:
                 raise ValueError(
-                    "GenotypePanel.fetch_genotypes_int8: flat bed_path override requires equal "
+                    "GenotypePanel.fetch_genotypes: flat bed_path override requires equal "
                     "source_num_snp and source_num_sample across addressed shards"
                 )
         flat = Path(override)
         return {shard.label: flat for shard, _, _ in addressed}
 
-    @staticmethod
-    def _validate_requested_present(addressed) -> None:
+    def _validate_requested_present(self, addressed) -> None:
+        start_by_label = {str(o["shard_label"]): int(o["start0"]) for o in self._shard_offsets}
         for shard, _cols, local_indices in addressed:
             present = shard.is_present[local_indices]
             if not np.all(present):
                 j = int(np.flatnonzero(~present)[0])
+                panel_index = start_by_label[shard.label] + int(local_indices[j])
                 raise ValueError(
-                    "GenotypePanel.fetch_genotypes_int8: requested SNP "
-                    f"{int(local_indices[j])} in shard {shard.label!r} is not present in the genotype source"
+                    "GenotypePanel.fetch_genotypes: requested SNP "
+                    f"{panel_index} in shard {shard.label!r} is not present in the genotype source"
                 )
 
     def fetch_genotypes_int8(self, snp_indices, bed_path=None):
@@ -654,10 +669,25 @@ def save_genotype_cache(panel: GenotypePanel, path, format=None) -> None:
     np.savez_compressed(path, **arrays)
 
 
+def _load_cache_meta(data) -> dict:
+    if "_meta" not in data.files:
+        raise ValueError("Invalid genotype cache: missing _meta")
+    try:
+        meta = json.loads(bytes(data["_meta"]).decode())
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
+        raise ValueError("Invalid genotype cache: malformed _meta") from exc
+    if not isinstance(meta, dict):
+        raise ValueError("Invalid genotype cache: _meta must be a JSON object")
+    return meta
+
+
 def _validate_cache_meta(meta: dict, data) -> None:
     schema = meta.get("schema")
     if schema != _CACHE_SCHEMA:
         raise ValueError(f"Unsupported genotype cache schema: {schema!r}")
+    missing = [name for name in _CACHE_ARRAY_FIELDS if name not in data.files]
+    if missing:
+        raise ValueError(f"Invalid genotype cache: missing array field {missing[0]!r}")
     n_shards = int(meta.get("n_shards", -1))
     if n_shards < 0:
         raise ValueError("Invalid genotype cache: n_shards must be non-negative")
@@ -700,6 +730,13 @@ def _validate_cache_meta(meta: dict, data) -> None:
     for name in ("fid", "iid", "father_id", "mother_id", "sex", "is_male", "is_female"):
         if data[name].shape != (num_sample,):
             raise ValueError(f"Invalid genotype cache: {name} length mismatch")
+    sex = data["sex"]
+    if np.any(~np.isin(sex, [0, 1, 2])):
+        raise ValueError("Invalid genotype cache: sex values must be 0, 1, or 2")
+    if not np.array_equal(data["is_male"], sex == 1):
+        raise ValueError("Invalid genotype cache: is_male does not match sex")
+    if not np.array_equal(data["is_female"], sex == 2):
+        raise ValueError("Invalid genotype cache: is_female does not match sex")
     if data["subject_present"].shape != (num_sample, n_shards):
         raise ValueError("Invalid genotype cache: subject_present shape mismatch")
     if data["source_subject_row0"].shape != (num_sample, n_shards):
@@ -713,7 +750,7 @@ def _validate_cache_meta(meta: dict, data) -> None:
 
 def load_genotype_cache(path, shards=None) -> GenotypePanel:
     with np.load(path, allow_pickle=False) as data:
-        meta = json.loads(bytes(data["_meta"]).decode())
+        meta = _load_cache_meta(data)
         _validate_cache_meta(meta, data)
         labels = list(meta["shard_labels"])
         selected = validate_requested_shards(shards, labels, "load_genotype_cache")

@@ -133,6 +133,19 @@ def test_absent_snp_fails_before_reading_bed_payload(tmp_path):
         panel.fetch_genotypes_int8([5], bed_path=tmp_path / "missing.bed")
 
 
+def test_absent_snp_error_reports_panel_global_index_for_later_shard(tmp_path):
+    (tmp_path / "1.bim").write_bytes((FIXTURES_DIR / "reference/sharded/1.bim").read_bytes())
+    (tmp_path / "X.bim").write_text(
+        (FIXTURES_DIR / "reference/sharded/X.bim").read_text()
+        + "X\trsX004\t0\t400\tG\tA\n"
+    )
+    ref = load_reference(str(tmp_path / "@.bim"))
+    panel = load_genotype(G_SHARDED, ref)
+
+    with pytest.raises(ValueError, match=r"requested SNP 8 in shard 'X' is not present"):
+        panel.fetch_genotypes_int8([8], bed_path=tmp_path / "missing.bed")
+
+
 def test_flat_bed_override_works_for_nonsharded_panel():
     ref = load_reference(REF_SHARDED)
     panel = load_genotype(G_NONSHARDED, ref)
@@ -142,6 +155,18 @@ def test_flat_bed_override_works_for_nonsharded_panel():
         bed_path=FIXTURES_DIR / "genotype/nonsharded/all.bed",
     )
     assert np.array_equal(geno, np.full((4, 2), 2, dtype=np.int8))
+
+
+def test_nonsharded_fetches_chrx_snps_from_shared_bed_without_override():
+    ref = load_reference(REF_SHARDED)
+    panel = load_genotype(G_NONSHARDED, ref)
+
+    assert panel.source_layout == "non_sharded"
+    assert panel.is_subject_present("X").tolist() == [True, True, True, True]
+    assert panel.shards[1].source_subject_row0.tolist() == [0, 1, 2, 3]
+
+    geno = panel.fetch_genotypes_int8([5, 7, 0])
+    assert np.array_equal(geno, np.full((4, 3), 2, dtype=np.int8))
 
 
 def test_at_bed_override_works_for_sharded_panel_and_single_shard_subset():
@@ -192,4 +217,3 @@ def test_bed_override_size_and_header_validation(tmp_path):
     trailing.write_bytes(b"\x6c\x1b\x01" + b"\x00" * (expected_size - 2))
     with pytest.raises(ValueError, match="BED file size mismatch"):
         panel.fetch_genotypes_int8([0], bed_path=trailing)
-
