@@ -259,6 +259,9 @@ matrix access is deferred to explicit accessor calls. For non-sharded bfile
 input, `GenotypePanel` still produces one `GenotypeShard` per reference shard,
 all pointing to the same source `.bed`; the in-memory and cache representation
 is always shard-structured regardless of whether the source bfile was sharded.
+`GenotypePanel.source_layout` records the physical source layout used when the
+metadata was built: `"non_sharded"` for a single bfile source or `"sharded"` for
+an `@` source. Shard subsetting and cache subsetting preserve this value.
 
 ## Representation
 
@@ -278,7 +281,7 @@ Genotype hardcall decoding must be vectorized across subjects for each SNP.
 ## Cache layout
 
 Genotype caches save metadata and aligned vectors only. They do not save
-genotype hardcalls.
+genotype hardcalls. Python genotype caches use NumPy `.npz` format.
 
 MATLAB/Octave genotype caches are `.mat` files with user-inspectable
 panel-wide variables at top level:
@@ -309,6 +312,7 @@ shard_labels
 shard_checksums
 shard_start0
 shard_stop0
+source_layout
 bed_paths
 bed_file_sizes
 source_num_snp
@@ -328,12 +332,14 @@ vectors of length `n_shards` because they are stored on reconstructed
 `GenotypeShard`s, but their meaning is physical-source metadata for the
 corresponding `bed_path`. For non-sharded source bfiles, the repeated entries
 record the shared `.bed` path and the same full-file source SNP count for each
-shard, not shard-local match counts. Shard offsets are zero-based half-open
-intervals into the panel-wide SNP-axis vectors and are sufficient to
-reconstruct `GenotypeShard` objects. Cache metadata validation should be cheap,
-depending on shard count, vector dimensions, sample count, stored
-physical-source `source_num_snp`, `source_num_sample`, and recorded `.bed` file
-sizes rather than reparsing BIM/FAM or PLOIDY source files.
+shard, not shard-local match counts. `source_layout` is panel-level metadata and
+must be preserved on cache load, including optional shard subsetting. Shard
+offsets are zero-based half-open intervals into the panel-wide SNP-axis vectors
+and are sufficient to reconstruct `GenotypeShard` objects. Cache metadata
+validation should be cheap, depending on shard count, vector dimensions, sample
+count, stored physical-source `source_num_snp`, `source_num_sample`, recorded
+`.bed` file sizes, and `source_layout` rather than reparsing BIM/FAM or PLOIDY
+source files.
 
 `load_genotype_cache(path, optional shards)` restores the metadata/accessor
 object from cache. It must not parse source `.bim`, `.fam`, or `.ploidy`
@@ -388,10 +394,22 @@ different location while reusing the cached/aligned metadata. It may identify a
 single `.bed` file or a sharded path containing `@`, resolved by the same
 shard-label substitution rules as source loaders. A single `.bed` override is
 used for all addressed shards only when those addressed shards share the same
-recorded physical source layout. An `@` override resolves one `.bed` path per
-addressed shard and preserves sharded physical layout. Overrides do not convert
-metadata built from a non-sharded source into sharded layout, or metadata built
-from sharded sources into a combined non-sharded layout. The alternate `.bed`
+recorded physical source layout, defined as equal `source_num_snp` and equal
+`source_num_sample` across all addressed shards. An `@` override resolves one
+`.bed` path per addressed shard and preserves sharded physical layout.
+
+Overrides must not convert between source layouts. Enforcement uses
+`GenotypePanel.source_layout`, not equality of stored `bed_path` values, because
+single-shard subsets of sharded metadata still have sharded physical layout:
+
+- `source_layout == "non_sharded"`: a flat override is accepted; an
+  `@`-containing override is an error.
+- `source_layout == "sharded"`: an `@`-sharded override is accepted; a flat
+  override is accepted only when all addressed shards pass the layout equality
+  check (`source_num_snp` and `source_num_sample` equal across all addressed
+  shards), otherwise it is an error.
+
+The alternate `.bed`
 file(s) must have the same FAM/BIM structure and row order as the metadata
 object, including any chrX sample subset. Since `.bed` files contain no
 manifest, the accessor can only validate basic structure: file existence, PLINK
@@ -424,6 +442,7 @@ GenotypePanel.fetch_genotypes_int8(snp_indices, optional bed_path)
     -> num_sample × len(snp_indices) int8 matrix
 GenotypePanel.fetch_genotypes(snp_indices, optional bed_path)
     -> num_sample × len(snp_indices) double matrix
+GenotypePanel.source_layout -> "non_sharded" | "sharded"
 GenotypePanel.select_shards(shards) -> GenotypePanel
 ```
 
@@ -459,7 +478,7 @@ Expected behavior:
 - `save_genotype_cache` `format` selects the MATLAB `.mat` file format
   (`'v7'`, `'v7.3'`, or `'v5'`) following the convention in
   [matlab.md](matlab.md). The parameter has no effect in Python, which always
-  uses its native cache format.
+  uses NumPy `.npz` format.
 - Accessors are read-only, concatenate shards in reference panel order, and
   return plain language-native vectors or matrices.
 - `GenotypePanel.is_subject_present(shard)` accepts one loaded shard label and

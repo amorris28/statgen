@@ -54,7 +54,11 @@ plan for genotype implementation.
 ### Object structure
 
 `GenotypePanel` holds ordered `GenotypeShard`s matching the supplied
-`ReferencePanel`.
+`ReferencePanel`. It also stores `source_layout`, either `"non_sharded"` for a
+single bfile source or `"sharded"` for an `@` source. `select_shards` and cache
+subsetting preserve `source_layout`; do not infer source layout from equality of
+stored `bed_path` values because single-shard subsets of sharded metadata still
+have sharded physical layout.
 
 `GenotypeShard` is the unit of `.bed` access. It is paired 1:1 with one
 `ReferenceShard` and owns:
@@ -102,7 +106,8 @@ the original single source BIM/BED row order.
 - If `.ploidy` is absent, matched source rows have `(ploidy_male,
   ploidy_female) = (2, 2)`.
 - If `.ploidy` is present, parse two integer columns with no header and require
-  row count equal to source BIM row count.
+  row count equal to `source_num_snp` (the row count of the BIM file it
+  sidecars, not the number of rows matched to the reference shard).
 - Allowed ploidy values are `0`, `1`, and `2`.
 - Reference rows with `is_present == false` have `NaN` ploidy values.
 
@@ -231,7 +236,7 @@ return the selected shard's vector rather than concatenating across shards.
 - Warn when chrX is loaded without a `.ploidy` sidecar.
 - Build immutable `GenotypeShard` objects and `GenotypePanel` accessors.
 - Implement `GenotypePanel.select_shards(shards)` preserving the panel-level
-  sample axis and per-shard subject masks.
+  sample axis, per-shard subject masks, and `source_layout`.
 
 ### Python tests
 
@@ -265,10 +270,23 @@ return the selected shard's vector rather than concatenating across shards.
   thin double-precision wrapper over `fetch_genotypes_int8`.
 - Accept panel-global SNP indices in Python 0-based convention.
 - Preserve requested SNP order, including repeated indices.
+- If `bed_path` override is supplied, validate it before addressing any shard:
+  - if the override contains `@`:
+    - reject when `GenotypePanel.source_layout == "non_sharded"` (error: `@`
+      override incompatible with non-sharded panel metadata);
+    - otherwise resolve one path per addressed shard by substituting shard
+      labels.
+  - if the override is a flat path (no `@`):
+    - accept when `GenotypePanel.source_layout == "non_sharded"`;
+    - collect `source_num_snp` and `source_num_sample` across all addressed
+      shards when `GenotypePanel.source_layout == "sharded"`; if any differ,
+      reject (error: flat override requires equal `source_num_snp` and
+      `source_num_sample` across addressed shards);
+    - apply the flat path to all addressed shards.
 - Split requested indices by `GenotypeShard`.
 - For each shard:
   - validate all requested shard-local SNPs have `is_present == true`;
-  - resolve effective `.bed` path from shard metadata or `bed_path` override;
+  - resolve effective `.bed` path from shard metadata or validated override;
   - validate `.bed` magic bytes, SNP-major mode, and that actual disk size
     equals stored `bed_file_size`;
   - read only requested source BED rows using `source_row0`;
@@ -353,6 +371,12 @@ it preserves this exact contract and does not complicate MATLAB parity.
 - chrX subset with different FAM order still maps correctly.
 - `bed_path` override works for a single non-sharded `.bed`.
 - `bed_path` override with `@` works for sharded `.bed` payloads.
+- `bed_path` `@` override against a non-sharded panel fails before reading any
+  `.bed` (`source_layout == "non_sharded"`).
+- Flat `bed_path` override against a sharded panel with unequal `source_num_snp`
+  across addressed shards fails before reading any `.bed`.
+- `@` override remains allowed for a single-shard subset loaded from sharded
+  metadata because `source_layout` is preserved through subsetting.
 - `bed_path` override size mismatch fails.
 - `.bed` files with trailing bytes fail the exact-size check.
 - Invalid magic bytes and non-SNP-major mode fail.
@@ -361,8 +385,8 @@ it preserves this exact contract and does not complicate MATLAB parity.
 
 ### Implementation tasks
 
-- Implement cache writer using Python-native binary array storage consistent
-  with `performance-contract.md`.
+- Implement cache writer using NumPy `.npz` format, consistent with other
+  Python caches in `statgen` (sumstats, reference).
 - Store schema `"genotype_cache/0.1"`.
 - Store panel-wide SNP-axis arrays:
   - `is_present`
@@ -386,6 +410,7 @@ it preserves this exact contract and does not complicate MATLAB parity.
   - `shard_checksums`
   - `shard_start0`
   - `shard_stop0`
+  - `source_layout`
   - `bed_paths`
   - `bed_file_sizes`
   - `source_num_snp`
@@ -393,7 +418,8 @@ it preserves this exact contract and does not complicate MATLAB parity.
   - `num_sample`
 - `load_genotype_cache(path, shards=None)` performs cache-internal validation
   and optional shard subsetting without reparsing `.bim`, `.fam`, `.ploidy`,
-  or `.bed`. Cache load validates
+  or `.bed`. Cache load validates `source_layout` is one of `"non_sharded"` or
+  `"sharded"` and validates
   `3 + ceil(source_num_sample / 4) * source_num_snp == bed_file_size` for
   each shard as a metadata integrity check.
 - BED existence, magic bytes, and actual-disk-size-versus-stored-`bed_file_size`
@@ -493,7 +519,7 @@ it preserves this exact contract and does not complicate MATLAB parity.
 - Support cache `format` options consistent with other cache writers.
 - Load cache without reparsing source BIM/FAM/PLOIDY/BED.
 - Support optional cache `shards` subsetting.
-- Preserve panel-level sample axis for all shard subsets.
+- Preserve panel-level sample axis and `source_layout` for all shard subsets.
 
 ### MATLAB/Octave tests
 
