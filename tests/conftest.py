@@ -3,6 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -133,3 +134,81 @@ def matlab_data_lines(stdout: str) -> list[str]:
             continue
         out.append(line)
     return out
+
+
+GENOTYPE_CHR1_CALLS = np.array(
+    [
+        [2, -1, 1, 0],
+        [0, 1, 2, -1],
+        [1, 1, 0, 2],
+        [2, 0, -1, 1],
+        [-1, 2, 0, 1],
+    ],
+    dtype=np.int8,
+)
+
+GENOTYPE_SAMPLES = [
+    ("FAM1", "IND1", 0, 0, 1, -9),
+    ("FAM1", "IND2", 0, 0, 2, -9),
+    ("FAM2", "IND3", 0, 0, 1, -9),
+    ("FAM2", "IND4", 0, 0, 2, -9),
+]
+
+GENOTYPE_CHR1_BIM = [
+    ("1", "rs1001", 0, 100, "A", "G"),
+    ("1", "rs1002", 0, 200, "C", "T"),
+    ("1", "rs1003", 0, 300, "A", "C"),
+    ("1", "rs1004", 0, 400, "G", "A"),
+    ("1", "rs1005", 0, 500, "T", "C"),
+]
+
+GENOTYPE_CHR2_BIM = [
+    ("2", "rs2001", 0, 100, "A", "G"),
+    ("2", "rs2002", 0, 200, "C", "T"),
+]
+
+
+def write_plink_bed(path: Path, *, num_snp: int, num_sample: int) -> None:
+    bytes_per_snp = (num_sample + 3) // 4
+    path.write_bytes(b"\x6c\x1b\x01" + b"\x00" * (num_snp * bytes_per_snp))
+
+
+def write_plink_bed_calls(path: Path, calls) -> None:
+    calls = np.asarray(calls, dtype=np.int8)
+    code = {
+        2: 0b00,
+        -1: 0b01,
+        1: 0b10,
+        0: 0b11,
+    }
+    bytes_per_snp = (calls.shape[1] + 3) // 4
+    payload = bytearray()
+    for row in calls:
+        row_bytes = [0] * bytes_per_snp
+        for j, value in enumerate(row.tolist()):
+            row_bytes[j // 4] |= code[int(value)] << (2 * (j % 4))
+        payload.extend(row_bytes)
+    path.write_bytes(b"\x6c\x1b\x01" + bytes(payload))
+
+
+def write_plink_bim(path: Path, rows) -> None:
+    path.write_text("".join(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{r[4]}\t{r[5]}\n" for r in rows))
+
+
+def write_plink_fam(path: Path, rows) -> None:
+    path.write_text("".join(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{r[4]}\t{r[5]}\n" for r in rows))
+
+
+def copy_genotype_shard_files(dst: Path, label: str, *, ploidy: bool = True) -> None:
+    for suffix in (".bim", ".fam", ".bed"):
+        (dst / f"{label}{suffix}").write_bytes(
+            (FIXTURES_DIR / f"genotype/sharded/{label}{suffix}").read_bytes()
+        )
+    src_ploidy = FIXTURES_DIR / f"genotype/sharded/{label}.ploidy"
+    if ploidy and src_ploidy.exists():
+        (dst / f"{label}.ploidy").write_bytes(src_ploidy.read_bytes())
+
+
+def copy_sharded_genotype(dst: Path) -> None:
+    for label in ("1", "X"):
+        copy_genotype_shard_files(dst, label)

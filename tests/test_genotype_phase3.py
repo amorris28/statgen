@@ -5,7 +5,7 @@ import pytest
 
 from statgen.genotype import load_genotype, load_genotype_cache, save_genotype_cache
 from statgen.reference import load_reference
-from tests.conftest import FIXTURES_DIR
+from tests.conftest import FIXTURES_DIR, copy_sharded_genotype, write_plink_bed
 
 
 REF_SHARDED = FIXTURES_DIR / "reference/sharded/@.bim"
@@ -21,19 +21,6 @@ def _write_cache(path, arrays, meta):
     arrays = dict(arrays)
     arrays["_meta"] = np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8)
     np.savez_compressed(path, **arrays)
-
-
-def _copy_sharded_genotype(dst):
-    for label in ("1", "X"):
-        for suffix in (".bim", ".fam", ".bed", ".ploidy"):
-            src = FIXTURES_DIR / f"genotype/sharded/{label}{suffix}"
-            if src.exists():
-                (dst / f"{label}{suffix}").write_bytes(src.read_bytes())
-
-
-def _write_zero_bed(path, *, num_snp, num_sample):
-    bytes_per_snp = (num_sample + 3) // 4
-    path.write_bytes(b"\x6c\x1b\x01" + b"\x00" * (num_snp * bytes_per_snp))
 
 
 def test_genotype_cache_roundtrip_preserves_accessors_and_fetch(tmp_path):
@@ -74,7 +61,7 @@ def test_genotype_cache_roundtrip_preserves_accessors_and_fetch(tmp_path):
 
 
 def test_genotype_cache_load_is_lazy_for_missing_bed_and_override_fetches(tmp_path):
-    _copy_sharded_genotype(tmp_path)
+    copy_sharded_genotype(tmp_path)
     ref = load_reference(REF_SHARDED)
     panel = load_genotype(str(tmp_path / "@"), ref)
     cache = tmp_path / "genotype_cache.npz"
@@ -97,12 +84,12 @@ def test_genotype_cache_load_is_lazy_for_missing_bed_and_override_fetches(tmp_pa
 
 
 def test_genotype_cache_subset_preserves_panel_axis_and_chrx_mask(tmp_path):
-    _copy_sharded_genotype(tmp_path)
+    copy_sharded_genotype(tmp_path)
     (tmp_path / "X.fam").write_text(
         "FAM2\tIND3\t0\t0\t1\t-9\n"
         "FAM1\tIND1\t0\t0\t1\t-9\n"
     )
-    _write_zero_bed(tmp_path / "X.bed", num_snp=3, num_sample=2)
+    write_plink_bed(tmp_path / "X.bed", num_snp=3, num_sample=2)
 
     ref = load_reference(REF_SHARDED)
     panel = load_genotype(str(tmp_path / "@"), ref)
@@ -184,3 +171,37 @@ def test_genotype_cache_validation_errors(tmp_path):
 
     with pytest.raises(ValueError, match="requested shard '2' is not present"):
         load_genotype_cache(cache, shards=["2"])
+
+    zero_shard_arrays = {
+        "is_present": np.array([False]),
+        "ploidy_male": np.array([np.nan]),
+        "ploidy_female": np.array([np.nan]),
+        "source_row0": np.array([-1], dtype=np.int64),
+        "subject_present": np.zeros((1, 0), dtype=bool),
+        "source_subject_row0": np.zeros((1, 0), dtype=np.int64),
+        "fid": np.array(["FAM1"]),
+        "iid": np.array(["IND1"]),
+        "father_id": np.array(["0"]),
+        "mother_id": np.array(["0"]),
+        "sex": np.array([1], dtype=np.int8),
+        "is_male": np.array([True]),
+        "is_female": np.array([False]),
+    }
+    zero_shard_meta = {
+        "schema": "genotype_cache/0.1",
+        "n_shards": 0,
+        "shard_labels": [],
+        "shard_checksums": [],
+        "shard_start0": [],
+        "shard_stop0": [],
+        "source_layout": "sharded",
+        "bed_paths": [],
+        "bed_file_sizes": [],
+        "source_num_snp": [],
+        "source_num_sample": [],
+        "num_sample": 1,
+    }
+    zero_shard_cache = tmp_path / "zero_shard_cache.npz"
+    _write_cache(zero_shard_cache, zero_shard_arrays, zero_shard_meta)
+    with pytest.raises(ValueError, match="n_shards must be positive"):
+        load_genotype_cache(zero_shard_cache)

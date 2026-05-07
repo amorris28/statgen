@@ -20,6 +20,9 @@ classdef LDPanel
             if nargin < 3
                 reference = [];
             end
+            if isempty(shard_groups)
+                error('statgen:ld', 'LDPanel requires at least one shard group');
+            end
             statgen.LDPanel.validate_chrx_sex_(default_chrX_sex, 'default_chrX_sex');
             obj.shard_groups = shard_groups;
             obj.default_chrX_sex = char(default_chrX_sex);

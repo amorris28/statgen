@@ -236,6 +236,8 @@ class AnnotationShard:
 class AnnotationPanel:
     def __init__(self, shards: list[AnnotationShard], annonames):
         self._shards = list(shards)
+        if not self._shards:
+            raise ValueError("AnnotationPanel requires at least one shard")
         self._annonames = np.asarray(_coerce_annonames(annonames), dtype=object)
         self._num_snp = int(sum(s.num_snp for s in self._shards))
 

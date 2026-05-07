@@ -114,6 +114,7 @@ A shard is a per-contig partition; a panel is an ordered collection of shards.
 Within each shard rows have shard-local SNP indices; across a panel they have
 global SNP indices. In memory, all panel-like objects are represented as ordered
 shard vectors.
+Panel objects must contain at least one shard; empty panels are invalid.
 
 Unless a field is explicitly documented as portable-coordinate metadata (for
 example `start0`, `stop0`, or `index_base`), indexing semantics in code follow

@@ -28,6 +28,9 @@ classdef GenotypePanel
             if ~strcmp(source_layout, 'non_sharded') && ~strcmp(source_layout, 'sharded')
                 error('statgen:genotype', 'source_layout must be ''non_sharded'' or ''sharded''');
             end
+            if isempty(shards_cell)
+                error('statgen:genotype', 'GenotypePanel requires at least one shard');
+            end
             obj.source_layout = source_layout;
             obj.shards = shards_cell;
             obj.fid = statgen.internal.ensure_cell_col(fid);

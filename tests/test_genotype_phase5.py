@@ -1,52 +1,20 @@
 import numpy as np
 import pytest
 
-from tests.conftest import FIXTURES_DIR, matlab_data_lines, run_octave, skipif_no_octave
+from tests.conftest import (
+    FIXTURES_DIR,
+    GENOTYPE_CHR1_CALLS,
+    copy_genotype_shard_files,
+    matlab_data_lines,
+    run_octave,
+    skipif_no_octave,
+    write_plink_bed_calls,
+)
 
 
 REF_SHARDED = FIXTURES_DIR / "reference/sharded/@.bim"
 G_SHARDED = FIXTURES_DIR / "genotype/sharded/@"
 G_NONSHARDED = FIXTURES_DIR / "genotype/nonsharded/all"
-
-
-_CHR1_CALLS = np.array(
-    [
-        [2, -1, 1, 0],
-        [0, 1, 2, -1],
-        [1, 1, 0, 2],
-        [2, 0, -1, 1],
-        [-1, 2, 0, 1],
-    ],
-    dtype=np.int8,
-)
-
-
-def _write_bed_calls(path, calls):
-    calls = np.asarray(calls, dtype=np.int8)
-    code = {
-        2: 0b00,
-        -1: 0b01,
-        1: 0b10,
-        0: 0b11,
-    }
-    bytes_per_snp = (calls.shape[1] + 3) // 4
-    payload = bytearray()
-    for row in calls:
-        row_bytes = [0] * bytes_per_snp
-        for j, value in enumerate(row.tolist()):
-            row_bytes[j // 4] |= code[int(value)] << (2 * (j % 4))
-        payload.extend(row_bytes)
-    path.write_bytes(b"\x6c\x1b\x01" + bytes(payload))
-
-
-def _copy_shard_files(dst, label, *, ploidy=True):
-    for suffix in (".bim", ".fam", ".bed"):
-        (dst / f"{label}{suffix}").write_bytes(
-            (FIXTURES_DIR / f"genotype/sharded/{label}{suffix}").read_bytes()
-        )
-    src_ploidy = FIXTURES_DIR / f"genotype/sharded/{label}.ploidy"
-    if ploidy and src_ploidy.exists():
-        (dst / f"{label}.ploidy").write_bytes(src_ploidy.read_bytes())
 
 
 @pytest.mark.octave
@@ -57,9 +25,12 @@ def test_octave_fetch_fixture_mixed_shard_repeated_and_float_wrapper():
         f"g = statgen.load_genotype('{G_SHARDED}', ref); "
         "gi = g.fetch_genotypes_int8([6 1 5 6 3]); "
         "gf = g.fetch_genotypes([6 1 5 6 3]); "
+        "empty_i = g.fetch_genotypes_int8([]); "
+        "empty_f = g.fetch_genotypes([]); "
         "fprintf('%d %d\\n', size(gi, 1), size(gi, 2)); "
         "fprintf('%d ', gi); fprintf('\\n'); "
-        "fprintf('%s %.0f\\n', class(gf), sum(isnan(gf(:))));"
+        "fprintf('%s %.0f\\n', class(gf), sum(isnan(gf(:)))); "
+        "fprintf('%d %d %s %d %d\\n', size(empty_i, 1), size(empty_i, 2), class(empty_i), size(empty_f, 1), size(empty_f, 2));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
@@ -68,6 +39,7 @@ def test_octave_fetch_fixture_mixed_shard_repeated_and_float_wrapper():
         "4 5",
         "2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2",
         "double 0",
+        "4 0 int8 4 0",
     ]
 
 
@@ -78,7 +50,7 @@ def test_octave_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
         (tmp_path / f"chr1{suffix}").write_bytes(
             (FIXTURES_DIR / f"genotype/sharded/1{suffix}").read_bytes()
         )
-    _write_bed_calls(tmp_path / "chr1.bed", _CHR1_CALLS)
+    write_plink_bed_calls(tmp_path / "chr1.bed", GENOTYPE_CHR1_CALLS)
 
     script = (
         f"ref = statgen.load_reference('{REF_SHARDED}', {{'1'}}); "
@@ -101,13 +73,13 @@ def test_octave_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
 @pytest.mark.octave
 @skipif_no_octave
 def test_octave_fetch_chrx_subset_expands_to_panel_sample_axis(tmp_path):
-    _copy_shard_files(tmp_path, "1")
-    _copy_shard_files(tmp_path, "X")
+    copy_genotype_shard_files(tmp_path, "1")
+    copy_genotype_shard_files(tmp_path, "X")
     (tmp_path / "X.fam").write_text(
         "FAM2\tIND3\t0\t0\t1\t-9\n"
         "FAM1\tIND1\t0\t0\t1\t-9\n"
     )
-    _write_bed_calls(
+    write_plink_bed_calls(
         tmp_path / "X.bed",
         np.array(
             [

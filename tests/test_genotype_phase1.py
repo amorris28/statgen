@@ -3,49 +3,21 @@ import pytest
 
 from statgen.genotype import load_genotype, load_genotype_cache, save_genotype_cache
 from statgen.reference import load_reference
-from tests.conftest import FIXTURES_DIR
+from tests.conftest import (
+    FIXTURES_DIR,
+    GENOTYPE_CHR1_BIM,
+    GENOTYPE_CHR2_BIM,
+    GENOTYPE_SAMPLES,
+    write_plink_bed,
+    write_plink_bim,
+    write_plink_fam,
+)
 
 
 REF_SHARDED = FIXTURES_DIR / "reference/sharded/@.bim"
 REF_NONSHARDED = FIXTURES_DIR / "reference/nonsharded/all.bim"
 G_SHARDED = FIXTURES_DIR / "genotype/sharded/@"
 G_NONSHARDED = FIXTURES_DIR / "genotype/nonsharded/all"
-
-
-def _write_bed(path, num_snp, num_sample):
-    bytes_per_snp = (num_sample + 3) // 4
-    path.write_bytes(b"\x6c\x1b\x01" + b"\x00" * (num_snp * bytes_per_snp))
-
-
-def _write_bim(path, rows):
-    """rows: list of (chr, snp, cm, bp, a1, a2) tuples."""
-    path.write_text("".join(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{r[4]}\t{r[5]}\n" for r in rows))
-
-
-def _write_fam(path, rows):
-    """rows: list of (fid, iid, pid, mid, sex, pheno) tuples."""
-    path.write_text("".join(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{r[4]}\t{r[5]}\n" for r in rows))
-
-
-_SAMPLES = [
-    ("FAM1", "IND1", 0, 0, 1, -9),
-    ("FAM1", "IND2", 0, 0, 2, -9),
-    ("FAM2", "IND3", 0, 0, 1, -9),
-    ("FAM2", "IND4", 0, 0, 2, -9),
-]
-
-_CHR1_BIM = [
-    ("1", "rs1001", 0, 100, "A", "G"),
-    ("1", "rs1002", 0, 200, "C", "T"),
-    ("1", "rs1003", 0, 300, "A", "C"),
-    ("1", "rs1004", 0, 400, "G", "A"),
-    ("1", "rs1005", 0, 500, "T", "C"),
-]
-
-_CHR2_BIM = [
-    ("2", "rs2001", 0, 100, "A", "G"),
-    ("2", "rs2002", 0, 200, "C", "T"),
-]
 
 
 def test_sharded_genotype_metadata_loads():
@@ -74,7 +46,7 @@ def test_nonsharded_genotype_loads_against_multi_shard_reference(tmp_path):
     prefix = tmp_path / "all"
     prefix.with_suffix(".bim").write_text((FIXTURES_DIR / "reference/nonsharded/all.bim").read_text())
     prefix.with_suffix(".fam").write_text((FIXTURES_DIR / "genotype/sharded/1.fam").read_text())
-    _write_bed(prefix.with_suffix(".bed"), num_snp=8, num_sample=4)
+    write_plink_bed(prefix.with_suffix(".bed"), num_snp=8, num_sample=4)
 
     ref = load_reference(REF_NONSHARDED)
     with pytest.warns(RuntimeWarning, match="chrX genotype source has no .ploidy"):
@@ -174,9 +146,9 @@ def test_extra_files_on_disk_ignored(tmp_path):
             (tmp_path / f"{label}{suffix}").write_bytes(src.read_bytes())
 
     # Extra chr2 bfile that the reference (chr1 + X) does not reference
-    _write_bim(tmp_path / "2.bim", _CHR2_BIM)
-    _write_fam(tmp_path / "2.fam", _SAMPLES)
-    _write_bed(tmp_path / "2.bed", num_snp=2, num_sample=4)
+    write_plink_bim(tmp_path / "2.bim", GENOTYPE_CHR2_BIM)
+    write_plink_fam(tmp_path / "2.fam", GENOTYPE_SAMPLES)
+    write_plink_bed(tmp_path / "2.bed", num_snp=2, num_sample=4)
 
     ref = load_reference(REF_SHARDED)  # only chr1 + X
     panel = load_genotype(str(tmp_path / "@"), ref)
@@ -185,12 +157,12 @@ def test_extra_files_on_disk_ignored(tmp_path):
 
 def test_duplicate_fid_iid_fails(tmp_path):
     """FAM file with duplicate (fid, iid) pair fails at load time."""
-    _write_bim(tmp_path / "dup.bim", _CHR1_BIM)
+    write_plink_bim(tmp_path / "dup.bim", GENOTYPE_CHR1_BIM)
     (tmp_path / "dup.fam").write_text(
         "FAM1\tIND1\t0\t0\t1\t-9\n"
         "FAM1\tIND1\t0\t0\t2\t-9\n"  # same (fid, iid) as row 1
     )
-    _write_bed(tmp_path / "dup.bed", num_snp=5, num_sample=2)
+    write_plink_bed(tmp_path / "dup.bed", num_snp=5, num_sample=2)
 
     ref = load_reference(REF_SHARDED, shards=["1"])
     with pytest.raises(ValueError, match="duplicate FAM subject"):
@@ -199,9 +171,9 @@ def test_duplicate_fid_iid_fails(tmp_path):
 
 def test_invalid_sex_fails(tmp_path):
     """FAM file with sex value outside {0, 1, 2} fails at load time."""
-    _write_bim(tmp_path / "badsex.bim", _CHR1_BIM)
+    write_plink_bim(tmp_path / "badsex.bim", GENOTYPE_CHR1_BIM)
     (tmp_path / "badsex.fam").write_text("FAM1\tIND1\t0\t0\t3\t-9\n")  # sex=3 is invalid
-    _write_bed(tmp_path / "badsex.bed", num_snp=5, num_sample=1)
+    write_plink_bed(tmp_path / "badsex.bed", num_snp=5, num_sample=1)
 
     ref = load_reference(REF_SHARDED, shards=["1"])
     with pytest.raises(ValueError, match="FAM sex must be one of"):
@@ -211,21 +183,21 @@ def test_invalid_sex_fails(tmp_path):
 def test_autosomal_fam_mismatch_fails_on_exposed_columns(tmp_path):
     """Sharded autosomal shards with differing sex in FAM fail at load time."""
     # Build a two-autosome reference (chr1 + chr2)
-    _write_bim(tmp_path / "ref1.bim", _CHR1_BIM)
-    _write_bim(tmp_path / "ref2.bim", _CHR2_BIM)
+    write_plink_bim(tmp_path / "ref1.bim", GENOTYPE_CHR1_BIM)
+    write_plink_bim(tmp_path / "ref2.bim", GENOTYPE_CHR2_BIM)
     ref = load_reference(str(tmp_path / "ref@.bim"))
 
     # chr1 genotype with standard FAM
-    _write_bim(tmp_path / "1.bim", _CHR1_BIM)
-    _write_fam(tmp_path / "1.fam", _SAMPLES)
-    _write_bed(tmp_path / "1.bed", num_snp=5, num_sample=4)
+    write_plink_bim(tmp_path / "1.bim", GENOTYPE_CHR1_BIM)
+    write_plink_fam(tmp_path / "1.fam", GENOTYPE_SAMPLES)
+    write_plink_bed(tmp_path / "1.bed", num_snp=5, num_sample=4)
 
     # chr2 genotype with first sample sex changed (1 → 2)
-    samples_diff_sex = list(_SAMPLES)
+    samples_diff_sex = list(GENOTYPE_SAMPLES)
     samples_diff_sex[0] = ("FAM1", "IND1", 0, 0, 2, -9)
-    _write_bim(tmp_path / "2.bim", _CHR2_BIM)
-    _write_fam(tmp_path / "2.fam", samples_diff_sex)
-    _write_bed(tmp_path / "2.bed", num_snp=2, num_sample=4)
+    write_plink_bim(tmp_path / "2.bim", GENOTYPE_CHR2_BIM)
+    write_plink_fam(tmp_path / "2.fam", samples_diff_sex)
+    write_plink_bed(tmp_path / "2.bed", num_snp=2, num_sample=4)
 
     with pytest.raises(ValueError, match="autosomal FAM mismatch"):
         load_genotype(str(tmp_path / "@"), ref)
@@ -233,18 +205,18 @@ def test_autosomal_fam_mismatch_fails_on_exposed_columns(tmp_path):
 
 def test_autosomal_fam_phenotype_mismatch_does_not_fail(tmp_path):
     """Sharded autosomal FAM phenotype differences are ignored; load succeeds."""
-    _write_bim(tmp_path / "ref1.bim", _CHR1_BIM)
-    _write_bim(tmp_path / "ref2.bim", _CHR2_BIM)
+    write_plink_bim(tmp_path / "ref1.bim", GENOTYPE_CHR1_BIM)
+    write_plink_bim(tmp_path / "ref2.bim", GENOTYPE_CHR2_BIM)
     ref = load_reference(str(tmp_path / "ref@.bim"))
 
-    _write_bim(tmp_path / "1.bim", _CHR1_BIM)
-    _write_fam(tmp_path / "1.fam", _SAMPLES)  # pheno = -9
-    _write_bed(tmp_path / "1.bed", num_snp=5, num_sample=4)
+    write_plink_bim(tmp_path / "1.bim", GENOTYPE_CHR1_BIM)
+    write_plink_fam(tmp_path / "1.fam", GENOTYPE_SAMPLES)  # pheno = -9
+    write_plink_bed(tmp_path / "1.bed", num_snp=5, num_sample=4)
 
-    samples_diff_pheno = [(*s[:5], 0) for s in _SAMPLES]  # pheno = 0 (different but not exposed)
-    _write_bim(tmp_path / "2.bim", _CHR2_BIM)
-    _write_fam(tmp_path / "2.fam", samples_diff_pheno)
-    _write_bed(tmp_path / "2.bed", num_snp=2, num_sample=4)
+    samples_diff_pheno = [(*s[:5], 0) for s in GENOTYPE_SAMPLES]  # pheno = 0 (different but not exposed)
+    write_plink_bim(tmp_path / "2.bim", GENOTYPE_CHR2_BIM)
+    write_plink_fam(tmp_path / "2.fam", samples_diff_pheno)
+    write_plink_bed(tmp_path / "2.bed", num_snp=2, num_sample=4)
 
     panel = load_genotype(str(tmp_path / "@"), ref)
     assert panel.num_sample == 4

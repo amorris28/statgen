@@ -272,6 +272,8 @@ class GenotypePanel:
             raise ValueError("source_layout must be 'non_sharded' or 'sharded'")
         self._source_layout = source_layout
         self._shards = list(shards)
+        if not self._shards:
+            raise ValueError("GenotypePanel requires at least one shard")
         self._fid = _freeze(np.asarray(fid, dtype=object).reshape(-1))
         self._iid = _freeze(np.asarray(iid, dtype=object).reshape(-1))
         self._father_id = _freeze(np.asarray(father_id, dtype=object).reshape(-1))
@@ -685,8 +687,8 @@ def _validate_cache_meta(meta: dict, data) -> None:
     if missing:
         raise ValueError(f"Invalid genotype cache: missing array field {missing[0]!r}")
     n_shards = int(meta.get("n_shards", -1))
-    if n_shards < 0:
-        raise ValueError("Invalid genotype cache: n_shards must be non-negative")
+    if n_shards <= 0:
+        raise ValueError("Invalid genotype cache: n_shards must be positive")
     labels = list(meta.get("shard_labels", []))
     checksums = list(meta.get("shard_checksums", []))
     starts = list(meta.get("shard_start0", []))

@@ -18,6 +18,9 @@ classdef ReferencePanel
     methods
         function obj = ReferencePanel(shards_cell)
             if nargin == 0, return; end
+            if isempty(shards_cell)
+                error('statgen:reference', 'ReferencePanel requires at least one shard');
+            end
             obj.shards = shards_cell;
             n_shards = numel(shards_cell);
 

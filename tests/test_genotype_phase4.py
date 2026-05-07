@@ -1,37 +1,22 @@
-import shutil
-
 import pytest
 
-from tests.conftest import FIXTURES_DIR, matlab_data_lines, run_octave, skipif_no_octave
+from tests.conftest import (
+    FIXTURES_DIR,
+    GENOTYPE_CHR1_BIM,
+    copy_genotype_shard_files,
+    copy_sharded_genotype,
+    matlab_data_lines,
+    run_octave,
+    skipif_no_octave,
+    write_plink_bed,
+    write_plink_bim,
+)
 
 
 REF_SHARDED = FIXTURES_DIR / "reference/sharded/@.bim"
 REF_NONSHARDED = FIXTURES_DIR / "reference/nonsharded/all.bim"
 G_SHARDED = FIXTURES_DIR / "genotype/sharded/@"
 G_NONSHARDED = FIXTURES_DIR / "genotype/nonsharded/all"
-
-
-def _copy_sharded_genotype(dst):
-    for label in ("1", "X"):
-        for suffix in (".bim", ".fam", ".bed", ".ploidy"):
-            src = FIXTURES_DIR / f"genotype/sharded/{label}{suffix}"
-            if src.exists():
-                (dst / f"{label}{suffix}").write_bytes(src.read_bytes())
-
-
-def _write_bed(path, num_snp, num_sample):
-    bytes_per_snp = (num_sample + 3) // 4
-    path.write_bytes(b"\x6c\x1b\x01" + b"\x00" * (num_snp * bytes_per_snp))
-
-
-def _write_bim(path):
-    path.write_text(
-        "1\trs1001\t0\t100\tA\tG\n"
-        "1\trs1002\t0\t200\tC\tT\n"
-        "1\trs1003\t0\t300\tA\tC\n"
-        "1\trs1004\t0\t400\tG\tA\n"
-        "1\trs1005\t0\t500\tT\tC\n"
-    )
 
 
 @pytest.mark.octave
@@ -93,7 +78,7 @@ def test_octave_genotype_nonsharded_metadata_loads():
 @pytest.mark.octave
 @skipif_no_octave
 def test_octave_genotype_chrx_subset_fam_maps_to_panel_axis(tmp_path):
-    _copy_sharded_genotype(tmp_path)
+    copy_sharded_genotype(tmp_path)
     (tmp_path / "X.fam").write_text(
         "FAM2\tIND3\t0\t0\t1\t-9\n"
         "FAM1\tIND1\t0\t0\t1\t-9\n"
@@ -143,8 +128,7 @@ def test_octave_genotype_cache_roundtrip_and_subset(tmp_path):
 @pytest.mark.octave
 @skipif_no_octave
 def test_octave_genotype_missing_source_shard_fails(tmp_path):
-    for suffix in (".bim", ".bed", ".fam"):
-        shutil.copyfile(FIXTURES_DIR / f"genotype/sharded/1{suffix}", tmp_path / f"1{suffix}")
+    copy_genotype_shard_files(tmp_path, "1")
 
     script = (
         f"ref = statgen.load_reference('{REF_SHARDED}'); "
@@ -159,13 +143,13 @@ def test_octave_genotype_missing_source_shard_fails(tmp_path):
 @pytest.mark.octave
 @skipif_no_octave
 def test_octave_genotype_fam_and_ploidy_validation_failures(tmp_path):
-    _write_bim(tmp_path / "badsex.bim")
+    write_plink_bim(tmp_path / "badsex.bim", GENOTYPE_CHR1_BIM)
     (tmp_path / "badsex.fam").write_text("FAM1\tIND1\t0\t0\t3\t-9\n")
-    _write_bed(tmp_path / "badsex.bed", num_snp=5, num_sample=1)
+    write_plink_bed(tmp_path / "badsex.bed", num_snp=5, num_sample=1)
 
-    _write_bim(tmp_path / "badploidy.bim")
+    write_plink_bim(tmp_path / "badploidy.bim", GENOTYPE_CHR1_BIM)
     (tmp_path / "badploidy.fam").write_text("FAM1\tIND1\t0\t0\t1\t-9\n")
-    _write_bed(tmp_path / "badploidy.bed", num_snp=5, num_sample=1)
+    write_plink_bed(tmp_path / "badploidy.bed", num_snp=5, num_sample=1)
     (tmp_path / "badploidy.ploidy").write_text("2\t2\n")
 
     script = (

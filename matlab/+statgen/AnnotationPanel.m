@@ -14,6 +14,9 @@ classdef AnnotationPanel
     methods
         function obj = AnnotationPanel(shards_cell, annonames)
             if nargin == 0, return; end
+            if isempty(shards_cell)
+                error('statgen:annotations', 'AnnotationPanel requires at least one shard');
+            end
             obj.shards = shards_cell;
             obj.annonames = ensure_names_(annonames);
             obj.num_annot = numel(obj.annonames);

@@ -5,52 +5,17 @@ import pytest
 
 from statgen.genotype import load_genotype
 from statgen.reference import load_reference
-from tests.conftest import FIXTURES_DIR
+from tests.conftest import (
+    FIXTURES_DIR,
+    GENOTYPE_CHR1_CALLS,
+    copy_genotype_shard_files,
+    write_plink_bed_calls,
+)
 
 
 REF_SHARDED = FIXTURES_DIR / "reference/sharded/@.bim"
 G_SHARDED = FIXTURES_DIR / "genotype/sharded/@"
 G_NONSHARDED = FIXTURES_DIR / "genotype/nonsharded/all"
-
-
-_CHR1_CALLS = np.array(
-    [
-        [2, -1, 1, 0],
-        [0, 1, 2, -1],
-        [1, 1, 0, 2],
-        [2, 0, -1, 1],
-        [-1, 2, 0, 1],
-    ],
-    dtype=np.int8,
-)
-
-
-def _write_bed_calls(path, calls):
-    calls = np.asarray(calls, dtype=np.int8)
-    code = {
-        2: 0b00,
-        -1: 0b01,
-        1: 0b10,
-        0: 0b11,
-    }
-    bytes_per_snp = (calls.shape[1] + 3) // 4
-    payload = bytearray()
-    for row in calls:
-        row_bytes = [0] * bytes_per_snp
-        for j, value in enumerate(row.tolist()):
-            row_bytes[j // 4] |= code[int(value)] << (2 * (j % 4))
-        payload.extend(row_bytes)
-    path.write_bytes(b"\x6c\x1b\x01" + bytes(payload))
-
-
-def _copy_shard_files(dst, label, *, ploidy=True):
-    for suffix in (".bim", ".fam", ".bed"):
-        (dst / f"{label}{suffix}").write_bytes(
-            (FIXTURES_DIR / f"genotype/sharded/{label}{suffix}").read_bytes()
-        )
-    src_ploidy = FIXTURES_DIR / f"genotype/sharded/{label}.ploidy"
-    if ploidy and src_ploidy.exists():
-        (dst / f"{label}.ploidy").write_bytes(src_ploidy.read_bytes())
 
 
 def test_fetch_committed_fixture_one_multi_cross_shard_and_repeated():
@@ -60,6 +25,14 @@ def test_fetch_committed_fixture_one_multi_cross_shard_and_repeated():
     one = panel.fetch_genotypes_int8([0])
     assert one.shape == (4, 1)
     assert one.tolist() == [[2], [2], [2], [2]]
+
+    empty = panel.fetch_genotypes_int8([])
+    assert empty.shape == (4, 0)
+    assert empty.dtype == np.int8
+
+    empty_float = panel.fetch_genotypes([])
+    assert empty_float.shape == (4, 0)
+    assert empty_float.dtype == np.float64
 
     requested = [5, 0, 4, 5, 2]
     geno = panel.fetch_genotypes_int8(requested)
@@ -72,13 +45,13 @@ def test_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
         (tmp_path / f"chr1{suffix}").write_bytes(
             (FIXTURES_DIR / f"genotype/sharded/1{suffix}").read_bytes()
         )
-    _write_bed_calls(tmp_path / "chr1.bed", _CHR1_CALLS)
+    write_plink_bed_calls(tmp_path / "chr1.bed", GENOTYPE_CHR1_CALLS)
 
     ref = load_reference(REF_SHARDED, shards=["1"])
     panel = load_genotype(tmp_path / "chr1", ref)
 
     requested = [1, 0, 1, 4]
-    expected = _CHR1_CALLS[requested].T
+    expected = GENOTYPE_CHR1_CALLS[requested].T
     geno_int8 = panel.fetch_genotypes_int8(requested)
     assert np.array_equal(geno_int8, expected)
 
@@ -91,13 +64,13 @@ def test_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
 
 
 def test_fetch_chrx_subset_expands_to_panel_sample_axis(tmp_path):
-    _copy_shard_files(tmp_path, "1")
-    _copy_shard_files(tmp_path, "X")
+    copy_genotype_shard_files(tmp_path, "1")
+    copy_genotype_shard_files(tmp_path, "X")
     (tmp_path / "X.fam").write_text(
         "FAM2\tIND3\t0\t0\t1\t-9\n"
         "FAM1\tIND1\t0\t0\t1\t-9\n"
     )
-    _write_bed_calls(
+    write_plink_bed_calls(
         tmp_path / "X.bed",
         np.array(
             [

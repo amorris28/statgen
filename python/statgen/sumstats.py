@@ -170,6 +170,8 @@ class SumstatsShard:
 class Sumstats:
     def __init__(self, shards: list[SumstatsShard]):
         self._shards = list(shards)
+        if not self._shards:
+            raise ValueError("Sumstats requires at least one shard")
         self._num_snp = int(sum(s.num_snp for s in self._shards))
         self._shard_offsets = []
         pos = 0

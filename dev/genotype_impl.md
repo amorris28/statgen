@@ -268,8 +268,10 @@ live in `python/statgen/_bfile_utils.py` and
 
 ## Phase 2: Python genotype fetch
 
-**Status: not implemented.** `GenotypePanel.fetch_genotypes_int8` and
-`GenotypePanel.fetch_genotypes` are still explicit phase-2 stubs.
+**Status: implemented.** Python `GenotypePanel.fetch_genotypes_int8` and
+`GenotypePanel.fetch_genotypes` now decode PLINK BED payloads on demand,
+including mixed-shard requests, repeated indices, chrX sample-axis expansion,
+empty SNP requests, and `bed_path` overrides.
 
 ### Implementation tasks
 
@@ -392,10 +394,9 @@ it preserves this exact contract and does not complicate MATLAB parity.
 
 ## Phase 3: Python genotype cache
 
-**Status: partially implemented.** Metadata cache save/load, schema validation,
-and optional shard subsetting are implemented in Python. Fetch-dependent cache
-behavior, alternate `bed_path` fetch tests, and full bad-cache coverage remain
-phase-3 follow-up work.
+**Status: implemented.** Python genotype metadata cache save/load, schema
+validation, optional shard subsetting, lazy BED validation, alternate
+`bed_path` fetch behavior, and bad-cache coverage are implemented.
 
 ### Implementation tasks
 
@@ -451,13 +452,9 @@ phase-3 follow-up work.
 
 ## Phase 4: MATLAB/Octave metadata loading
 
-**Status: prerequisites partially implemented.** Shared MATLAB/Octave BFILE
-utilities now exist under `matlab/+statgen/+internal/`:
-`bfile_parse_bim`, `bfile_parse_fam`, `bfile_parse_ploidy`,
-`bfile_expected_bed_size`, `bfile_validate_bed`, and
-`bfile_validate_source_sort_order`. `load_reference.m` uses the shared BIM
-parser. Genotype classes/load/cache APIs for MATLAB/Octave are not yet
-implemented.
+**Status: implemented.** MATLAB/Octave metadata loading is implemented with
+shared BFILE utilities, `load_genotype`, `GenotypeShard`, `GenotypePanel`,
+cache APIs, and the flat loader wrapper.
 
 ### Implementation tasks
 
@@ -507,7 +504,9 @@ implemented.
 
 ## Phase 5: MATLAB/Octave genotype fetch
 
-**Status: not implemented.**
+**Status: implemented.** MATLAB/Octave genotype fetch is implemented with
+on-demand BED decoding, mixed-shard requests, repeated indices, chrX
+sample-axis expansion, empty SNP requests, and `bed_path` overrides.
 
 ### Implementation tasks
 
@@ -541,7 +540,10 @@ implemented.
 
 ## Phase 6: MATLAB/Octave cache
 
-**Status: not implemented.**
+**Status: implemented.** MATLAB/Octave genotype caches are implemented as
+native `.mat` metadata caches with format options, cache-only load, optional
+shard subsetting, preserved panel sample axis, preserved `source_layout`, and
+fetch behavior after cache load.
 
 ### Implementation tasks
 

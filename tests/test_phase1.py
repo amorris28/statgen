@@ -443,7 +443,7 @@ def test_bim_uses_dataframe_reader(monkeypatch):
     assert panel.num_snp == 8
 
 
-def test_cache_load_skips_source_sort_validation(monkeypatch, tmp_path):
+def test_cache_load_skips_source_bim_parsing(monkeypatch, tmp_path):
     import statgen.reference as ref_mod
 
     panel = load_reference(SHARDED)
@@ -451,9 +451,9 @@ def test_cache_load_skips_source_sort_validation(monkeypatch, tmp_path):
     save_reference_cache(panel, cache)
 
     def _fail(*_args, **_kwargs):
-        raise AssertionError("source sort validation should not run on cache load")
+        raise AssertionError("source BIM parsing should not run on cache load")
 
-    monkeypatch.setattr(ref_mod, "_validate_reference_sort_order", _fail)
+    monkeypatch.setattr(ref_mod, "_parse_bim", _fail)
     loaded = load_reference_cache(cache)
     assert loaded.num_snp == panel.num_snp
 

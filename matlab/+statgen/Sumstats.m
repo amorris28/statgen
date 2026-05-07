@@ -18,6 +18,9 @@ classdef Sumstats
     methods
         function obj = Sumstats(shards_cell)
             if nargin == 0, return; end
+            if isempty(shards_cell)
+                error('statgen:sumstats', 'Sumstats requires at least one shard');
+            end
             obj.shards = shards_cell;
             n_shards = numel(shards_cell);
 

@@ -106,6 +106,9 @@ function [labels, checksums, start0, stop0, source_layout, bed_paths, bed_file_s
     if ~isscalar(meta.n_shards) || double(meta.n_shards) ~= n_shards
         error('statgen:cache', 'Invalid genotype cache: n_shards mismatch');
     end
+    if n_shards <= 0
+        error('statgen:cache', 'Invalid genotype cache: n_shards must be positive');
+    end
     if numel(checksums) ~= n_shards || numel(start0) ~= n_shards || numel(stop0) ~= n_shards || ...
             numel(bed_paths) ~= n_shards || numel(bed_file_sizes) ~= n_shards || ...
             numel(source_num_snp) ~= n_shards || numel(source_num_sample) ~= n_shards

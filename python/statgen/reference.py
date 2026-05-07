@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 from ._bfile_utils import _parse_bim
-from ._bfile_utils import _validate_source_sort_order as _validate_reference_sort_order
 from ._utils import CANONICAL_CHR_ORDER, allele_hash64, validate_requested_shards
 
 logger = logging.getLogger(__name__)
@@ -150,6 +149,8 @@ class ReferenceShard:
 class ReferencePanel:
     def __init__(self, shards: list):
         self._shards = list(shards)
+        if not self._shards:
+            raise ValueError("ReferencePanel requires at least one shard")
         offsets = []
         pos = 0
         for s in self._shards:

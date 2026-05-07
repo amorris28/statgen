@@ -389,32 +389,13 @@ Tests and acceptance criteria:
 
 ## Phase 6: genotype metadata objects
 
-Goal: implement the deferred, safe subset of genotype support: metadata loading
-without dense genotype access.
+The original metadata-only Phase 6 plan has been superseded by the genotype
+contract in `spec/genotype.md` and the dedicated implementation plan in
+`dev/genotype_impl.md`.
 
-Implementation tasks:
-
-- implement `GenotypeShard` and `GenotypePanel` loaders for PLINK bfile
-  prefixes;
-- support single-prefix input and `@`-template sharded prefixes; shard
-  discovery uses canonical-label substitution (no glob), per
-  `spec/contigs-and-shards.md`;
-- implement `load_genotype(path_or_paths, shards=None)` with optional `shards`
-  subsetting;
-- implement `GenotypePanel.select_shards(shards)` returning a subset panel;
-- validate `.bed`, `.bim`, and `.fam` presence;
-- load BIM and FAM metadata, retaining file paths and sample order;
-- for sharded genotype panels, require identical FAM rows in the same order
-  across all shards, reflecting standard per-chromosome PLINK bfile practice;
-- expose read-only `num_snp`, `num_sample`, `bim`, and `fam` accessors;
-- do not expose genotype matrix readers until slicing, missingness, and
-  reference-alignment behavior are specified.
-
-Tests and acceptance criteria:
-
-- Python and Octave genotype metadata accessors match fixture files;
-- sharded panels reject inconsistent FAM rows or sample order across shards;
-- tests do not depend on dense genotype decoding.
+Do not duplicate genotype implementation details here. Use
+`dev/genotype_impl.md` as the source of truth for genotype phases, status,
+tests, and acceptance criteria.
 
 ## Phase 7: workflow-level validation
 

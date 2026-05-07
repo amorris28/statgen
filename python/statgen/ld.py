@@ -71,6 +71,8 @@ class LDShard:
 class LDPanel:
     def __init__(self, shard_groups, default_chrX_sex="female", reference=None):
         self._shard_groups = [list(g) for g in shard_groups]
+        if not self._shard_groups:
+            raise ValueError("LDPanel requires at least one shard group")
         self._default_chrX_sex = validate_chrx_sex(default_chrX_sex, "default_chrX_sex")
         self._reference = reference
         self._shard_offsets = []
