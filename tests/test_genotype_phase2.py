@@ -63,6 +63,41 @@ def test_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
     assert np.array_equal(geno, expected_float, equal_nan=True)
 
 
+@pytest.mark.parametrize("num_sample", [5, 6, 7, 8])
+def test_fetch_decodes_partial_final_bed_byte_for_all_sample_count_modulo_4(tmp_path, num_sample):
+    rows = [
+        ("1", "mod4_rs1", 0, 100, "A", "G"),
+        ("1", "mod4_rs2", 0, 200, "C", "T"),
+        ("1", "mod4_rs3", 0, 300, "G", "A"),
+    ]
+    (tmp_path / "mod4.bim").write_text(
+        "".join(f"{chrom}\t{snp}\t{cm}\t{bp}\t{a1}\t{a2}\n" for chrom, snp, cm, bp, a1, a2 in rows),
+        encoding="utf-8",
+    )
+    (tmp_path / "mod4.fam").write_text(
+        "".join(f"F{i}\tI{i}\t0\t0\t{1 if i % 2 else 2}\t-9\n" for i in range(1, num_sample + 1)),
+        encoding="utf-8",
+    )
+    base = np.array(
+        [
+            [0, 1, 2, -1, 0, 1, 2, -1],
+            [2, -1, 1, 0, 2, -1, 1, 0],
+            [-1, 2, 0, 1, -1, 2, 0, 1],
+        ],
+        dtype=np.int8,
+    )
+    calls = base[:, :num_sample]
+    write_plink_bed_calls(tmp_path / "mod4.bed", calls)
+
+    ref = load_reference(tmp_path / "mod4.bim")
+    panel = load_genotype(tmp_path / "mod4", ref)
+    requested = [2, 0, 1, 2]
+
+    got = panel.fetch_genotypes_int8(requested)
+    assert got.shape == (num_sample, len(requested))
+    np.testing.assert_array_equal(got, calls[requested].T)
+
+
 def test_fetch_chrx_subset_expands_to_panel_sample_axis(tmp_path):
     copy_genotype_shard_files(tmp_path, "1")
     copy_genotype_shard_files(tmp_path, "X")
