@@ -64,10 +64,6 @@ class LDShard:
         return self._reference_checksum
 
     @property
-    def checksum(self) -> str:
-        return self._reference_checksum
-
-    @property
     def num_monomorphic_snps(self) -> int:
         return self._num_monomorphic_snps
 

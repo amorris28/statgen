@@ -8,7 +8,6 @@ classdef LDShard
         ld_r
         a1freq
         reference_checksum
-        checksum
     end
     properties (SetAccess = private, Hidden)
         ld_r2
@@ -39,7 +38,6 @@ classdef LDShard
             obj.ld_r2 = spfun(@(x) x .^ 2, ld_r);
             obj.a1freq = double(a1freq(:));
             obj.reference_checksum = char(reference_checksum);
-            obj.checksum = obj.reference_checksum;
         end
     end
 end

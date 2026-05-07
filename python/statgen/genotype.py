@@ -255,10 +255,6 @@ class GenotypeShard:
     def reference_checksum(self) -> str:
         return self._reference_checksum
 
-    @property
-    def checksum(self) -> str:
-        return self._reference_checksum
-
 
 class GenotypePanel:
     def __init__(
