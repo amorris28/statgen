@@ -106,6 +106,79 @@ source files, not that caches match each other directly. LD converter tests
 should verify that MATLAB/Octave `.mat` distributions match the Python `.npz`
 handoff files at the logical shard level.
 
+## End-to-end alignment invariants
+
+End-to-end tests MUST include a generated synthetic PLINK2 workflow that
+checks global alignment across reference, genotype, LD, Python, and
+MATLAB/Octave runtimes. The primary invariant is:
+
+```text
+LDPanel.a1freq == a1 frequency recomputed from
+GenotypePanel.fetch_genotypes for the same genotype payload and sample subset
+```
+
+This comparison is a global alignment check: allele frequency acts as a compact
+checksum of each SNP's genotype vector under the selected sample subset. It is
+intended to catch row-order drift, panel-global versus shard-local index errors,
+incorrect source-row mapping, chrX subject-subset mistakes, allele-key matching
+errors, and sparse LD/reference misalignment that may not be visible from
+shape or checksum checks alone.
+
+The end-to-end suite MUST first include a simple chr1-only pre-flight case
+where reference, genotype, and LD variants are identical. This baseline checks
+PLINK2 conversion, `a1freq`, selected LD `r`, and `multiply_r2` consistency
+before the suite introduces cross-shard, chrX, and partial-overlap indexing
+cases.
+
+This invariant MUST be checked for autosomes and for chrX sex-specific LD
+shards. Autosomal frequencies use diploid observed calls. chrX `female`
+frequencies use present female subjects with diploid denominator; chrX `male`
+frequencies use present male subjects with haploid denominator. Optional chrX
+`combined` checks use the sum of observed ploidy values as denominator.
+Unknown-sex subjects may contribute to autosomal checks but must not contribute
+to sex-specific chrX checks.
+
+Synthetic end-to-end data MUST be generated from VCF/PSAM through PLINK2
+`--make-bed`, not by hand-writing PLINK BED payloads. Test setup must verify
+that PLINK2 preserved the intended allele contract after conversion: BIM `a1`
+matches VCF `ALT`, BIM `a2` matches VCF `REF`, and marker names remain unique
+and traceable. PLINK2 frequency and LD commands must use `--keep-allele-order`.
+
+The generated data MUST exercise re-indexing rather than merely matching
+identical files. A recommended pattern is a larger master variant set with two
+PLINK2 `--extract` subsets: one for `GenotypePanel` loading and one for
+`LDPanel` construction, with a controlled partial overlap. Tests should include
+shards `1`, `2`, and `X`; non-sharded and sharded genotype inputs; a chrX FAM
+subset in a different order from the autosomal FAM; and variants present only
+in one derived panel.
+
+At least one same-position allele cluster MUST be present per shard: multiple
+variants sharing `chr:bp` but carrying distinct `(a1, a2)` pairs. Clustered
+variants should have distinctive genotype payloads and frequencies, and their
+ordering should force matching by `(bp, a1_hash64, a2_hash64)` rather than by
+row position or marker name. Tests should fail if sorting or matching keys
+disconnect genotype payload rows from their variants.
+
+End-to-end LD `r` checks SHOULD be selective rather than full-matrix
+recomputations. Tests should recompute Pearson `r` from fetched genotype
+vectors for a small set of sentinel pairs covering positive correlation,
+negative correlation, sparse omission below threshold, and chrX sex-specific
+differences. `LDPanel.multiply_r2` should be compared against an explicit
+per-shard `elementwise(ld_r .^ 2) * M` calculation for small deterministic
+vector and matrix inputs.
+
+Use these numerical tolerances for end-to-end comparisons unless a test
+documents a stricter precision source:
+
+- `a1freq`: absolute tolerance `1e-5`;
+- selected LD `r`: absolute tolerance `1e-3`;
+- `multiply_r2`: absolute tolerance `1e-5` for float64 comparisons and `1e-4`
+  for float32 comparisons.
+
+Cross-runtime tests compare numeric values within tolerance, not dtype identity.
+PLINK2-dependent end-to-end tests should skip cleanly when PLINK2 is not
+available.
+
 ## Edge cases and failures
 
 Tests should also cover:
