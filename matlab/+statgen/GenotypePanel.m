@@ -109,12 +109,39 @@ classdef GenotypePanel
                 obj.father_id, obj.mother_id, obj.sex, obj.source_layout);
         end
 
-        function out = fetch_genotypes_int8(obj, snp_indices, varargin) %#ok<INUSD>
-            error('statgen:genotype', 'GenotypePanel.fetch_genotypes_int8 is not implemented in MATLAB/Octave yet');
+        function out = fetch_genotypes_int8(obj, snp_indices, varargin)
+            bed_path = parse_bed_path_(varargin{:});
+            indices0 = normalize_snp_indices_(snp_indices, obj.num_snp);
+            out = int8(-ones(obj.num_sample, numel(indices0)));
+            if isempty(indices0)
+                return
+            end
+
+            addressed = addressed_shards_(obj, indices0);
+            bed_paths = resolve_bed_paths_(obj, addressed, bed_path);
+            validate_requested_present_(obj, addressed);
+
+            for i = 1:numel(addressed)
+                a = addressed{i};
+                shard = obj.shards{a.shard_index};
+                effective_bed = bed_paths{i};
+                statgen.internal.bfile_validate_bed( ...
+                    effective_bed, shard.source_num_sample, shard.source_num_snp);
+                source_rows0 = shard.source_row0(a.local_indices0 + 1);
+                source_geno = statgen.internal.bfile_read_bed_rows_int8( ...
+                    effective_bed, source_rows0, shard.source_num_sample);
+                panel_rows = find(shard.subject_present);
+                if ~isempty(panel_rows)
+                    source_subject_rows = shard.source_subject_row0(panel_rows) + 1;
+                    out(panel_rows, a.columns) = source_geno(source_subject_rows, :);
+                end
+            end
         end
 
-        function out = fetch_genotypes(obj, snp_indices, varargin) %#ok<INUSD>
-            error('statgen:genotype', 'GenotypePanel.fetch_genotypes is not implemented in MATLAB/Octave yet');
+        function out = fetch_genotypes(obj, snp_indices, varargin)
+            geno_int8 = obj.fetch_genotypes_int8(snp_indices, varargin{:});
+            out = double(geno_int8);
+            out(geno_int8 == int8(-1)) = NaN;
         end
     end
 end
@@ -129,4 +156,114 @@ function out = concat_required_(shards, field_name)
         vals{i} = shards{i}.(field_name);
     end
     out = vertcat(vals{:});
+end
+
+function bed_path = parse_bed_path_(varargin)
+    if nargin == 0
+        bed_path = [];
+    elseif nargin == 1
+        bed_path = varargin{1};
+    else
+        error('statgen:genotype', ...
+            'GenotypePanel.fetch_genotypes accepts at most one optional bed_path argument');
+    end
+    if isstring(bed_path)
+        if ~isscalar(bed_path)
+            error('statgen:genotype', 'GenotypePanel.fetch_genotypes: bed_path must be a string scalar');
+        end
+        bed_path = char(bed_path);
+    elseif ~isempty(bed_path) && ~ischar(bed_path)
+        error('statgen:genotype', 'GenotypePanel.fetch_genotypes: bed_path must be a character vector');
+    end
+end
+
+function indices0 = normalize_snp_indices_(snp_indices, num_snp)
+    if isempty(snp_indices)
+        indices0 = zeros(0, 1);
+        return
+    end
+    if ~isnumeric(snp_indices)
+        error('statgen:genotype', 'GenotypePanel.fetch_genotypes: snp_indices must be integer indices');
+    end
+    indices = double(snp_indices(:));
+    if any(~isfinite(indices)) || any(indices ~= floor(indices))
+        error('statgen:genotype', 'GenotypePanel.fetch_genotypes: snp_indices must be integer indices');
+    end
+    if any(indices < 1) || any(indices > num_snp)
+        bad = indices(find(indices < 1 | indices > num_snp, 1, 'first'));
+        error('statgen:genotype', ...
+            'GenotypePanel.fetch_genotypes: SNP index %.0f is out of bounds for num_snp=%.0f', ...
+            bad, num_snp);
+    end
+    indices0 = indices - 1;
+end
+
+function addressed = addressed_shards_(obj, indices0)
+    addressed = {};
+    for i = 1:numel(obj.shards)
+        offset = obj.shard_offsets(i);
+        cols = find(indices0 >= offset.start0 & indices0 < offset.stop0);
+        if ~isempty(cols)
+            a.shard_index = i;
+            a.columns = cols(:)';
+            a.local_indices0 = indices0(cols) - offset.start0;
+            addressed{end + 1, 1} = a; %#ok<AGROW>
+        end
+    end
+end
+
+function bed_paths = resolve_bed_paths_(obj, addressed, bed_path)
+    bed_paths = cell(numel(addressed), 1);
+    if isempty(bed_path)
+        for i = 1:numel(addressed)
+            bed_paths{i} = obj.shards{addressed{i}.shard_index}.bed_path;
+        end
+        return
+    end
+
+    if ~isempty(strfind(bed_path, '@'))
+        if strcmp(obj.source_layout, 'non_sharded')
+            error('statgen:genotype', ...
+                'GenotypePanel.fetch_genotypes: @ override incompatible with non-sharded panel metadata');
+        end
+        for i = 1:numel(addressed)
+            shard = obj.shards{addressed{i}.shard_index};
+            bed_paths{i} = strrep(bed_path, '@', shard.label);
+        end
+        return
+    end
+
+    if strcmp(obj.source_layout, 'sharded') && ~isempty(addressed)
+        source_num_snp = zeros(numel(addressed), 1);
+        source_num_sample = zeros(numel(addressed), 1);
+        for i = 1:numel(addressed)
+            shard = obj.shards{addressed{i}.shard_index};
+            source_num_snp(i) = shard.source_num_snp;
+            source_num_sample(i) = shard.source_num_sample;
+        end
+        if numel(unique(source_num_snp)) ~= 1 || numel(unique(source_num_sample)) ~= 1
+            error('statgen:genotype', ...
+                ['GenotypePanel.fetch_genotypes: flat bed_path override requires equal ' ...
+                 'source_num_snp and source_num_sample across addressed shards']);
+        end
+    end
+
+    for i = 1:numel(addressed)
+        bed_paths{i} = bed_path;
+    end
+end
+
+function validate_requested_present_(obj, addressed)
+    for i = 1:numel(addressed)
+        a = addressed{i};
+        shard = obj.shards{a.shard_index};
+        present = shard.is_present(a.local_indices0 + 1);
+        if ~all(present)
+            j = find(~present, 1, 'first');
+            panel_index = obj.shard_offsets(a.shard_index).start0 + a.local_indices0(j) + 1;
+            error('statgen:genotype', ...
+                'GenotypePanel.fetch_genotypes: requested SNP %.0f in shard %s is not present in the genotype source', ...
+                panel_index, shard.label);
+        end
+    end
 end
