@@ -193,6 +193,12 @@ return the selected shard's vector rather than concatenating across shards.
 
 ## Phase 1: Python metadata loading
 
+**Status: implemented.** `python/statgen/genotype.py` now provides
+`GenotypeShard`, `GenotypePanel`, `load_genotype`, `save_genotype_cache`, and
+`load_genotype_cache` for metadata loading/cache paths. Shared Python helpers
+live in `python/statgen/_bfile_utils.py` and
+`python/statgen/_variant_match.py`.
+
 ### Implementation tasks
 
 - Implement `python/statgen/genotype.py` with:
@@ -261,6 +267,9 @@ return the selected shard's vector rather than concatenating across shards.
   `is_male`, and `is_female` match expected fixture values.
 
 ## Phase 2: Python genotype fetch
+
+**Status: not implemented.** `GenotypePanel.fetch_genotypes_int8` and
+`GenotypePanel.fetch_genotypes` are still explicit phase-2 stubs.
 
 ### Implementation tasks
 
@@ -383,6 +392,11 @@ it preserves this exact contract and does not complicate MATLAB parity.
 
 ## Phase 3: Python genotype cache
 
+**Status: partially implemented.** Metadata cache save/load, schema validation,
+and optional shard subsetting are implemented in Python. Fetch-dependent cache
+behavior, alternate `bed_path` fetch tests, and full bad-cache coverage remain
+phase-3 follow-up work.
+
 ### Implementation tasks
 
 - Implement cache writer using NumPy `.npz` format, consistent with other
@@ -437,6 +451,14 @@ it preserves this exact contract and does not complicate MATLAB parity.
 
 ## Phase 4: MATLAB/Octave metadata loading
 
+**Status: prerequisites partially implemented.** Shared MATLAB/Octave BFILE
+utilities now exist under `matlab/+statgen/+internal/`:
+`bfile_parse_bim`, `bfile_parse_fam`, `bfile_parse_ploidy`,
+`bfile_expected_bed_size`, `bfile_validate_bed`, and
+`bfile_validate_source_sort_order`. `load_reference.m` uses the shared BIM
+parser. Genotype classes/load/cache APIs for MATLAB/Octave are not yet
+implemented.
+
 ### Implementation tasks
 
 - Add MATLAB/Octave files:
@@ -462,6 +484,11 @@ it preserves this exact contract and does not complicate MATLAB parity.
   vectors in public accessors.
 - Use column vectors for per-SNP and per-sample accessors.
 - Match Python validation behavior and error semantics as closely as practical.
+- Use `statgen.internal.match_shard_numeric` for reference-to-genotype variant
+  alignment so genotype matching shares the same numeric sort/merge helper as
+  MATLAB/Octave sumstats. Compute source BIM allele hashes with
+  `statgen.internal.allele_hash64`, then match each reference shard on
+  `(bp, a1_hash64, a2_hash64)` within exact shard labels.
 - Implement `select_shards` preserving panel-level sample axis; do not
   deep-copy shard payload arrays.
 - Panel-wide accessors (`is_present`, `ploidy_male`, `ploidy_female`,
@@ -479,6 +506,8 @@ it preserves this exact contract and does not complicate MATLAB parity.
   FAM mismatch, and `.ploidy` row-count mismatch.
 
 ## Phase 5: MATLAB/Octave genotype fetch
+
+**Status: not implemented.**
 
 ### Implementation tasks
 
@@ -512,6 +541,8 @@ it preserves this exact contract and does not complicate MATLAB parity.
 
 ## Phase 6: MATLAB/Octave cache
 
+**Status: not implemented.**
+
 ### Implementation tasks
 
 - Write `.mat` genotype caches with top-level variables described in
@@ -529,6 +560,11 @@ it preserves this exact contract and does not complicate MATLAB parity.
   need to be cross-runtime compatible.
 
 ## Fixture updates
+
+**Status: partially implemented.** Deterministic genotype fixtures now include
+sharded and non-sharded PLINK bfiles with `.ploidy` coverage. Additional fetch
+fixtures for all PLINK two-bit states and malformed payload cases remain tied
+to the fetch phases.
 
 Extend `tests/fixtures/generate.py` with deterministic PLINK bfile fixtures:
 

@@ -15,7 +15,7 @@ function panel = load_reference(path, shards)
     if ~isempty(strfind(path, '@'))
         panel = load_sharded_(path, shards);
     else
-        bim = parse_bim_(path);
+        bim = reference_bim_rows_(statgen.internal.bfile_parse_bim(path));
         panel = load_split_by_chr_(bim, shards);
     end
 end
@@ -44,7 +44,7 @@ function panel = load_sharded_(path, requested_shards)
     for i = 1:numel(selected)
         label = selected{i};
         path_idx = find(strcmp(available_labels, label), 1, 'first');
-        bim = parse_bim_(available_paths{path_idx});
+        bim = reference_bim_rows_(statgen.internal.bfile_parse_bim(available_paths{path_idx}));
         shards{i} = statgen.ReferenceShard(label, bim.chr, bim.snp, bim.bp, bim.a1, bim.a2);
     end
     panel = statgen.ReferencePanel(shards);
@@ -73,154 +73,12 @@ function panel = load_split_by_chr_(bim, requested_shards)
     panel = statgen.ReferencePanel(shards);
 end
 
-function bim = parse_bim_(path)
-    path = char(path);
-    [raw_cols, n_rows] = read_bim_tabular_(path);
-
-    if n_rows == 0
-        error('statgen:bim', 'BIM file is empty: %s', path);
-    end
-
-    chr_out = raw_cols{1};
-    snp_out = raw_cols{2};
-    cm_out  = raw_cols{3};
-    bp_out  = raw_cols{4};
-    a1_out  = raw_cols{5};
-    a2_out  = raw_cols{6};
-
-    bad_chr = cellfun('isempty', chr_out);
-    if any(bad_chr)
-        lineno = find(bad_chr, 1, 'first');
-        error('statgen:bim', '%s:%d: chr must be non-empty', path, lineno);
-    end
-
-    chr_style = cellfun(@(c) strncmpi(c, 'chr', 3), chr_out);
-    if any(chr_style)
-        lineno = find(chr_style, 1, 'first');
-        error('statgen:bim', '%s:%d: chr-style labels (e.g., chr1/chrX) are not allowed', path, lineno);
-    end
-
+function out = reference_bim_rows_(bim)
     canonical = statgen.internal.canonical_labels();
-    known = ismember(chr_out, canonical) | ismember(chr_out, {'Y', 'MT'});
-    if ~all(known)
-        lineno = find(~known, 1, 'first');
-        error('statgen:bim', ...
-            '%s:%d: unsupported chr label %s; expected 1-22, X (Y/MT are ignored)', ...
-            path, lineno, chr_out{lineno});
-    end
-
-    bad_allele = cellfun('isempty', a1_out) | cellfun('isempty', a2_out);
-    if any(bad_allele)
-        lineno = find(bad_allele, 1, 'first');
-        error('statgen:bim', '%s:%d: a1 and a2 must be non-empty', path, lineno);
-    end
-
-    bad_a1 = invalid_dna_allele_(a1_out);
-    if any(bad_a1)
-        lineno = find(bad_a1, 1, 'first');
-        error('statgen:bim', ...
-            '%s:%d: a1 must be uppercase DNA bases (A/C/G/T): %s', path, lineno, a1_out{lineno});
-    end
-    bad_a2 = invalid_dna_allele_(a2_out);
-    if any(bad_a2)
-        lineno = find(bad_a2, 1, 'first');
-        error('statgen:bim', ...
-            '%s:%d: a2 must be uppercase DNA bases (A/C/G/T): %s', path, lineno, a2_out{lineno});
-    end
-
-    bad_cm = isnan(cm_out);
-    if any(bad_cm)
-        lineno = find(bad_cm, 1, 'first');
-        error('statgen:bim', '%s:%d: cm is not a number', path, lineno);
-    end
-
-    bad_bp = isnan(bp_out) | (bp_out ~= floor(bp_out));
-    if any(bad_bp)
-        lineno = find(bad_bp, 1, 'first');
-        error('statgen:bim', '%s:%d: bp is not an integer', path, lineno);
-    end
-
-    keep = ismember(chr_out, canonical);
-    line_idx = find(keep);
-    validate_reference_sort_order_( ...
-        chr_out(keep), bp_out(keep), a1_out(keep), a2_out(keep), path, line_idx);
-
-    bim.chr = chr_out(keep);
-    bim.snp = snp_out(keep);
-    bim.bp  = bp_out(keep);
-    bim.a1  = a1_out(keep);
-    bim.a2  = a2_out(keep);
-end
-
-function validate_reference_sort_order_(chr_col, bp_col, a1_col, a2_col, path, line_idx)
-    if isempty(chr_col)
-        return
-    end
-
-    canonical = statgen.internal.canonical_labels();
-    [is_ok_chr, chr_rank] = ismember(chr_col, canonical);
-    bad_chr = ~is_ok_chr;
-    if any(bad_chr)
-        bad_i = find(bad_chr, 1, 'first');
-        error('statgen:bim', '%s:%d: chr must use canonical labels 1-22 or X', ...
-            path, line_idx(bad_i));
-    end
-
-    n = numel(chr_col);
-    if n > 1
-        bad_order = (chr_rank(2:end) < chr_rank(1:end-1)) | ...
-            ((chr_rank(2:end) == chr_rank(1:end-1)) & (bp_col(2:end) < bp_col(1:end-1)));
-        bad = find(bad_order, 1, 'first') + 1;
-        if ~isempty(bad)
-            bad_line = line_idx(bad);
-            error('statgen:bim', ...
-                '%s:%d: rows must be sorted by (chr_rank, bp) in canonical contig order', ...
-                path, bad_line);
-        end
-
-        a1_hash64 = statgen.internal.allele_hash64(a1_col);
-        a2_hash64 = statgen.internal.allele_hash64(a2_col);
-        keys = [uint64(chr_rank(:)), uint64(round(bp_col(:))), a1_hash64(:), a2_hash64(:)];
-        [sorted_keys, sort_idx] = sortrows(keys);
-        dup_sorted = all(sorted_keys(2:end, :) == sorted_keys(1:end-1, :), 2);
-        if any(dup_sorted)
-            dup_pos = find(dup_sorted, 1, 'first') + 1;
-            bad_line = line_idx(sort_idx(dup_pos));
-            error('statgen:bim', ...
-                '%s:%d: duplicate (chr, bp, a1_hash64, a2_hash64) matching key is not allowed', ...
-                path, bad_line);
-        end
-    end
-end
-
-function bad = invalid_dna_allele_(alleles)
-    alleles = statgen.internal.ensure_cell_col(alleles);
-    lens = cellfun('length', alleles);
-    chars = char(alleles);
-    cols = 1:size(chars, 2);
-    padding = bsxfun(@gt, cols, lens);
-    invalid = chars ~= 'A' & chars ~= 'C' & chars ~= 'G' & chars ~= 'T';
-    bad = any(invalid & ~padding, 2);
-end
-
-function [cols, n_rows] = read_bim_tabular_(path)
-    fid = fopen(path, 'r');
-    if fid < 0
-        error('statgen:io', 'Cannot open BIM file: %s', path);
-    end
-    cleaner = onCleanup(@() fclose(fid));
-    raw_cols = textscan(fid, '%s%s%f%f%s%s', ...
-        'Delimiter', sprintf(' \t'), ...
-        'MultipleDelimsAsOne', true, ...
-        'ReturnOnError', false);
-    clear cleaner;
-
-    cols = cell(1, 6);
-    for c = [1 2 5 6]
-        cols{c} = statgen.internal.ensure_cell_col(raw_cols{c});
-    end
-    for c = [3 4]
-        cols{c} = double(raw_cols{c}(:));
-    end
-    n_rows = numel(cols{1});
+    keep = ismember(bim.chr, canonical);
+    out.chr = bim.chr(keep);
+    out.snp = bim.snp(keep);
+    out.bp = bim.bp(keep);
+    out.a1 = bim.a1(keep);
+    out.a2 = bim.a2(keep);
 end

@@ -6,6 +6,7 @@ import pandas as pd
 from pandas.errors import ParserError
 
 from ._utils import allele_hash64, validate_requested_shards
+from ._variant_match import match_shard_numeric, numeric_variant_keys
 
 _CACHE_SCHEMA = "sumstats_cache/0.1"
 _REQUIRED_COLS = ("chr", "bp", "a1", "a2", "z", "n")
@@ -15,57 +16,6 @@ _SUMSTATS_COL_MAP = {
     "effectallele": "a1",
     "otherallele": "a2",
 }
-
-
-_KEY_DTYPE = np.dtype([("bp", "<i8"), ("a1_hash64", "<u8"), ("a2_hash64", "<u8")])
-
-
-def _numeric_keys(bp_arr, a1_hash64, a2_hash64) -> np.ndarray:
-    bp = np.asarray(bp_arr, dtype=np.int64).reshape(-1)
-    a1h = np.asarray(a1_hash64, dtype=np.uint64).reshape(-1)
-    a2h = np.asarray(a2_hash64, dtype=np.uint64).reshape(-1)
-    if not (bp.size == a1h.size == a2h.size):
-        raise ValueError("numeric key vector lengths mismatch")
-    keys = np.empty(bp.size, dtype=_KEY_DTYPE)
-    keys["bp"] = bp
-    keys["a1_hash64"] = a1h
-    keys["a2_hash64"] = a2h
-    return keys
-
-
-def _check_unique_sorted_keys(sorted_keys: np.ndarray, where: str) -> None:
-    if sorted_keys.size < 2:
-        return
-    dup = sorted_keys[1:] == sorted_keys[:-1]
-    if np.any(dup):
-        pos = int(np.flatnonzero(dup)[0] + 1)
-        key = sorted_keys[pos]
-        raise ValueError(
-            f"Ambiguous duplicate sumstats/reference matching key in {where}: "
-            f"bp={int(key['bp'])}, a1_hash64={int(key['a1_hash64'])}, "
-            f"a2_hash64={int(key['a2_hash64'])}"
-        )
-
-
-def _match_shard_numeric(ref_keys: np.ndarray, src_keys: np.ndarray, shard_label: str) -> np.ndarray:
-    if src_keys.size == 0:
-        return np.full(ref_keys.size, -1, dtype=np.int64)
-
-    ref_order = np.argsort(ref_keys, kind="mergesort", order=("bp", "a1_hash64", "a2_hash64"))
-    src_order = np.argsort(src_keys, kind="mergesort", order=("bp", "a1_hash64", "a2_hash64"))
-    ref_sorted = ref_keys[ref_order]
-    src_sorted = src_keys[src_order]
-    _check_unique_sorted_keys(ref_sorted, f"reference shard {shard_label}")
-    _check_unique_sorted_keys(src_sorted, f"sumstats shard {shard_label}")
-
-    pos = np.searchsorted(src_sorted, ref_keys)
-    in_range = pos < src_sorted.size
-    matched = np.zeros(ref_keys.size, dtype=bool)
-    matched[in_range] = src_sorted[pos[in_range]] == ref_keys[in_range]
-
-    out = np.full(ref_keys.size, -1, dtype=np.int64)
-    out[matched] = src_order[pos[matched]]
-    return out
 
 
 def _canonicalize_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
@@ -368,9 +318,9 @@ def _build_sumstats_panel(df: pd.DataFrame, reference) -> Sumstats:
         stop = int(off["stop0"])
         src_mask = src_chr == ref_shard.label
         src_idx = np.flatnonzero(src_mask)
-        ref_keys = _numeric_keys(ref_shard.bp, ref_shard.a1_hash64, ref_shard.a2_hash64)
-        src_keys = _numeric_keys(src_bp[src_idx], src_a1_hash64[src_idx], src_a2_hash64[src_idx])
-        local_match = _match_shard_numeric(ref_keys, src_keys, ref_shard.label)
+        ref_keys = numeric_variant_keys(ref_shard.bp, ref_shard.a1_hash64, ref_shard.a2_hash64)
+        src_keys = numeric_variant_keys(src_bp[src_idx], src_a1_hash64[src_idx], src_a2_hash64[src_idx])
+        local_match = match_shard_numeric(ref_keys, src_keys, ref_shard.label, source_name="sumstats")
         has_match = local_match >= 0
         matched_src = src_idx[local_match[has_match]]
         aligned_ix = np.arange(start, stop, dtype=np.int64)[has_match]

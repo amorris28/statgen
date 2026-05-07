@@ -1,176 +1,18 @@
 import hashlib
 import json
 import logging
-import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pandas.errors import ParserError
 
-from ._utils import CANONICAL_CHR_ORDER, CHR_RANK, allele_hash64, validate_requested_shards
+from ._bfile_utils import _parse_bim
+from ._bfile_utils import _validate_source_sort_order as _validate_reference_sort_order
+from ._utils import CANONICAL_CHR_ORDER, allele_hash64, validate_requested_shards
 
 logger = logging.getLogger(__name__)
 
 _CACHE_SCHEMA = "reference_cache/0.1"
-_BIM_NCOLS = 6
-_IGNORED_CHR = {"Y", "MT"}
-_DNA_ALLELE_RE = re.compile(r"^[ACGT]+$")
-def _validate_reference_sort_order(
-    chr_col: pd.Series,
-    bp_col: np.ndarray,
-    a1_col: pd.Series,
-    a2_col: pd.Series,
-    line_numbers: np.ndarray,
-    path: Path,
-) -> None:
-    chr_rank = chr_col.map(CHR_RANK)
-    bad_chr = chr_rank.isna()
-    if bad_chr.any():
-        idx = int(bad_chr.idxmax())
-        raise ValueError(
-            f"{path}:{idx + 1}: chr must use canonical labels 1-22 or X"
-        )
-
-    order_df = pd.DataFrame({
-        "chr_rank": chr_rank.to_numpy(dtype=np.int64),
-        "bp": np.asarray(bp_col, dtype=np.int64),
-        "a1_hash64": allele_hash64(a1_col.to_numpy(dtype=object)),
-        "a2_hash64": allele_hash64(a2_col.to_numpy(dtype=object)),
-        "line": np.asarray(line_numbers, dtype=np.int64),
-    })
-
-    dup_mask = order_df.duplicated(
-        subset=["chr_rank", "bp", "a1_hash64", "a2_hash64"], keep="first"
-    )
-    if dup_mask.any():
-        line = int(order_df.loc[dup_mask.idxmax(), "line"])
-        raise ValueError(
-            f"{path}:{line}: duplicate (chr, bp, a1_hash64, a2_hash64) matching key is not allowed"
-        )
-
-    prev = order_df.shift(1)
-    bad_order = (
-        (order_df["chr_rank"] < prev["chr_rank"])
-        | (
-            (order_df["chr_rank"] == prev["chr_rank"])
-            & (order_df["bp"] < prev["bp"])
-        )
-    )
-    bad_order = bad_order.fillna(False)
-    if bad_order.any():
-        line = int(order_df.loc[bad_order.idxmax(), "line"])
-        raise ValueError(
-            f"{path}:{line}: rows must be sorted by (chr_rank, bp) in canonical contig order"
-        )
-
-
-def _parse_bim(path: Path) -> pd.DataFrame:
-    try:
-        df = pd.read_csv(
-            path,
-            sep=r"\s+",
-            header=None,
-            dtype=str,
-            keep_default_na=False,
-            na_filter=False,
-        )
-    except ParserError as exc:
-        raise ValueError(
-            f"{path}: expected 6 whitespace-delimited columns"
-        ) from exc
-
-    if df.shape[1] != _BIM_NCOLS:
-        raise ValueError(
-            f"{path}: expected 6 whitespace-delimited columns, got {df.shape[1]}"
-        )
-
-    chr_col = df[0]
-    snp_col = df[1]
-    cm_raw = df[2]
-    bp_raw = df[3]
-    a1_col = df[4]
-    a2_col = df[5]
-
-    bad_chr = chr_col.eq("")
-    if bad_chr.any():
-        idx = int(bad_chr.idxmax())
-        raise ValueError(f"{path}:{idx + 1}: chr must be non-empty")
-
-    chr_style = chr_col.str.lower().str.startswith("chr")
-    if chr_style.any():
-        idx = int(chr_style.idxmax())
-        raise ValueError(f"{path}:{idx + 1}: chr-style labels (e.g., chr1/chrX) are not allowed")
-
-    known_chr = chr_col.isin(CANONICAL_CHR_ORDER) | chr_col.isin(_IGNORED_CHR)
-    if not known_chr.all():
-        idx = int((~known_chr).idxmax())
-        raise ValueError(
-            f"{path}:{idx + 1}: unsupported chr label {chr_col.iat[idx]!r}; expected 1-22, X (Y/MT are ignored)"
-        )
-
-    bad_allele = a1_col.eq("") | a2_col.eq("")
-    if bad_allele.any():
-        idx = int(bad_allele.idxmax())
-        raise ValueError(f"{path}:{idx + 1}: a1 and a2 must be non-empty")
-
-    bad_a1_syntax = ~a1_col.str.fullmatch(_DNA_ALLELE_RE)
-    if bad_a1_syntax.any():
-        idx = int(bad_a1_syntax.idxmax())
-        raise ValueError(
-            f"{path}:{idx + 1}: a1 must be uppercase DNA bases (A/C/G/T): {a1_col.iat[idx]!r}"
-        )
-    bad_a2_syntax = ~a2_col.str.fullmatch(_DNA_ALLELE_RE)
-    if bad_a2_syntax.any():
-        idx = int(bad_a2_syntax.idxmax())
-        raise ValueError(
-            f"{path}:{idx + 1}: a2 must be uppercase DNA bases (A/C/G/T): {a2_col.iat[idx]!r}"
-        )
-
-    cm_num = pd.to_numeric(cm_raw, errors="coerce")
-    bad_cm = cm_num.isna()
-    if bad_cm.any():
-        idx = int(bad_cm.idxmax())
-        raise ValueError(
-            f"{path}:{idx + 1}: cm is not a number: {cm_raw.iat[idx]!r}"
-        )
-
-    bp_num = pd.to_numeric(bp_raw, errors="coerce")
-    bad_bp = bp_num.isna() | (np.floor(bp_num) != bp_num)
-    if bad_bp.any():
-        idx = int(bad_bp.idxmax())
-        raise ValueError(
-            f"{path}:{idx + 1}: bp is not an integer: {bp_raw.iat[idx]!r}"
-        )
-
-    bp_int = bp_num.astype(np.int64)
-    keep = chr_col.isin(CANONICAL_CHR_ORDER)
-    chr_kept = chr_col[keep]
-    bp_kept = bp_int[keep]
-    a1_kept = a1_col[keep]
-    a2_kept = a2_col[keep]
-    line_numbers = chr_kept.index.to_numpy(dtype=np.int64) + 1
-    _validate_reference_sort_order(
-        chr_kept,
-        bp_kept.to_numpy(dtype=np.int64),
-        a1_kept,
-        a2_kept,
-        line_numbers,
-        path,
-    )
-
-    # cm is validated for BIM schema compatibility but intentionally ignored
-    # in-memory per spec.
-    out = pd.DataFrame(
-        {
-            "chr": chr_kept.to_numpy(dtype=object),
-            "snp": snp_col[keep].to_numpy(dtype=object),
-            "bp": bp_kept.to_numpy(dtype=np.int64),
-            "a1": a1_kept.to_numpy(dtype=object),
-            "a2": a2_kept.to_numpy(dtype=object),
-        }
-    )
-    return out.reset_index(drop=True)
 
 
 def _checksum_from_arrays(

@@ -64,6 +64,14 @@ def write_plink_bed(path: Path, n_snp: int, n_sample: int) -> None:
         f.write(b"\x00" * (n_snp * bytes_per_snp))
 
 
+def write_ploidy(path: Path, rows: list[tuple]) -> None:
+    """Write a .ploidy sidecar: tab-delimited, no header, (male_ploidy, female_ploidy) per row."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        for male, female in rows:
+            f.write(f"{male}\t{female}\n")
+
+
 def write_fam(path: Path, samples: list[tuple]) -> None:
     """Write a PLINK .fam file. samples = [(fid, iid, pid, mid, sex, pheno), ...]"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -309,6 +317,11 @@ SAMPLES = [
     ("FAM2", "IND4", 0, 0, 2, -9),   # female
 ]
 
+# Ploidy: (male_ploidy, female_ploidy) per BIM row.
+# chrX is hemizygous for males (1) and diploid for females (2).
+CHRX_PLOIDY = [(1, 2)] * len(CHRX_BIM)
+ALL_PLOIDY = [(2, 2)] * len(CHR1_BIM) + CHRX_PLOIDY
+
 # ---------------------------------------------------------------------------
 # Fixture data
 # ---------------------------------------------------------------------------
@@ -419,6 +432,14 @@ def main() -> None:
             n_snp=len(bim_rows),
             n_sample=len(SAMPLES),
         )
+    write_ploidy(ROOT / "genotype/sharded/X.ploidy", CHRX_PLOIDY)
+
+    # --- genotype non-sharded bfile ---
+    ns_base = ROOT / "genotype/nonsharded/all"
+    write_bim(Path(str(ns_base) + ".bim"), ALL_BIM)
+    write_fam(Path(str(ns_base) + ".fam"), SAMPLES)
+    write_plink_bed(Path(str(ns_base) + ".bed"), n_snp=len(ALL_BIM), n_sample=len(SAMPLES))
+    write_ploidy(Path(str(ns_base) + ".ploidy"), ALL_PLOIDY)
 
     print("Fixtures written to", ROOT)
     print(f"  chr1 reference checksum : {bim_checksum(CHR1_BIM)}")
