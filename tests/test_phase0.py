@@ -170,6 +170,7 @@ def test_matlab_data_lines_skips_warning_stack_frames():
 @pytest.mark.octave
 @skipif_no_octave
 def test_octave_version_smoke():
+    import statgen
     result = run_octave("v = statgen.version(); disp(v);")
     assert result.returncode == 0, f"Octave stderr:\n{result.stderr}"
-    assert "0.1" in result.stdout
+    assert statgen.__version__ in result.stdout
