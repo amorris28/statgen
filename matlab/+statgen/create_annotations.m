@@ -1,5 +1,14 @@
 function panel = create_annotations(reference, annomat, annonames)
-% Create AnnotationPanel from a reference-aligned binary matrix.
+%CREATE_ANNOTATIONS Create annotations from an aligned binary matrix.
+%
+%   annotations = statgen.create_annotations(reference, annomat, annonames)
+%
+% annomat must be a num_snp-by-num_annot binary matrix already aligned to
+% reference. annonames names the annotation columns. Use load_annotations for
+% raw BED input.
+%
+% See also statgen.AnnotationPanel, statgen.create_annotation,
+% statgen.load_annotations.
     names = ensure_names_(annonames);
 
     if issparse(annomat)

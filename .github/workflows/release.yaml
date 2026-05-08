@@ -178,6 +178,30 @@ jobs:
           name: matlab-release
           path: release/*.zip
 
+  build-tutorial-fixtures-artifact:
+    name: Build Tutorial Fixtures Release Artifact
+    needs:
+      - verify-version
+      - test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Package tutorial source fixtures
+        run: |
+          set -euo pipefail
+          version="${{ needs.verify-version.outputs.version }}"
+          mkdir -p release
+          cd docs/tutorial_1_fixtures/source
+          zip -r "../../../release/statgen-tutorial-1-fixtures-${version}.zip" annotations genotypes ld_reference sumstats
+
+      - name: Upload tutorial fixtures artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutorial-fixtures-release
+          path: release/*.zip
+
   publish-pypi:
     name: Publish PyPI Package
     needs:
@@ -231,6 +255,7 @@ jobs:
       - verify-version
       - build-python-artifacts
       - build-matlab-artifact
+      - build-tutorial-fixtures-artifact
       - publish-pypi
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -247,6 +272,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: matlab-release
+          path: release-assets
+
+      - name: Download tutorial fixtures artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tutorial-fixtures-release
           path: release-assets
 
       - name: Create GitHub release and upload assets

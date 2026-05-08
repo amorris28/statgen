@@ -1,6 +1,6 @@
-# Tutorial 3: MATLAB/Octave Analysis from Caches
+# Tutorial 3: MATLAB Analysis
 
-This tutorial loads the MATLAB/Octave caches prepared by
+This tutorial uses the MATLAB/Octave artifacts prepared by
 [Tutorial 1](TUTORIAL_1_PREPARE_DATA.md) and runs common operations:
 
 - check object compatibility;

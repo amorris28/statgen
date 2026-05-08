@@ -1,12 +1,18 @@
 function panel = load_reference(path, shards)
-% Load a reference panel from a .bim file or sharded .bim template.
+%LOAD_REFERENCE Load a ReferencePanel from BIM metadata.
 %
 %   panel = statgen.load_reference(path)
 %   panel = statgen.load_reference(path, shards)
 %
-% If path contains '@', it is a sharded template (e.g. 'chr@.bim') and
-% shard discovery uses canonical-label substitution only (1-22, X).
-% Otherwise path is a single file split by chr column into canonical shards.
+% Loads SNP identifiers, chromosome labels, base-pair positions, and alleles
+% from PLINK .bim input. path may be a single non-sharded .bim file or an
+% @-sharded template such as 'chr@.bim'. The optional shards argument restricts
+% loading to selected canonical shard labels, for example {'21', '22'}.
+%
+% Supported contig labels are 1-22 and X. Labels are not normalized: inputs
+% such as chr1 or chrX are rejected and should be fixed upstream.
+%
+% See also statgen.ReferencePanel, statgen.load_reference_cache.
     if nargin < 2
         shards = [];
     end

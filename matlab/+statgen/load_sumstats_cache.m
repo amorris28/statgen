@@ -1,5 +1,16 @@
 function sumstats = load_sumstats_cache(path, shards)
-% Load Sumstats from MATLAB .mat cache file with optional shard subsetting.
+%LOAD_SUMSTATS_CACHE Load cached summary statistics.
+%
+%   sumstats = statgen.load_sumstats_cache(path)
+%   sumstats = statgen.load_sumstats_cache(path, shards)
+%
+% Loads one MATLAB .mat Sumstats cache file produced by
+% statgen.save_sumstats_cache. Optional shards return a logical subset of the
+% cached shard labels. Cache loading warns when zvec or nvec is absent or
+% incomplete among cached matched variants.
+%
+% See also statgen.Sumstats, statgen.load_sumstats,
+% statgen.save_sumstats_cache.
     if nargin < 2
         shards = [];
     end

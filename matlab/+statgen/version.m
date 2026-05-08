@@ -1,3 +1,6 @@
 function v = version()
-    v = '0.1';
+%VERSION Return the statgen MATLAB package version string.
+%
+%   v = statgen.version()
+    v = '0.2.3';
 end

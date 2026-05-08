@@ -1,5 +1,15 @@
 function out = fast_prune(logpvec, ld_panel, r2_threshold, chrX_sex)
-% Greedy significance-based LD pruning in reference-panel order.
+%FAST_PRUNE Greedy significance-based LD pruning.
+%
+%   out = statgen.fast_prune(logpvec, ld_panel)
+%   out = statgen.fast_prune(logpvec, ld_panel, r2_threshold)
+%   out = statgen.fast_prune(logpvec, ld_panel, r2_threshold, chrX_sex)
+%
+% logpvec is a num_snp vector aligned to ld_panel. The output keeps retained
+% scores and sets pruned neighbors to NaN. r2_threshold defaults to 0.2.
+% chrX_sex selects the chrX LD shard when chrX is loaded.
+%
+% See also statgen.LDPanel, statgen.LDPanel.multiply_r2.
     if nargin < 3 || isempty(r2_threshold)
         r2_threshold = 0.2;
     end

@@ -1,5 +1,15 @@
 function panel = load_annotations_cache(path, shards)
-% Load AnnotationPanel from MATLAB .mat cache file with optional shard subset.
+%LOAD_ANNOTATIONS_CACHE Load cached annotations.
+%
+%   annotations = statgen.load_annotations_cache(path)
+%   annotations = statgen.load_annotations_cache(path, shards)
+%
+% Loads one MATLAB .mat AnnotationPanel cache file produced by
+% statgen.save_annotations_cache. Optional shards return a logical subset of
+% the cached shard labels.
+%
+% See also statgen.AnnotationPanel, statgen.load_annotations,
+% statgen.save_annotations_cache.
     if nargin < 2
         shards = [];
     end

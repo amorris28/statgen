@@ -1,5 +1,31 @@
 classdef LDPanel
-% Ordered collection of LD shard groups matching a ReferencePanel.
+%STATGEN.LDPANEL Sparse LD matrices aligned to a ReferencePanel.
+%
+%   ld = statgen.load_ld(path)
+%   ld = statgen.load_ld(path, reference)
+%
+% An LDPanel stores per-shard sparse LD matrices in reference-panel order.
+% Use multiply_r2 to multiply by LD r-squared and statgen.fast_prune to prune
+% a score vector.
+%
+% chrX LD may have female, male, and/or combined shards. default_chrX_sex
+% selects which chrX shard is used when a method needs one LD matrix. Method
+% arguments named chrX_sex override that default for chrX only; autosomes are
+% always sex-agnostic.
+%
+% Common properties:
+%   num_snp     Number of SNPs in the LD panel.
+%   reference   Paired ReferencePanel, when available.
+%   default_chrX_sex
+%               Default chrX shard selector: 'female', 'male', or 'combined'.
+%
+% Common methods:
+%   a1freq        Return allele frequencies in panel order.
+%   select_shards Restrict the panel to selected shards.
+%   multiply_r2   Multiply a vector or matrix by LD r-squared.
+%
+% See also statgen.load_ld, statgen.fast_prune,
+% statgen.convert_ld_npz_to_mat, statgen.create_ld_mat_manifest.
     properties (SetAccess = private)
         num_snp
         shard_offsets
@@ -80,6 +106,13 @@ classdef LDPanel
         end
 
         function out = a1freq(obj, chrX_sex)
+        %A1FREQ Return LD allele frequencies in panel order.
+        %
+        %   f = ld.a1freq()
+        %   f = ld.a1freq(chrX_sex)
+        %
+        % Returns a num_snp-by-1 vector. chrX_sex selects the chrX LD shard
+        % when chrX is loaded; use 'female', 'male', or 'combined'.
             if nargin < 2
                 chrX_sex = [];
             end
@@ -96,6 +129,13 @@ classdef LDPanel
         end
 
         function out = select_shards(obj, shards)
+        %SELECT_SHARDS Return an LD panel restricted to selected shards.
+        %
+        %   out = ld.select_shards(shards)
+        %
+        % shards is a cell array or string array of canonical shard labels, for
+        % example {'21', '22'}. The returned LDPanel preserves the requested
+        % shard order.
             available = cell(numel(obj.shard_groups), 1);
             for i = 1:numel(obj.shard_groups)
                 available{i} = obj.shard_groups{i}{1}.label;
@@ -115,6 +155,16 @@ classdef LDPanel
         end
 
         function out = multiply_r2(obj, M, chrX_sex)
+        %MULTIPLY_R2 Multiply a vector or matrix by LD r-squared.
+        %
+        %   out = ld.multiply_r2(M)
+        %   out = ld.multiply_r2(M, chrX_sex)
+        %
+        % M must have num_snp rows, or be a vector with num_snp elements.
+        % A row-vector input returns a row vector; a column-vector input returns
+        % a column vector. Matrix inputs keep their matrix shape. chrX_sex
+        % selects the chrX LD shard when chrX is loaded; autosomes are
+        % sex-agnostic.
             if nargin < 3
                 chrX_sex = [];
             end

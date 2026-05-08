@@ -1,5 +1,12 @@
 function save_annotations_cache(panel, path, varargin)
-% Save AnnotationPanel to MATLAB binary .mat cache file.
+%SAVE_ANNOTATIONS_CACHE Save annotations to a MATLAB .mat cache.
+%
+%   statgen.save_annotations_cache(annotations, path)
+%   statgen.save_annotations_cache(annotations, path, 'format', format)
+%
+% Saves an AnnotationPanel for faster reload in MATLAB or Octave.
+%
+% See also statgen.AnnotationPanel, statgen.load_annotations_cache.
     path = char(path);
     [~, save_arg] = statgen.internal.parse_mat_format( ...
         'save_annotations_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});

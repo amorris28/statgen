@@ -1,5 +1,26 @@
 function panel = load_genotype(bfile_prefix, reference)
-% Load reference-aligned genotype metadata from PLINK bfile source(s).
+%LOAD_GENOTYPE Load PLINK genotype metadata aligned to a ReferencePanel.
+%
+%   genotype = statgen.load_genotype(bfile_prefix, reference)
+%
+% bfile_prefix may be either a single non-sharded PLINK bed/bim/fam prefix,
+% such as 'genotypes/all', or an @-sharded template, such as 'genotypes/chr@'.
+% In the sharded form, @ is replaced by each reference shard label. The
+% returned GenotypePanel stores metadata and source BED paths; genotype calls
+% are read lazily with fetch_genotypes.
+%
+% For sharded genotype input, autosomal FAM files must match exactly and define
+% the panel-level sample axis. The chrX FAM file may be a subset of that axis;
+% chrX subjects are matched by fid/iid, and absent panel-level subjects receive
+% missing calls when chrX genotypes are fetched.
+%
+% A .ploidy sidecar may be present next to each bfile prefix, with columns
+% male_ploidy and female_ploidy in BIM row order. Missing .ploidy means diploid
+% ploidy for both sexes; loading chrX without a .ploidy sidecar warns because
+% that default is usually wrong for male chrX calls.
+%
+% See also statgen.GenotypePanel, statgen.load_genotype_cache,
+% statgen.save_genotype_cache.
     if nargin < 2 || isempty(reference)
         error('statgen:genotype', 'load_genotype requires bfile_prefix and reference');
     end

@@ -1,5 +1,12 @@
 function save_sumstats_cache(sumstats, path, varargin)
-% Save Sumstats to MATLAB binary .mat cache file.
+%SAVE_SUMSTATS_CACHE Save summary statistics to a MATLAB .mat cache.
+%
+%   statgen.save_sumstats_cache(sumstats, path)
+%   statgen.save_sumstats_cache(sumstats, path, 'format', format)
+%
+% Saves a Sumstats object for faster reload in MATLAB or Octave.
+%
+% See also statgen.Sumstats, statgen.load_sumstats_cache.
     path = char(path);
     [~, save_arg] = statgen.internal.parse_mat_format( ...
         'save_sumstats_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});

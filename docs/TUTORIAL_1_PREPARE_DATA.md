@@ -9,8 +9,9 @@ tutorials:
   disk representations;
 - save Python and MATLAB/Octave caches for repeated analyses.
 
-The example uses chromosomes 21, 22, and X. Paths are relative to a tutorial
-working directory; replace them with paths on your system. Tutorial 1 reads
+The repository includes small synthetic source fixtures under
+`docs/tutorial_1_fixtures/source/`. Run the tutorial commands from
+`docs/tutorial_1_fixtures/` to use those fixtures unchanged. Tutorial 1 reads
 from `source/`, writes reusable artifacts to `derived/`, and uses `scratch/`
 for disposable LD build files.
 
@@ -26,6 +27,13 @@ for disposable LD build files.
 
 ## Prerequisites
 
+Start from the repository root and move into the checked-in fixture directory:
+
+```bash
+cd docs/tutorial_1_fixtures
+REPO_ROOT="../.."
+```
+
 The LD build step assumes `plink2` is installed and available on `PATH`:
 
 ```bash
@@ -37,18 +45,14 @@ Use a Python environment with `statgen` installed from the repository:
 ```bash
 conda create -n statgen python=3.11 numpy scipy pandas pytest -y
 conda activate statgen
-pip install -e python/
+pip install -e "$REPO_ROOT/python/"
 ```
-
-Run shell and Python commands from the repository root so
-`script/statgen_build_ld.py` and `script/statgen_create_ld_manifest.py` resolve
-as shown.
 
 For MATLAB/Octave cache preparation, use MATLAB or Octave with the repository's
 MATLAB package folder on the path:
 
 ```matlab
-addpath('/path/to/statgen/matlab')
+addpath('../../matlab')
 ```
 
 ## Inputs and Paths
@@ -59,13 +63,13 @@ source/ld_reference/chr21.{bed,bim,fam}
 source/ld_reference/chr22.{bed,bim,fam}
 source/ld_reference/chrX.{bed,bim,fam}
 
-Optional chrX ploidy sidecar:
-source/ld_reference/chrX.ploidy
-
 PLINK genotype bfiles for on-demand genotype access:
 source/genotypes/chr21.{bed,bim,fam}
 source/genotypes/chr22.{bed,bim,fam}
 source/genotypes/chrX.{bed,bim,fam}
+
+Optional genotype chrX ploidy sidecar:
+source/genotypes/chrX.ploidy
 
 Summary statistics:
 source/sumstats/trait_a.tsv.gz
@@ -79,6 +83,10 @@ source/annotations/utr3.bed
 source/annotations/utr5.bed
 source/annotations/whole_gene.bed
 ```
+
+The optional chrX `.ploidy` sidecar belongs to genotype bfiles, not to LD
+reference bfiles. It supplies male/female ploidy metadata for chrX genotype
+access.
 
 The bfile prefixes are sharded by chromosome, so commands can use an `@`
 placeholder:
@@ -111,7 +119,7 @@ suitable for scheduler array jobs.
 mkdir -p "$LD_NPZ_DIR" "$SCRATCH"
 
 for shard in 21 22 X; do
-  python script/statgen_build_ld.py \
+  python "$REPO_ROOT/script/statgen_build_ld.py" \
     --bfile "$BFILE" \
     --out "$LD_NPZ_DIR" \
     --shard "$shard" \
@@ -121,12 +129,13 @@ done
 
 Autosomes write files such as `ld_chr21.npz` and `ld_chr22.npz`. chrX writes
 sex-specific files by default, such as `ld_chrX_female.npz` and
-`ld_chrX_male.npz`.
+`ld_chrX_male.npz`. The LD build uses FAM sex labels for chrX sex-specific
+shards; a `.ploidy` sidecar is not part of LD reference preparation.
 
 After all shard jobs finish, create the Python LD manifest:
 
 ```bash
-python script/statgen_create_ld_manifest.py --ld "$LD_NPZ_DIR"
+python "$REPO_ROOT/script/statgen_create_ld_manifest.py" --ld "$LD_NPZ_DIR"
 ```
 
 The manifest step writes `ld_manifest.json` and validates the completed LD
@@ -138,7 +147,7 @@ MATLAB/Octave loads native sparse `.mat` LD distributions. Convert the Python
 `.npz` handoff files first.
 
 ```matlab
-addpath('/path/to/statgen/matlab')
+addpath('../../matlab')
 
 ld_npz_dir = 'derived/ld_npz';
 ld_mat_dir = 'derived/ld_mat';
@@ -217,7 +226,7 @@ objects. The LD panel itself is already stored as the converted `.mat`
 distribution from the previous step.
 
 ```matlab
-addpath('/path/to/statgen/matlab')
+addpath('../../matlab')
 
 mat_cache = 'derived/matlab_cache';
 if exist(mat_cache, 'dir') ~= 7
@@ -279,4 +288,4 @@ deleted after successful builds.
 Continue with:
 
 - [Tutorial 2: Python Analysis from Caches](TUTORIAL_2_PYTHON.md)
-- [Tutorial 3: MATLAB/Octave Analysis from Caches](TUTORIAL_3_MATLAB.md)
+- [Tutorial 3: MATLAB Analysis from Caches](TUTORIAL_3_MATLAB.md)

@@ -1,6 +1,6 @@
-# Tutorial 2: Python Analysis from Caches
+# Tutorial 2: Python Analysis
 
-This tutorial loads the Python caches prepared by
+This tutorial uses the Python artifacts prepared by
 [Tutorial 1](TUTORIAL_1_PREPARE_DATA.md) and runs common operations:
 
 - check object compatibility;

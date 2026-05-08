@@ -1,5 +1,15 @@
 function manifest = create_ld_mat_manifest(input_root, output_root, shards)
-% Create a MATLAB/Octave LD manifest from converted .mat shard files.
+%CREATE_LD_MAT_MANIFEST Create a MATLAB LD manifest for converted shards.
+%
+%   manifest = statgen.create_ld_mat_manifest(input_root, output_root, shards)
+%
+% input_root is the source Python LD distribution. output_root contains .mat
+% shards created by statgen.convert_ld_npz_to_mat. shards is a non-empty list
+% of canonical shard labels to include in the MATLAB LD distribution. Including
+% 'X' includes all converted chrX sex-label shards present in output_root.
+%
+% See also statgen.convert_ld_npz_to_mat, statgen.validate_ld_distribution,
+% statgen.load_ld.
     if nargin < 3 || isempty(shards)
         error('statgen:ld', 'create_ld_mat_manifest requires a non-empty shards list');
     end

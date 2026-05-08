@@ -1,11 +1,18 @@
 function panel = load_reference_cache(path, varargin)
-% Load a ReferencePanel from a MATLAB binary .mat cache file.
+%LOAD_REFERENCE_CACHE Load a cached ReferencePanel.
 %
 %   panel = statgen.load_reference_cache(path)
 %   panel = statgen.load_reference_cache(path, shards)
 %
-% The cache mode is read from metadata.mode. Save full or thin caches with
-% statgen.save_reference_cache(..., 'mode', 'full'|'thin').
+% Loads one MATLAB .mat reference cache file produced by
+% statgen.save_reference_cache. Optional shards return a logical subset of the
+% cached shard labels. The loaded ReferencePanel state is read from cache
+% metadata: full references expose snp, a1, and a2; thin references support
+% alignment checks and summary-statistics matching but do not expose those full
+% reference fields.
+%
+% See also statgen.ReferencePanel, statgen.load_reference,
+% statgen.save_reference_cache.
     shards = parse_args_(varargin{:});
 
     path = char(path);

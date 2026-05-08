@@ -1,5 +1,20 @@
 function panel = load_annotations(bed_paths, reference)
-% Load BED annotations and paint to reference-aligned SNP masks.
+%LOAD_ANNOTATIONS Load BED annotations aligned to a ReferencePanel.
+%
+%   annotations = statgen.load_annotations(bed_paths, reference)
+%
+% Paints one or more BED files onto the SNPs in reference. Each BED file is one
+% annotation column, not a chromosome shard. Annotation names are derived from
+% BED file basenames. The returned AnnotationPanel has a sparse
+% num_snp-by-num_annot binary annomat property.
+%
+% BED inputs use columns 1-3 only: chromosome, 0-based start, and 0-based
+% exclusive end. Chromosome labels must match the reference exactly; statgen
+% does not strip 'chr' prefixes or otherwise normalize labels.
+% BED basenames become annotation names and must be unique.
+%
+% See also statgen.AnnotationPanel, statgen.create_annotations,
+% statgen.load_annotations_cache.
     if nargin < 2
         error('statgen:arg', 'load_annotations requires bed_paths and reference');
     end

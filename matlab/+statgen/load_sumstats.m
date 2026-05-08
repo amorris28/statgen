@@ -1,5 +1,28 @@
 function sumstats = load_sumstats(path, reference)
-% Load sumstats TSV(.gz) and align to reference by shard-local numeric keys.
+%LOAD_SUMSTATS Load summary statistics aligned to a ReferencePanel.
+%
+%   sumstats = statgen.load_sumstats(path, reference)
+%
+% Loads one TSV or TSV.GZ summary-statistics file for one trait or source; this
+% input is not sharded. Rows are aligned to reference SNPs by chromosome,
+% base-pair position, and alleles. The output is a Sumstats object with
+% SNP-axis vectors in reference order.
+%
+% Required columns: chr, bp, a1, a2, p. Optional columns include z, n, beta,
+% se, eaf, and info.
+% Column names are case-insensitive; POS, EffectAllele, and OtherAllele are
+% accepted aliases for bp, a1, and a2. SNP may be present but is not used for
+% matching.
+%
+% Rows are projected into reference order. Variants absent from the source have
+% NaN logp values and is_present false. p == 0 is allowed and becomes Inf in
+% logpvec. Optional columns absent from the source return [] in MATLAB.
+%
+% For large .tsv.gz inputs, set STATGEN_SCRATCH env variable to control where 
+% temporary decompressed files are created.
+%
+% See also statgen.Sumstats, statgen.load_sumstats_cache,
+% statgen.save_sumstats_cache.
     if nargin < 2
         error('statgen:arg', 'load_sumstats requires path and reference');
     end

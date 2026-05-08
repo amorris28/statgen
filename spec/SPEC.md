@@ -28,6 +28,7 @@ In separate files:
    performance-oriented storage requirements.
 1. [python.md](python.md): Python package layout and implementation conventions.
 1. [matlab.md](matlab.md): MATLAB/Octave package layout and implementation conventions.
+1. [docstrings.md](docstrings.md): interactive help text policy for public APIs.
 1. [testing.md](testing.md): pytest and Octave consistency strategy.
 
 Objects:

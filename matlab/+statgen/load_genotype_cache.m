@@ -1,5 +1,17 @@
 function panel = load_genotype_cache(path, shards)
-% Load genotype metadata from MATLAB .mat cache with optional shard subsetting.
+%LOAD_GENOTYPE_CACHE Load cached genotype metadata.
+%
+%   genotype = statgen.load_genotype_cache(path)
+%   genotype = statgen.load_genotype_cache(path, shards)
+%
+% Loads one MATLAB .mat GenotypePanel cache file produced by
+% statgen.save_genotype_cache. The cache stores metadata and source BED paths,
+% not dense genotype calls. Optional shards return a logical subset of the
+% cached shard labels. Fetching genotypes still requires the original BED files,
+% or an explicit BED path override in fetch_genotypes.
+%
+% See also statgen.GenotypePanel, statgen.load_genotype,
+% statgen.save_genotype_cache.
     if nargin < 2
         shards = [];
     end

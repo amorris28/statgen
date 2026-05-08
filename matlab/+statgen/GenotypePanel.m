@@ -1,5 +1,36 @@
 classdef GenotypePanel
-% Ordered collection of GenotypeShard objects with lazy SNP-axis accessors.
+%STATGEN.GENOTYPEPANEL Reference-aligned PLINK genotype metadata.
+%
+%   genotype = statgen.load_genotype(bfile_prefix, reference)
+%   genotype = statgen.load_genotype_cache(path)
+%
+% A GenotypePanel stores sample metadata and SNP mappings aligned to a
+% ReferencePanel. Genotype calls are read lazily from PLINK BED files with
+% fetch_genotypes or fetch_genotypes_int8.
+%
+% FAM rows define the panel-level sample axis. For sharded genotype input,
+% loaded autosomal shards must have identical FAM rows and define that axis.
+% chrX is the exception: its FAM may be a subset of the panel sample axis.
+% genotype.is_subject_present('X') reports which panel-level subjects are
+% present in the chrX source; fetched chrX genotypes are expanded back to the
+% panel sample order, with missing calls for absent chrX subjects.
+%
+% Common properties:
+%   num_snp      Number of reference-axis SNPs.
+%   num_sample   Number of samples.
+%   fid, iid     Sample identifiers from FAM metadata.
+%   is_present   Logical vector marking SNPs present in the genotype source.
+%   ploidy_male, ploidy_female  Per-SNP ploidy metadata.
+%
+% Common methods:
+%   is_subject_present   Return sample-presence mask for one shard.
+%   select_shards        Restrict the panel to selected shards.
+%   fetch_genotypes      Read selected genotype calls as double.
+%   fetch_genotypes_int8 Read selected genotype calls as int8.
+%   save_cache           Save metadata to a MATLAB .mat cache.
+%
+% See also statgen.load_genotype, statgen.load_genotype_cache,
+% statgen.save_genotype_cache.
     properties (SetAccess = private)
         num_snp
         num_sample
@@ -84,6 +115,12 @@ classdef GenotypePanel
         end
 
         function out = is_subject_present(obj, shard)
+        %IS_SUBJECT_PRESENT Return sample-presence mask for one shard.
+        %
+        %   mask = genotype.is_subject_present(shard)
+        %
+        % Returns a num_sample-by-1 logical vector for the requested shard
+        % label, for example '21' or 'X'.
             label = char(shard);
             for i = 1:numel(obj.shards)
                 if strcmp(obj.shards{i}.label, label)
@@ -96,6 +133,13 @@ classdef GenotypePanel
         end
 
         function out = select_shards(obj, shards)
+        %SELECT_SHARDS Return genotype metadata restricted to selected shards.
+        %
+        %   out = genotype.select_shards(shards)
+        %
+        % shards is a cell array or string array of canonical shard labels, for
+        % example {'21', '22'}. The returned GenotypePanel preserves the
+        % requested shard order.
             available = cell(numel(obj.shards), 1);
             for i = 1:numel(obj.shards)
                 available{i} = obj.shards{i}.label;
@@ -113,6 +157,16 @@ classdef GenotypePanel
         end
 
         function out = fetch_genotypes_int8(obj, snp_indices, varargin)
+        %FETCH_GENOTYPES_INT8 Read selected genotype calls as int8.
+        %
+        %   G = genotype.fetch_genotypes_int8(snp_indices)
+        %   G = genotype.fetch_genotypes_int8(snp_indices, bed_path)
+        %
+        % Returns a num_sample-by-numel(snp_indices) matrix. Calls are encoded
+        % as allele counts 0, 1, or 2; missing calls are -1. snp_indices are
+        % one-based panel SNP indices in MATLAB. bed_path overrides cached
+        % source BED paths and may contain '@' for sharded panels. Requesting a
+        % reference SNP absent from the genotype source is an error.
             bed_path = parse_bed_path_(varargin{:});
             indices0 = normalize_snp_indices_(snp_indices, obj.num_snp);
             out = int8(-ones(obj.num_sample, numel(indices0)));
@@ -142,12 +196,32 @@ classdef GenotypePanel
         end
 
         function out = fetch_genotypes(obj, snp_indices, varargin)
+        %FETCH_GENOTYPES Read selected genotype calls as double.
+        %
+        %   G = genotype.fetch_genotypes(snp_indices)
+        %   G = genotype.fetch_genotypes(snp_indices, bed_path)
+        %
+        % Returns a num_sample-by-numel(snp_indices) matrix. Missing calls are
+        % returned as NaN. snp_indices are one-based panel SNP indices in MATLAB.
+        % bed_path overrides cached source BED paths and may contain '@' for
+        % sharded panels. Requesting a reference SNP absent from the genotype
+        % source is an error.
+        %
+        % See also statgen.GenotypePanel.fetch_genotypes_int8.
             geno_int8 = obj.fetch_genotypes_int8(snp_indices, varargin{:});
             out = double(geno_int8);
             out(geno_int8 == int8(-1)) = NaN;
         end
 
         function save_cache(obj, path, varargin)
+        %SAVE_CACHE Save genotype metadata to a MATLAB .mat cache.
+        %
+        %   genotype.save_cache(path)
+        %   genotype.save_cache(path, 'format', format)
+        %
+        % Saves metadata and source BED paths, not dense genotype calls.
+        %
+        % See also statgen.save_genotype_cache, statgen.load_genotype_cache.
             statgen.save_genotype_cache(obj, path, varargin{:});
         end
     end

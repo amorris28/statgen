@@ -410,12 +410,13 @@ separate on-disk distribution field, and exists to make repeated
 `multiply_r2` and pruning calls avoid rebuilding the same sparse squared LD
 matrix.
 
-MATLAB/Octave implementations may provide a memory-oriented loader option to
-drop the raw signed `ld_r` matrix after constructing `ld_r2`. This option must
-default to retaining `ld_r`, preserving the ordinary LD object contract. When a
-caller explicitly disables raw-LD retention, `LDPanel.multiply_r2` and
-`fast_prune` must continue to work from `ld_r2`, but direct shard-level `ld_r`
-inspection is unavailable for that loaded object.
+- MATLAB/Octave `load_ld` supports a trailing `retain_ld_r = false` option for
+  memory savings. This drops each shard's raw signed `ld_r` matrix after
+  constructing `ld_r2`. The option must default to retaining `ld_r`, preserving
+  the ordinary LD object contract. When a caller disables raw-LD retention,
+  `LDPanel.multiply_r2` and `fast_prune` must continue to work from `ld_r2`,
+  but direct shard-level `ld_r` inspection is unavailable for that loaded
+  object.
 
 An `LDPanel` is an ordered collection of shard lists matching the paired
 reference panel. For autosomal chromosome shards, each chromosome has exactly

@@ -1,5 +1,31 @@
 classdef Sumstats
-% Ordered collection of SumstatsShard objects with genome-wide accessors.
+%STATGEN.SUMSTATS Reference-aligned summary statistics for one trait.
+%
+%   sumstats = statgen.load_sumstats(path, reference)
+%   sumstats = statgen.load_sumstats_cache(path)
+%   sumstats = statgen.create_sumstats(reference, pvec, ...)
+%
+% A Sumstats object stores GWAS summary statistics aligned to a ReferencePanel.
+% SNP-axis properties are returned as num_snp-by-1 vectors in panel order.
+% Source variants absent from the reference-aligned data have NaN in logpvec
+% and is_present false. A source p-value of 0 is represented as Inf in logpvec.
+% Optional statistic vectors are [] when the source field was absent.
+%
+% Common properties:
+%   num_snp     Number of SNPs in the aligned reference.
+%   logpvec     -log10(p) values.
+%   zvec        Optional z-score vector.
+%   nvec        Optional sample-size vector.
+%   beta_vec, se_vec, eaf_vec, info_vec
+%               Further optional statistic vectors.
+%   is_present  Logical vector marking matched summary-statistic rows.
+%
+% Common methods:
+%   select_shards Restrict the object to selected shards.
+%   save_cache    Save the object to a MATLAB .mat cache.
+%
+% See also statgen.load_sumstats, statgen.load_sumstats_cache,
+% statgen.create_sumstats, statgen.save_sumstats_cache.
     properties (SetAccess = private)
         num_snp
         shard_offsets
@@ -74,6 +100,13 @@ classdef Sumstats
         end
 
         function out = select_shards(obj, shards)
+        %SELECT_SHARDS Return summary statistics restricted to selected shards.
+        %
+        %   out = sumstats.select_shards(shards)
+        %
+        % shards is a cell array or string array of canonical shard labels, for
+        % example {'21', '22'}. The returned Sumstats object preserves the
+        % requested shard order.
             available = cell(numel(obj.shards), 1);
             for i = 1:numel(obj.shards)
                 available{i} = obj.shards{i}.label;
@@ -88,6 +121,14 @@ classdef Sumstats
         end
 
         function save_cache(obj, path, varargin)
+        %SAVE_CACHE Save summary statistics to a MATLAB .mat cache.
+        %
+        %   sumstats.save_cache(path)
+        %   sumstats.save_cache(path, 'format', format)
+        %
+        % Saves the object in the same format as statgen.save_sumstats_cache.
+        %
+        % See also statgen.save_sumstats_cache, statgen.load_sumstats_cache.
             statgen.save_sumstats_cache(obj, path, varargin{:});
         end
     end

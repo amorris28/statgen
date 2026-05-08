@@ -1,5 +1,15 @@
 function sumstats = create_sumstats(reference, pvec, zvec, nvec, beta_vec, se_vec, eaf_vec, info_vec)
-% Create Sumstats from full-panel aligned vectors.
+%CREATE_SUMSTATS Create summary statistics from aligned vectors.
+%
+%   sumstats = statgen.create_sumstats(reference, pvec)
+%   sumstats = statgen.create_sumstats(reference, pvec, zvec, nvec, beta_vec, se_vec, eaf_vec, info_vec)
+%
+% pvec and optional vectors must be aligned to reference and have num_snp
+% elements. Optional vectors are z, n, beta, se, eaf, and info. pvec is
+% converted to logpvec in the returned Sumstats object. Use load_sumstats for
+% raw TSV input; create_sumstats expects already aligned full-panel vectors.
+%
+% See also statgen.Sumstats, statgen.load_sumstats.
     if nargin < 2
         error('statgen:arg', 'create_sumstats requires reference and pvec');
     end

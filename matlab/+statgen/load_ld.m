@@ -1,5 +1,30 @@
 function panel = load_ld(path, varargin)
-% Load MATLAB/Octave-native sparse LD distribution artifacts.
+%LOAD_LD Load a MATLAB sparse LD distribution.
+%
+%   ld = statgen.load_ld(path)
+%   ld = statgen.load_ld(path, reference)
+%   ld = statgen.load_ld(path, reference, chrX_sex)
+%   ld = statgen.load_ld(path, reference, shards)
+%   ld = statgen.load_ld(path, reference, shards, chrX_sex)
+%   ld = statgen.load_ld(..., retain_ld_r)
+%
+% path is an LD distribution directory containing ld_manifest.json and converted
+% .mat LD shard files; load_ld does not load a single shard file or @ template.
+% If reference is omitted, load_ld uses the reference BIM files bundled with the
+% LD distribution. Optional shards restrict loading to selected canonical shard
+% labels. chrX_sex selects the default chrX shard; use 'female', 'male', or
+% 'combined'.
+%
+% retain_ld_r defaults to true. Set it to false to drop raw signed LD r from
+% loaded shards after constructing the internal r-squared matrix used by
+% multiply_r2 and fast_prune.
+%
+% MATLAB LD distributions are prepared by building Python .npz LD shards with
+% script/statgen_build_ld.py, converting them with statgen.convert_ld_npz_to_mat,
+% and finalizing the manifest with statgen.create_ld_mat_manifest.
+%
+% See also statgen.LDPanel, statgen.convert_ld_npz_to_mat,
+% statgen.create_ld_mat_manifest, statgen.validate_ld_distribution.
     [reference, shards, default_chrX_sex, retain_ld_r] = parse_args_(varargin{:});
     statgen.LDPanel.validate_chrx_sex_(default_chrX_sex, 'default_chrX_sex');
     if ~islogical(retain_ld_r) && ~(isnumeric(retain_ld_r) && isscalar(retain_ld_r))

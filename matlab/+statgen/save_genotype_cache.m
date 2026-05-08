@@ -1,5 +1,13 @@
 function save_genotype_cache(panel, path, varargin)
-% Save genotype metadata to MATLAB binary .mat cache file.
+%SAVE_GENOTYPE_CACHE Save genotype metadata to a MATLAB .mat cache.
+%
+%   statgen.save_genotype_cache(genotype, path)
+%   statgen.save_genotype_cache(genotype, path, 'format', format)
+%
+% Saves a GenotypePanel metadata cache, including source BED paths. Dense
+% genotype calls are not stored in the cache.
+%
+% See also statgen.GenotypePanel, statgen.load_genotype_cache.
     path = char(path);
     [~, save_arg] = statgen.internal.parse_mat_format( ...
         'save_genotype_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});

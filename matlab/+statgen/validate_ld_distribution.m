@@ -1,5 +1,16 @@
 function report = validate_ld_distribution(path, check_payload_structure)
-% Validate a MATLAB/Octave sparse LD distribution.
+%VALIDATE_LD_DISTRIBUTION Validate a MATLAB sparse LD distribution.
+%
+%   report = statgen.validate_ld_distribution(path)
+%   report = statgen.validate_ld_distribution(path, check_payload_structure)
+%
+% Checks the MATLAB LD manifest, shard files, checksums, and bundled reference
+% BIM files. Set check_payload_structure to true for deeper sparse-matrix
+% payload checks.
+% Metadata checks include num_monomorphic_snps; for forced monomorphic SNPs,
+% undefined off-diagonal LD is represented by omitted sparse entries.
+%
+% See also statgen.load_ld, statgen.create_ld_mat_manifest.
     if nargin < 2 || isempty(check_payload_structure)
         check_payload_structure = false;
     end

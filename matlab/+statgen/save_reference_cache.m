@@ -1,10 +1,16 @@
 function save_reference_cache(panel, path, varargin)
-% Save a ReferencePanel to a MATLAB binary .mat cache file.
+%SAVE_REFERENCE_CACHE Save a ReferencePanel to a MATLAB .mat cache.
 %
 %   statgen.save_reference_cache(panel, path)
 %   statgen.save_reference_cache(panel, path, 'mode', 'full')
 %   statgen.save_reference_cache(panel, path, 'mode', 'thin')
 %   statgen.save_reference_cache(panel, path, 'format', 'v7')
+%
+% Default mode is 'full'. Full caches store SNP identifiers and alleles. Thin
+% caches store only the fields needed for alignment checks and sumstats
+% matching.
+%
+% See also statgen.ReferencePanel, statgen.load_reference_cache.
     path = char(path);
     [mode, save_arg] = parse_args_(varargin{:});
 

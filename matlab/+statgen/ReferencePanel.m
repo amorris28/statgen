@@ -1,5 +1,34 @@
 classdef ReferencePanel
-% Ordered collection of ReferenceShard objects with genome-wide accessors.
+%STATGEN.REFERENCEPANEL Reference SNP coordinate system for aligned objects.
+%
+%   reference = statgen.load_reference(path)
+%   reference = statgen.load_reference(path, shards)
+%   reference = statgen.load_reference_cache(path)
+%
+% A ReferencePanel defines the SNP order, chromosome labels, base-pair
+% positions, and alleles used by other statgen objects. SNP-axis properties are
+% returned as num_snp-by-1 vectors in panel order.
+%
+% A ReferencePanel may be full or thin. Full references expose SNP identifiers
+% and alleles for inspection and export. Thin references retain only chromosome
+% labels, base-pair positions, and allele hashes needed for alignment checks
+% and summary-statistics matching; accessing snp, a1, or a2 on a thin reference
+% raises an error.
+%
+% Common properties:
+%   num_snp    Number of SNPs in the panel.
+%   chr        Chromosome labels.
+%   snp        SNP identifiers.
+%   bp         Base-pair positions.
+%   a1, a2     Alleles from the BIM input.
+%
+% Common methods:
+%   select_shards           Restrict the reference to selected shards.
+%   is_object_compatible    Check whether another object uses this reference.
+%   save_cache              Save the reference to a MATLAB .mat cache.
+%
+% See also statgen.load_reference, statgen.load_reference_cache,
+% statgen.save_reference_cache.
     properties (SetAccess = private)
         num_snp        % total SNP count (scalar)
         shard_offsets  % struct array: shard_label, start0, stop0 (zero-based half-open)
@@ -104,6 +133,13 @@ classdef ReferencePanel
         end
 
         function out = select_shards(obj, shards)
+        %SELECT_SHARDS Return a reference restricted to selected shards.
+        %
+        %   out = reference.select_shards(shards)
+        %
+        % shards is a cell array or string array of canonical shard labels, for
+        % example {'21', '22'}. The returned ReferencePanel preserves the
+        % requested shard order.
             available = cell(numel(obj.shards), 1);
             for i = 1:numel(obj.shards)
                 available{i} = obj.shards{i}.label;
@@ -120,6 +156,13 @@ classdef ReferencePanel
         end
 
         function ok = validate_checksums(obj)
+        %VALIDATE_CHECKSUMS Validate stored reference checksums.
+        %
+        %   ok = reference.validate_checksums()
+        %
+        % Returns true when the loaded reference fields match their stored
+        % per-shard checksums. This requires a full ReferencePanel; thin
+        % references do not expose the allele fields needed for recomputation.
             for i = 1:numel(obj.shards)
                 s = obj.shards{i};
                 validate_reference_checksum_(s);
@@ -128,6 +171,13 @@ classdef ReferencePanel
         end
 
         function ok = is_object_compatible(obj, other)
+        %IS_OBJECT_COMPATIBLE Check whether another object uses this reference.
+        %
+        %   ok = reference.is_object_compatible(other)
+        %
+        % Returns true when other has the same shard labels, SNP counts, and
+        % reference checksums as this ReferencePanel. Mismatches are reported as
+        % compatibility warnings and return false, not an exception.
             ok = true;
 
             try
@@ -204,6 +254,15 @@ classdef ReferencePanel
         end
 
         function save_cache(obj, path, varargin)
+        %SAVE_CACHE Save the reference to a MATLAB .mat cache.
+        %
+        %   reference.save_cache(path)
+        %   reference.save_cache(path, 'mode', mode)
+        %   reference.save_cache(path, 'format', format)
+        %
+        % Saves the reference in the same format as statgen.save_reference_cache.
+        %
+        % See also statgen.save_reference_cache, statgen.load_reference_cache.
             statgen.save_reference_cache(obj, path, varargin{:});
         end
     end

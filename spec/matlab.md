@@ -67,6 +67,9 @@ Wrappers exist only for: `statgen_load_reference`, `statgen_load_ld`,
 `statgen_fast_prune`.
 No wrappers are created for classes or internal helpers.
 
+Interactive `help` text conventions are specified in
+[docstrings.md](docstrings.md).
+
 ## Naming conventions
 
 - Functions and variables: `snake_case`.

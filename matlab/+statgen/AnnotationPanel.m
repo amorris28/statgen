@@ -1,5 +1,28 @@
 classdef AnnotationPanel
-% Ordered collection of AnnotationShard objects with genome-wide accessors.
+%STATGEN.ANNOTATIONPANEL Reference-aligned SNP annotation matrix.
+%
+%   annotations = statgen.load_annotations(bed_paths, reference)
+%   annotations = statgen.load_annotations_cache(path)
+%   annotations = statgen.create_annotations(reference, annomat, annonames)
+%
+% An AnnotationPanel stores one or more binary SNP annotations aligned to a
+% ReferencePanel. annomat is a num_snp-by-num_annot sparse matrix in panel
+% order.
+%
+% Common properties:
+%   num_snp     Number of SNPs in the aligned reference.
+%   num_annot   Number of annotation columns.
+%   annonames   Annotation names.
+%   annomat     Sparse binary annotation matrix.
+%
+% Common methods:
+%   select_shards       Restrict the panel to selected shards.
+%   select_annotations  Restrict the panel to selected annotation columns.
+%   union_annotations   Combine non-overlapping annotation columns.
+%   save_cache          Save the panel to a MATLAB .mat cache.
+%
+% See also statgen.load_annotations, statgen.create_annotations,
+% statgen.create_annotation, statgen.load_annotations_cache.
     properties (SetAccess = private)
         num_snp
         num_annot
@@ -54,6 +77,13 @@ classdef AnnotationPanel
         end
 
         function out = select_shards(obj, shards)
+        %SELECT_SHARDS Return annotations restricted to selected shards.
+        %
+        %   out = annotations.select_shards(shards)
+        %
+        % shards is a cell array or string array of canonical shard labels, for
+        % example {'21', '22'}. The returned AnnotationPanel preserves the
+        % requested shard order.
             available = cell(numel(obj.shards), 1);
             for i = 1:numel(obj.shards)
                 available{i} = obj.shards{i}.label;
@@ -68,6 +98,16 @@ classdef AnnotationPanel
         end
 
         function out = select_annotations(obj, names)
+        %SELECT_ANNOTATIONS Return selected annotation columns by name.
+        %
+        %   out = annotations.select_annotations(names)
+        %
+        % names is a character array, string array, or cell array naming
+        % annotation columns in annotations.annonames. The output preserves the
+        % requested annotation order.
+        %
+        % See also statgen.AnnotationPanel.select_shards,
+        % statgen.AnnotationPanel.union_annotations.
             req = ensure_names_(names);
             [tf, idx] = ismember(req, obj.annonames);
             if ~all(tf)
@@ -84,6 +124,14 @@ classdef AnnotationPanel
         end
 
         function out = union_annotations(obj, other, mode)
+        %UNION_ANNOTATIONS Combine non-overlapping annotation columns.
+        %
+        %   out = annotations.union_annotations(other)
+        %
+        % Returns an AnnotationPanel with columns from both inputs. The inputs
+        % must use the same reference alignment and distinct annotation names.
+        %
+        % See also statgen.AnnotationPanel.select_annotations.
             if nargin < 3 || isempty(mode)
                 mode = 'by_name';
             end
@@ -140,6 +188,15 @@ classdef AnnotationPanel
         end
 
         function save_cache(obj, path, varargin)
+        %SAVE_CACHE Save annotations to a MATLAB .mat cache.
+        %
+        %   annotations.save_cache(path)
+        %   annotations.save_cache(path, 'format', format)
+        %
+        % Saves the panel in the same format as statgen.save_annotations_cache.
+        %
+        % See also statgen.save_annotations_cache,
+        % statgen.load_annotations_cache.
             statgen.save_annotations_cache(obj, path, varargin{:});
         end
     end
