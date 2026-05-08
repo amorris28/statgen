@@ -142,6 +142,27 @@ def test_octave_genotype_missing_source_shard_fails(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_genotype_warns_on_unmatched_swapped_alleles(tmp_path):
+    copy_genotype_shard_files(tmp_path, "1")
+    rows = list(GENOTYPE_CHR1_BIM)
+    rows[1] = ("1", "rs1002", 0, 200, "T", "C")
+    write_plink_bim(tmp_path / "1.bim", rows)
+
+    script = (
+        f"ref = statgen.load_reference('{REF_SHARDED}', {{'1'}}); "
+        f"g = statgen.load_genotype('{tmp_path / '1'}', ref); "
+        "fprintf('%d ', g.is_present); fprintf('\\n');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    combined = result.stdout + result.stderr
+    assert "shard 1: 1 unmatched genotype variant" in combined
+    assert "a1/a2 were swapped" in combined
+    assert matlab_data_lines(result.stdout)[-1] == "1 0 1 1 1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_genotype_fam_and_ploidy_validation_failures(tmp_path):
     write_plink_bim(tmp_path / "badsex.bim", GENOTYPE_CHR1_BIM)
     (tmp_path / "badsex.fam").write_text("FAM1\tIND1\t0\t0\t3\t-9\n")

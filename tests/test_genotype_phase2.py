@@ -8,7 +8,9 @@ from statgen.reference import load_reference
 from tests.conftest import (
     FIXTURES_DIR,
     GENOTYPE_CHR1_CALLS,
+    GENOTYPE_CHR1_BIM,
     copy_genotype_shard_files,
+    write_plink_bim,
     write_plink_bed_calls,
     write_plink_fam,
 )
@@ -62,6 +64,23 @@ def test_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
     expected_float = expected.astype(np.float64)
     expected_float[expected == -1] = np.nan
     assert np.array_equal(geno, expected_float, equal_nan=True)
+
+
+def test_load_genotype_warns_on_unmatched_swapped_alleles(tmp_path):
+    copy_genotype_shard_files(tmp_path, "1")
+    rows = list(GENOTYPE_CHR1_BIM)
+    rows[1] = ("1", "rs1002", 0, 200, "T", "C")
+    write_plink_bim(tmp_path / "1.bim", rows)
+
+    ref = load_reference(REF_SHARDED, shards=["1"])
+    with pytest.warns(RuntimeWarning, match="shard 1: 1 unmatched genotype variant.*swapped"):
+        panel = load_genotype(tmp_path / "1", ref)
+
+    np.testing.assert_array_equal(
+        panel.is_present,
+        np.array([True, False, True, True, True]),
+    )
+    assert panel.source_row0[1] == -1
 
 
 def test_fetch_genotypes_ploidy_scaled_maps_haploid_calls():

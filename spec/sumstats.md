@@ -54,14 +54,16 @@ The TSV does not have to contain every variant in the reference panel.
 Loading against a `ReferencePanel` projects rows into reference order by taking
 validated source rows whose `chr` label is in the supplied reference shard set,
 then matching within that shard on the tuple `(bp, a1_hash64, a2_hash64)`
-defined in [reference.md](reference.md). Validated source rows outside the
-supplied reference shard set are ignored for alignment. The allele hashes are
-computed from each source row's exact `a1` and `a2` strings. This is
-semantically an exact `chr:bp:a1:a2` join; the hashes are only fixed-width
-implementation keys for sumstats-to-reference matching. The result is split
-into `SumstatsShard`s matching the reference shards, and variants absent from
-the TSV are represented as missing values. If a supplied reference shard has no
-matching source rows at all, the loader warns and represents that shard as all
+defined by the shared source-to-reference matching contract in
+[reference.md](reference.md), including swapped-allele diagnostics for
+unmatched source rows. Validated source rows outside the supplied reference
+shard set are ignored for alignment. The allele hashes are computed from each
+source row's exact `a1` and `a2` strings. This is semantically an exact
+`chr:bp:a1:a2` join; the hashes are only fixed-width implementation keys for
+sumstats-to-reference matching. The result is split into `SumstatsShard`s
+matching the reference shards, and variants absent from the TSV are represented
+as missing values. If a supplied reference shard has no matching source rows at
+all, the loader warns and represents that shard as all
 missing. The loader does not normalize or alias contig labels; matched sumstats
 `chr` values must already match the reference labels.
 
@@ -195,10 +197,10 @@ Expected behavior:
 - sumstats TSV column recognition is case-insensitive and only accepts the
   internal field names plus `POS`, `EffectAllele`, and `OtherAllele` from the
   genomatch cleaned-sumstats schema.
-- sumstats-to-reference matching uses shard label plus `(bp, a1_hash64,
-  a2_hash64)` from [reference.md](reference.md). Joins are exact after basic
-  field parsing; the loader does not normalize chromosome labels, swap alleles,
-  or perform strand handling. MATLAB/Octave implementations should use
+- sumstats-to-reference matching follows the shared source-to-reference
+  matching contract in [reference.md](reference.md). Joins are exact after
+  basic field parsing; the loader does not normalize chromosome labels, swap
+  alleles, or perform strand handling. MATLAB/Octave implementations should use
   a native numeric sort/merge within each shard; equivalent native numeric
   approaches are allowed, but implementations must not reconstruct string join
   keys or cast `uint64` allele hashes to `double` for matching.

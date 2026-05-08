@@ -161,6 +161,7 @@ function source = load_source_record_(prefix, label)
     bed_file_size = statgen.internal.bfile_validate_bed(bed_path, numel(source_fam.fid), source_num_snp);
 
     source.bed_path = bed_path;
+    source.bim_path = bim_path;
     source.bed_file_size = bed_file_size;
     source.source_num_snp = source_num_snp;
     source.source_num_sample = numel(source_fam.fid);
@@ -243,10 +244,11 @@ function shard = build_shard_(ref_shard, source, subject_present, source_subject
     if isempty(source_bim.bp)
         local_match = zeros(ref_shard.num_snp, 1);
     else
-        local_match = statgen.internal.match_shard_numeric( ...
+        [local_match, n_swapped] = statgen.internal.match_shard_numeric( ...
             ref_shard.bp, ref_shard.a1_hash64, ref_shard.a2_hash64, ...
             source_bim.bp, source_bim.a1_hash64, source_bim.a2_hash64, ...
             ref_shard.label, 'genotype');
+        warn_swapped_allele_matches_(source.bim_path, ref_shard.label, n_swapped, 'genotype');
     end
 
     is_present = local_match > 0;
@@ -264,6 +266,14 @@ function shard = build_shard_(ref_shard, source, subject_present, source_subject
         source.bed_file_size, source.source_num_snp, source.source_num_sample, ...
         source_row0, subject_present, source_subject_row0, is_present, ...
         ploidy_male, ploidy_female, ref_shard.checksum);
+end
+
+function warn_swapped_allele_matches_(path, label, count, context)
+    if count > 0
+        warning('statgen:match', ...
+            '%s: shard %s: %d unmatched %s variant(s) would match the reference if a1/a2 were swapped; variants remain unmatched', ...
+            path, char(label), count, context);
+    end
 end
 
 function out = subset_bim_(bim, mask)

@@ -100,13 +100,22 @@ the recurrence are below `2^53` and can be computed exactly in IEEE-754 double
 precision. Implementations must not use saturating `uint64` multiplication to
 compute allele hashes.
 
-Sumstats-to-reference matching uses the tuple `(shard label, bp, a1_hash64,
-a2_hash64)`. The allele hashes are not used for reference compatibility checks;
-compatibility continues to use the stored per-shard `reference_checksum`. The
-allele hashes are not security primitives. Collision risk is negligible for
-non-adversarial allele strings in this use; implementations should still fail
-clearly on duplicate `(bp, a1_hash64, a2_hash64)` matching keys within a shard
-or source input when such duplicates would make alignment ambiguous.
+Source-to-reference matching for variant-bearing source files, including
+summary statistics and genotype BIM sources, uses the tuple `(shard label, bp,
+a1_hash64, a2_hash64)`. The allele hashes are not used for reference
+compatibility checks; compatibility continues to use the stored per-shard
+`reference_checksum`. The allele hashes are not security primitives. Collision
+risk is negligible for non-adversarial allele strings in this use;
+implementations should still fail clearly on duplicate `(bp, a1_hash64,
+a2_hash64)` matching keys within a shard or source input when such duplicates
+would make alignment ambiguous.
+
+After exact matching, implementations warn if any unmatched source-side variant
+would have matched the reference within the same shard had `a1_hash64` and
+`a2_hash64` been swapped. The warning names the source file, shard label, and
+count of such variants. This is diagnostic only: those variants remain
+unmatched, and callers must not silently flip alleles, repair strand issues, or
+otherwise rescue them.
 
 MATLAB/Octave sumstats loaders should match within each shard using a native
 numeric sort/merge over `(bp, a1_hash64, a2_hash64)`. Equivalent native numeric

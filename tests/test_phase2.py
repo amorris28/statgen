@@ -136,6 +136,24 @@ def test_load_sumstats_duplicate_matching_key_fails(tmp_path):
         load_sumstats(path, reference)
 
 
+def test_load_sumstats_warns_on_unmatched_swapped_alleles(tmp_path):
+    path = tmp_path / "swapped.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tz\tn\tp\n"
+        "1\t100\tA\tG\t1.0\t1000\t0.01\n"
+        "1\t200\tT\tC\t1.0\t1000\t0.02\n",
+    )
+    reference = load_reference(SHARDED_REF, shards=["1"])
+    with pytest.warns(RuntimeWarning, match="shard 1: 1 unmatched sumstats variant.*swapped"):
+        s = load_sumstats(path, reference)
+
+    np.testing.assert_array_equal(
+        s.is_present,
+        np.array([True, False, False, False, False]),
+    )
+
+
 @pytest.mark.parametrize(
     "text_factory",
     [_genomatch_sumstats_text, _mixed_case_vmap_sumstats_text],
@@ -301,7 +319,8 @@ def test_allele_flip_does_not_match_reference_key(tmp_path):
         "X\t100\tA\tG\t3.0\t500\t0.01\n",
     )
     reference = load_reference(SHARDED_REF)
-    s = load_sumstats(path, reference)
+    with pytest.warns(RuntimeWarning, match="would match the reference if a1/a2 were swapped"):
+        s = load_sumstats(path, reference)
 
     assert np.isnan(s.zvec[0])
     assert np.isnan(s.nvec[0])
@@ -622,6 +641,29 @@ def test_octave_missing_required_columns_fail(tmp_path):
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_sumstats_warns_on_unmatched_swapped_alleles(tmp_path):
+    path = tmp_path / "swapped.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tz\tn\tp\n"
+        "1\t100\tA\tG\t1.0\t1000\t0.01\n"
+        "1\t200\tT\tC\t1.0\t1000\t0.02\n",
+    )
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim'], {'1'}); "
+        f"s = statgen.load_sumstats('{path}', ref); "
+        "fprintf('%d ', s.is_present); fprintf('\\n');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    combined = result.stdout + result.stderr
+    assert "shard 1: 1 unmatched sumstats variant" in combined
+    assert "a1/a2 were swapped" in combined
+    assert matlab_data_lines(result.stdout)[-1] == "1 0 0 0 0"
 
 
 @pytest.mark.octave

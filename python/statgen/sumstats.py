@@ -328,7 +328,18 @@ def _build_sumstats_from_aligned(
     return Sumstats(shards)
 
 
-def _build_sumstats_panel(df: pd.DataFrame, reference) -> Sumstats:
+def _warn_swapped_allele_matches(source_path, shard_label: str, count: int, context: str) -> None:
+    if count > 0:
+        warnings.warn(
+            f"{source_path}: shard {shard_label}: {count} unmatched {context} "
+            "variant(s) would match the reference if a1/a2 were swapped; "
+            "variants remain unmatched",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
+
+def _build_sumstats_panel(df: pd.DataFrame, reference, source_path) -> Sumstats:
     n = int(reference.num_snp)
     aligned_optional = {
         col: (np.full(n, np.nan, dtype=float) if col in df.columns else None)
@@ -348,7 +359,8 @@ def _build_sumstats_panel(df: pd.DataFrame, reference) -> Sumstats:
         src_idx = np.flatnonzero(src_mask)
         ref_keys = numeric_variant_keys(ref_shard.bp, ref_shard.a1_hash64, ref_shard.a2_hash64)
         src_keys = numeric_variant_keys(src_bp[src_idx], src_a1_hash64[src_idx], src_a2_hash64[src_idx])
-        local_match = match_shard_numeric(ref_keys, src_keys, ref_shard.label, source_name="sumstats")
+        local_match, n_swapped = match_shard_numeric(ref_keys, src_keys, ref_shard.label, source_name="sumstats")
+        _warn_swapped_allele_matches(source_path, ref_shard.label, n_swapped, "sumstats")
         has_match = local_match >= 0
         matched_src = src_idx[local_match[has_match]]
         aligned_ix = np.arange(start, stop, dtype=np.int64)[has_match]
@@ -375,8 +387,8 @@ def _build_sumstats_panel(df: pd.DataFrame, reference) -> Sumstats:
 
 
 def load_sumstats(path, reference) -> Sumstats:
-    df = _parse_sumstats(Path(path))
-    return _build_sumstats_panel(df, reference)
+    path = Path(path)
+    return _build_sumstats_panel(_parse_sumstats(path), reference, path)
 
 
 def create_sumstats(

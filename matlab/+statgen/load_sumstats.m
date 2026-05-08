@@ -108,10 +108,11 @@ function sumstats = build_sumstats_(tbl, reference, path)
         off = reference.shard_offsets(i);
         ix = (off.start0 + 1):off.stop0;
         src_idx = find(strcmp(chr_col, s_ref.label));
-        loc = statgen.internal.match_shard_numeric( ...
+        [loc, n_swapped] = statgen.internal.match_shard_numeric( ...
             s_ref.bp, s_ref.a1_hash64, s_ref.a2_hash64, ...
             bp_num(src_idx), src_a1_hash64(src_idx), src_a2_hash64(src_idx), ...
             s_ref.label, 'sumstats');
+        warn_swapped_allele_matches_(path, s_ref.label, n_swapped, 'sumstats');
         has_match = loc > 0;
         matched_ref_ix = ix(has_match);
         matched_src_ix = src_idx(loc(has_match));
@@ -151,6 +152,14 @@ function sumstats = build_sumstats_(tbl, reference, path)
     end
 
     sumstats = statgen.Sumstats(shards);
+end
+
+function warn_swapped_allele_matches_(path, label, count, context)
+    if count > 0
+        warning('statgen:match', ...
+            '%s: shard %s: %d unmatched %s variant(s) would match the reference if a1/a2 were swapped; variants remain unmatched', ...
+            path, char(label), count, context);
+    end
 end
 
 function var_names = canonicalize_var_names_(raw_names, path)

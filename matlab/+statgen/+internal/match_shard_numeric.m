@@ -1,4 +1,4 @@
-function loc = match_shard_numeric(ref_bp, ref_a1_hash64, ref_a2_hash64, src_bp, src_a1_hash64, src_a2_hash64, label, context)
+function [loc, n_swapped] = match_shard_numeric(ref_bp, ref_a1_hash64, ref_a2_hash64, src_bp, src_a1_hash64, src_a2_hash64, label, context)
 %MATCH_SHARD_NUMERIC Align source rows to reference rows by numeric variant key.
 %
 % Returns a length(ref_bp) vector. loc(i) is the 1-based source row matching
@@ -9,6 +9,7 @@ function loc = match_shard_numeric(ref_bp, ref_a1_hash64, ref_a2_hash64, src_bp,
 
     n_ref = numel(ref_bp);
     loc = zeros(n_ref, 1);
+    n_swapped = 0;
     if isempty(src_bp)
         return
     end
@@ -49,6 +50,9 @@ function loc = match_shard_numeric(ref_bp, ref_a1_hash64, ref_a2_hash64, src_bp,
     src_by_group = accumarray(group_id, src_index(order), [n_groups, 1], @max, 0);
     matched = ref_count == 1 & src_count == 1;
     loc(ref_by_group(matched)) = src_by_group(matched);
+    n_swapped = count_swapped_source_matches_( ...
+        ref_bp, ref_a1_hash64, ref_a2_hash64, ...
+        src_bp, src_a1_hash64, src_a2_hash64, loc);
 end
 
 function order = sort_key_order_(bp, a1_hash64, a2_hash64)
@@ -76,4 +80,49 @@ end
 
 function out = uint64_to_string_(x)
     out = dec2hex(uint64(x), 16);
+end
+
+function n = count_swapped_source_matches_(ref_bp, ref_a1_hash64, ref_a2_hash64, src_bp, src_a1_hash64, src_a2_hash64, loc)
+    n_src = numel(src_bp);
+    if n_src == 0 || numel(ref_bp) == 0
+        n = 0;
+        return
+    end
+
+    matched_src = false(n_src, 1);
+    matched_loc = loc(loc > 0);
+    if ~isempty(matched_loc)
+        matched_src(matched_loc) = true;
+    end
+    unmatched = ~matched_src;
+    if ~any(unmatched)
+        n = 0;
+        return
+    end
+
+    swapped_bp = src_bp(unmatched);
+    swapped_a1_hash64 = src_a2_hash64(unmatched);
+    swapped_a2_hash64 = src_a1_hash64(unmatched);
+    n_swapped_src = numel(swapped_bp);
+
+    all_bp = [ref_bp(:); swapped_bp(:)];
+    all_a1_hash64 = [uint64(ref_a1_hash64(:)); uint64(swapped_a1_hash64(:))];
+    all_a2_hash64 = [uint64(ref_a2_hash64(:)); uint64(swapped_a2_hash64(:))];
+    is_ref = [true(numel(ref_bp), 1); false(n_swapped_src, 1)];
+
+    order = sort_key_order_(all_bp, all_a1_hash64, all_a2_hash64);
+    bp_sorted = all_bp(order);
+    a1_sorted = all_a1_hash64(order);
+    a2_sorted = all_a2_hash64(order);
+    same_prev = [false; ...
+        bp_sorted(2:end) == bp_sorted(1:end-1) & ...
+        a1_sorted(2:end) == a1_sorted(1:end-1) & ...
+        a2_sorted(2:end) == a2_sorted(1:end-1)];
+    group_id = cumsum(~same_prev);
+    n_groups = group_id(end);
+
+    is_ref_sorted = is_ref(order);
+    ref_count = accumarray(group_id, double(is_ref_sorted), [n_groups, 1], @sum, 0);
+    src_count = accumarray(group_id, double(~is_ref_sorted), [n_groups, 1], @sum, 0);
+    n = sum(src_count(ref_count > 0));
 end

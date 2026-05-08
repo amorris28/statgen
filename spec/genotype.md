@@ -89,12 +89,14 @@ metadata, then projects the source variant rows into the supplied
 
 Source-to-reference matching uses the exact same semantic key as sumstats:
 source `chr` must match the reference shard label exactly, and rows are matched
-within that shard on `(bp, a1_hash64, a2_hash64)` as defined in
-[reference.md](reference.md). This is an exact `chr:bp:a1:a2` join implemented
-with fixed-width allele hashes. Loaders must not normalize chromosome labels,
-swap alleles, repair strand issues, or silently drop duplicate/ambiguous
-matches. Duplicate `(bp, a1_hash64, a2_hash64)` matching keys within a
-reference shard or source shard are always errors.
+within that shard on `(bp, a1_hash64, a2_hash64)` according to the shared
+source-to-reference matching contract in [reference.md](reference.md),
+including swapped-allele diagnostics for unmatched source rows. This is an
+exact `chr:bp:a1:a2` join implemented with fixed-width allele hashes. Loaders
+must not normalize chromosome labels, swap alleles, repair strand issues, or
+silently drop duplicate/ambiguous matches. Duplicate `(bp, a1_hash64,
+a2_hash64)` matching keys within a reference shard or source shard are always
+errors.
 
 `load_genotype` is a reference-driven projection from a possibly larger source.
 For non-sharded source input, the source BIM is split by `chr` into
@@ -482,7 +484,7 @@ Expected behavior:
   shard present on disk; optional `.ploidy` presence; BED magic bytes;
   SNP-major mode; exact expected BED file size; BIM/FAM/PLOIDY row counts; and
   FAM sample-axis reconciliation rules.
-- Matching uses shard label plus `(bp, a1_hash64, a2_hash64)` from
+- Matching follows the shared source-to-reference matching contract in
   [reference.md](reference.md). Joins are exact after basic field parsing; the
   loader does not normalize chromosome labels, swap alleles, or perform strand
   handling.

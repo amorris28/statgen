@@ -84,6 +84,7 @@ def _normalize_haploid_mode(haploid_mode) -> str:
 @dataclass(frozen=True)
 class _SourceRecord:
     bed_path: Path
+    bim_path: Path
     bed_file_size: int
     source_num_snp: int
     source_num_sample: int
@@ -126,6 +127,7 @@ def _load_source_record(prefix: str, label: str | None) -> _SourceRecord:
     bed_file_size = _validate_bed(bed, source_fam.shape[0], source_num_snp)
     return _SourceRecord(
         bed_path=bed,
+        bim_path=bim,
         bed_file_size=bed_file_size,
         source_num_snp=source_num_snp,
         source_num_sample=int(source_fam.shape[0]),
@@ -581,7 +583,15 @@ def _build_shard(ref_shard, source: _SourceRecord, subject_present, source_subje
             source_bim["a1_hash64"].to_numpy(dtype=np.uint64),
             source_bim["a2_hash64"].to_numpy(dtype=np.uint64),
         )
-        local_match = match_shard_numeric(ref_keys, src_keys, ref_shard.label, source_name="genotype")
+        local_match, n_swapped = match_shard_numeric(ref_keys, src_keys, ref_shard.label, source_name="genotype")
+        if n_swapped > 0:
+            warnings.warn(
+                f"{source.bim_path}: shard {ref_shard.label}: {n_swapped} unmatched genotype "
+                "variant(s) would match the reference if a1/a2 were swapped; "
+                "variants remain unmatched",
+                RuntimeWarning,
+                stacklevel=3,
+            )
 
     is_present = local_match >= 0
     source_row0 = np.full(int(ref_shard.num_snp), -1, dtype=np.int64)

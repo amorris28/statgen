@@ -36,13 +36,13 @@ def match_shard_numeric(
     shard_label: str,
     *,
     source_name: str = "source",
-) -> np.ndarray:
+) -> tuple[np.ndarray, int]:
     ref_order = np.argsort(ref_keys, kind="mergesort", order=("bp", "a1_hash64", "a2_hash64"))
     ref_sorted = ref_keys[ref_order]
     check_unique_sorted_variant_keys(ref_sorted, f"reference shard {shard_label}", source_name)
 
     if src_keys.size == 0:
-        return np.full(ref_keys.size, -1, dtype=np.int64)
+        return np.full(ref_keys.size, -1, dtype=np.int64), 0
 
     src_order = np.argsort(src_keys, kind="mergesort", order=("bp", "a1_hash64", "a2_hash64"))
     src_sorted = src_keys[src_order]
@@ -55,4 +55,22 @@ def match_shard_numeric(
 
     out = np.full(ref_keys.size, -1, dtype=np.int64)
     out[matched] = src_order[pos[matched]]
-    return out
+
+    matched_src = np.zeros(src_keys.size, dtype=bool)
+    matched_src[out[matched]] = True
+    unmatched_src = src_keys[~matched_src]
+    if unmatched_src.size == 0 or ref_sorted.size == 0:
+        return out, 0
+
+    swapped_src = np.empty(unmatched_src.size, dtype=_KEY_DTYPE)
+    swapped_src["bp"] = unmatched_src["bp"]
+    swapped_src["a1_hash64"] = unmatched_src["a2_hash64"]
+    swapped_src["a2_hash64"] = unmatched_src["a1_hash64"]
+    swapped_pos = np.searchsorted(ref_sorted, swapped_src)
+    swapped_in_range = swapped_pos < ref_sorted.size
+    swapped_match = np.zeros(swapped_src.size, dtype=bool)
+    swapped_match[swapped_in_range] = (
+        ref_sorted[swapped_pos[swapped_in_range]]
+        == swapped_src[swapped_in_range]
+    )
+    return out, int(np.count_nonzero(swapped_match))
