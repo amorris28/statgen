@@ -121,6 +121,7 @@ def matlab_data_lines(stdout: str) -> list[str]:
         line = raw.replace("\b", "").strip()
         if not line:
             continue
+        unwrapped = line.lstrip("[")
         if line.startswith("[Warning:") or line.startswith("Warning:"):
             in_warning_block = line.startswith("[Warning:") and not line.endswith("]")
             continue
@@ -128,7 +129,7 @@ def matlab_data_lines(stdout: str) -> list[str]:
             if line.endswith("]"):
                 in_warning_block = False
             continue
-        if line.startswith("> In ") or line.startswith("In "):
+        if unwrapped.startswith("> In ") or unwrapped.startswith("In "):
             continue
         if line == "]":
             continue

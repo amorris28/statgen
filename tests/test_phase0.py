@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from scipy.io import loadmat
 
-from tests.conftest import FIXTURES_DIR, skipif_no_octave, run_octave
+from tests.conftest import FIXTURES_DIR, matlab_data_lines, skipif_no_octave, run_octave
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +148,19 @@ def test_plink_bed_magic():
 def test_statgen_importable():
     import statgen
     assert statgen.__version__ == "0.2.3"
+
+
+def test_matlab_data_lines_skips_warning_stack_frames():
+    stdout = (
+        "[\bWarning: load_sumstats: zvec is absent]\b \n"
+        "[> In <a href=\"matlab:matlab.lang.internal.introspective.errorDocCallback"
+        "('warn_one_optional_', '/tmp/file.m', 10)\" style=\"font-weight:bold\">"
+        "warn_one_optional_</a> (<a href=\"matlab: opentoline('/tmp/file.m',10,0)\">"
+        "line 10</a>)\n"
+        "8\n"
+        "0\n"
+    )
+    assert matlab_data_lines(stdout) == ["8", "0"]
 
 
 # ---------------------------------------------------------------------------
