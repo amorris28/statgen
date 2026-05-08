@@ -10,7 +10,7 @@ import pytest
 from statgen._utils import allele_hash64
 from statgen.reference import load_reference
 from statgen.sumstats import create_sumstats, load_sumstats, save_sumstats_cache, load_sumstats_cache
-from tests.conftest import FIXTURES_DIR, MATLAB_DIR, run_octave, skipif_no_octave
+from tests.conftest import FIXTURES_DIR, MATLAB_DIR, matlab_data_lines, run_octave, skipif_no_octave
 
 SHARDED_REF = FIXTURES_DIR / "reference/sharded/@.bim"
 
@@ -499,7 +499,7 @@ def test_octave_sumstats_roundtrip(tmp_path):
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    lines = result.stdout.strip().splitlines()
+    lines = matlab_data_lines(result.stdout)
     assert lines[0] == "8"
     assert lines[1] == "1"
     assert lines[2] == "2.500000"
@@ -521,7 +521,7 @@ def test_octave_sumstats_canonicalizes_supported_headers(tmp_path):
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    lines = result.stdout.strip().splitlines()
+    lines = matlab_data_lines(result.stdout)
     assert lines == ["2.500000", "1000.000000", "3.000000", "0.200000"]
 
 
@@ -544,7 +544,7 @@ def test_octave_sumstats_gzip_uses_statgen_scratch(tmp_path):
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    lines = result.stdout.strip().splitlines()
+    lines = matlab_data_lines(result.stdout)
     assert lines[0] == "8"
     assert lines[1] == "0"
 
@@ -819,7 +819,7 @@ def test_octave_optional_fields_absent_use_empty_vector_sentinel(tmp_path):
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    lines = result.stdout.strip().splitlines()
+    lines = matlab_data_lines(result.stdout)
     assert lines[0] == "1 1 1 1 1 1"
     assert lines[1] == "1 1 1 1 1 1"
 
@@ -847,7 +847,7 @@ def test_octave_create_sumstats_from_vectors():
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    lines = result.stdout.strip().splitlines()
+    lines = matlab_data_lines(result.stdout)
     assert lines[0] == "1 1 1 1 1 1 1 1"
     assert lines[1] == "1"
 
