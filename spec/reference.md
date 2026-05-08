@@ -215,6 +215,7 @@ ReferencePanel.shard_offsets -> table with shard_label, start0, stop0
 ReferencePanel.select_shards(shards) -> ReferencePanel
 ReferencePanel.is_object_compatible(object) -> bool
 ReferencePanel.validate_checksums() -> bool
+ReferencePanel.save_cache(path, optional mode="full", optional format) -> void
 ```
 
 Expected behavior:
@@ -261,6 +262,8 @@ Expected behavior:
   `ReferenceShard.checksum`, fails on mismatch with the shard label, and
   returns `true` on success. It requires full `a1` and `a2` fields and, in
   runtimes with thin loading, must fail clearly on thin-loaded references.
+- `ReferencePanel.save_cache(...)` is a thin convenience method equivalent to
+  `save_reference_cache(panel, ...)`.
 - `is_object_compatible` checks whether a loaded statgen object is aligned to
   this reference panel. Compatibility requires the same ordered shard labels,
   matching shard row counts, and matching shard reference checksums where

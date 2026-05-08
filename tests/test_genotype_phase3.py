@@ -27,7 +27,7 @@ def test_genotype_cache_roundtrip_preserves_accessors_and_fetch(tmp_path):
     ref = load_reference(REF_SHARDED)
     panel = load_genotype(G_SHARDED, ref)
     cache = tmp_path / "genotype_cache.npz"
-    save_genotype_cache(panel, cache)
+    panel.save_cache(cache)
 
     loaded = load_genotype_cache(cache)
 

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Python and MATLAB/Octave can load reference-aligned PLINK 1 genotype datasets
+  with `load_genotype(bfile_prefix, reference)`, including non-sharded and
+  `@`-sharded bfile layouts.
+- `GenotypePanel.fetch_genotypes(...)` fetches selected genotype calls without
+  loading the full genotype dataset.
+- Genotype metadata caches can be saved and reloaded with
+  `save_genotype_cache(...)` and `load_genotype_cache(...)` to speed up repeated
+  genotype loading.
+- chrX genotype loading supports `.ploidy` sidecars and FAM files with chrX-only
+  sample subsets.
+- `GenotypePanel.is_present` and `Sumstats.is_present` provide a boolean mask in
+  reference coordinates for variants present after aligning input data to the
+  reference.
+
+### Changed
+- Summary statistics now require `p` values and allow `z` and `n` to be omitted
+
 ## [0.2.2] - 2026-05-06
 
 ### Added

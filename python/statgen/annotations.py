@@ -336,6 +336,9 @@ class AnnotationPanel:
 
         return AnnotationPanel(out_shards, lhs_names + rhs_names)
 
+    def save_cache(self, path, format=None) -> None:
+        save_annotations_cache(self, path, format=format)
+
 
 def create_annotations(reference, annomat, annonames) -> AnnotationPanel:
     names = _coerce_annonames(annonames)
@@ -384,7 +387,7 @@ def load_annotations(bed_paths, reference) -> AnnotationPanel:
     return create_annotations(reference, annomat, annonames)
 
 
-def save_annotations_cache(panel: AnnotationPanel, path) -> None:
+def save_annotations_cache(panel: AnnotationPanel, path, format=None) -> None:
     meta = {
         "schema": _CACHE_SCHEMA,
         "shard_labels": [s.label for s in panel.shards],

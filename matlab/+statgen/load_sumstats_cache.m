@@ -8,15 +8,12 @@ function sumstats = load_sumstats_cache(path, shards)
         'beta_vec', 'se_vec', 'eaf_vec', 'info_vec');
     meta = loaded.metadata;
 
-    zvec = loaded.zvec(:);
-    nvec = loaded.nvec(:);
     logpvec = loaded.logpvec(:);
-    num_snp = numel(zvec);
-    if numel(nvec) ~= num_snp || numel(logpvec) ~= num_snp
-        error('statgen:cache', 'Invalid sumstats cache: required vector lengths mismatch');
-    end
+    num_snp = numel(logpvec);
 
     [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp);
+    zvec = validate_optional_(loaded.zvec, meta.has_z, num_snp, 'zvec');
+    nvec = validate_optional_(loaded.nvec, meta.has_n, num_snp, 'nvec');
     beta_vec = validate_optional_(loaded.beta_vec, meta.has_beta, num_snp, 'beta_vec');
     se_vec = validate_optional_(loaded.se_vec, meta.has_se, num_snp, 'se_vec');
     eaf_vec = validate_optional_(loaded.eaf_vec, meta.has_eaf, num_snp, 'eaf_vec');
@@ -30,13 +27,17 @@ function sumstats = load_sumstats_cache(path, shards)
         ix = (start0(idx) + 1):stop0(idx);
         out_shards{i} = statgen.SumstatsShard( ...
             labels{idx}, checksums{idx}, ...
-            zvec(ix), nvec(ix), logpvec(ix), ...
+            logpvec(ix), ...
+            slice_optional_(zvec, ix), ...
+            slice_optional_(nvec, ix), ...
             slice_optional_(beta_vec, ix), ...
             slice_optional_(se_vec, ix), ...
             slice_optional_(eaf_vec, ix), ...
             slice_optional_(info_vec, ix));
     end
     sumstats = statgen.Sumstats(out_shards);
+    statgen.internal.sumstats_warn_optional_zn_completeness( ...
+        sumstats.zvec, sumstats.nvec, sumstats.logpvec, 'load_sumstats_cache');
 end
 
 function [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp)
@@ -51,6 +52,9 @@ function [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp)
     n_shards = numel(labels);
     if ~isfield(meta, 'n_shards') || ~isscalar(meta.n_shards) || meta.n_shards ~= n_shards
         error('statgen:cache', 'Invalid sumstats cache: n_shards mismatch');
+    end
+    if ~isfield(meta, 'has_z') || ~isfield(meta, 'has_n')
+        error('statgen:cache', 'Invalid sumstats cache: missing has_z/has_n metadata');
     end
     if numel(checksums) ~= n_shards || numel(start0) ~= n_shards || numel(stop0) ~= n_shards
         error('statgen:cache', 'Invalid sumstats cache: shard metadata length mismatch');

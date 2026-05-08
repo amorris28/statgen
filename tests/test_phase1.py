@@ -265,7 +265,7 @@ def test_cache_thin_mode_request_is_accepted_but_python_saves_full(tmp_path):
 def test_cache_shards_subset(tmp_path):
     panel = load_reference(SHARDED)
     cache = tmp_path / "ref.npz"
-    save_reference_cache(panel, cache)
+    panel.save_cache(cache)
     loaded = load_reference_cache(cache, shards=["X"])
     assert [s.label for s in loaded.shards] == ["X"]
     assert loaded.num_snp == 3

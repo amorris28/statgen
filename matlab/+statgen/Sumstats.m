@@ -9,6 +9,7 @@ classdef Sumstats
         zvec
         nvec
         logpvec
+        is_present
         beta_vec
         se_vec
         eaf_vec
@@ -41,15 +42,19 @@ classdef Sumstats
         end
 
         function out = get.zvec(obj)
-            out = concat_required_(obj.shards, 'zvec');
+            out = concat_optional_(obj.shards, 'zvec');
         end
 
         function out = get.nvec(obj)
-            out = concat_required_(obj.shards, 'nvec');
+            out = concat_optional_(obj.shards, 'nvec');
         end
 
         function out = get.logpvec(obj)
             out = concat_required_(obj.shards, 'logpvec');
+        end
+
+        function out = get.is_present(obj)
+            out = ~isnan(obj.logpvec);
         end
 
         function out = get.beta_vec(obj)
@@ -80,6 +85,10 @@ classdef Sumstats
                 out_shards{i} = obj.shards{idx};
             end
             out = statgen.Sumstats(out_shards);
+        end
+
+        function save_cache(obj, path, varargin)
+            statgen.save_sumstats_cache(obj, path, varargin{:});
         end
     end
 end

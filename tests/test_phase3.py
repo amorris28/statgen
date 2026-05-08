@@ -254,7 +254,7 @@ def test_cache_roundtrip_subset_and_compatibility(tmp_path):
     a = load_annotations([ANNO1, ANNO2], reference)
     cache = tmp_path / "annotations_cache.npz"
 
-    save_annotations_cache(a, cache)
+    a.save_cache(cache)
     loaded = load_annotations_cache(cache)
 
     assert sparse.isspmatrix_csr(loaded.annomat)

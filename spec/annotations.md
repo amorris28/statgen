@@ -165,6 +165,7 @@ AnnotationPanel.annonames -> num_annot string vector
 AnnotationPanel.select_shards(shards) -> AnnotationPanel
 AnnotationPanel.select_annotations(names) -> AnnotationPanel
 AnnotationPanel.union_annotations(other, optional mode) -> AnnotationPanel
+AnnotationPanel.save_cache(path, optional format) -> void
 ```
 
 Expected behavior:
@@ -199,6 +200,8 @@ Expected behavior:
 - `AnnotationPanel.union_annotations(other, optional mode)` requires
   `ReferencePanel.is_object_compatible(other) == true`. `mode` defaults to
   `by_name`; name collisions are errors.
+- `AnnotationPanel.save_cache(...)` is a thin convenience method equivalent to
+  `save_annotations_cache(panel, ...)`.
 - cache payloads store per-shard reference checksums so compatibility with a
   `ReferencePanel` can be checked after load via
   `ReferencePanel.is_object_compatible`.

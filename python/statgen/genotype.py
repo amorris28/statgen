@@ -472,6 +472,9 @@ class GenotypePanel:
         geno[geno_int8 == _BED_MISSING_INT8] = np.nan
         return geno
 
+    def save_cache(self, path, format=None) -> None:
+        save_genotype_cache(self, path, format=format)
+
 
 def _fam_equal(lhs: pd.DataFrame, rhs: pd.DataFrame) -> bool:
     return lhs[FAM_PUBLIC_COLUMNS].reset_index(drop=True).equals(

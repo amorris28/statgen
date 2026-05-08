@@ -444,6 +444,7 @@ GenotypePanel.fetch_genotypes(snp_indices, optional bed_path)
     -> num_sample × len(snp_indices) double matrix
 GenotypePanel.source_layout -> "non_sharded" | "sharded"
 GenotypePanel.select_shards(shards) -> GenotypePanel
+GenotypePanel.save_cache(path, optional format) -> void
 ```
 
 Expected behavior:
@@ -489,6 +490,8 @@ Expected behavior:
   ploidy `NaN`, not by row drops.
 - Cache save/load preserves only metadata needed to avoid reparsing BIM, FAM,
   and PLOIDY files and to fetch hardcalls from BED on demand.
+- `GenotypePanel.save_cache(...)` is a thin convenience method equivalent to
+  `save_genotype_cache(panel, ...)`.
 - `load_genotype_cache` performs cache-internal validation only and supports
   optional `shards` subsetting; per-shard reference checksums and BED file-size
   metadata are trusted from cache metadata until a genotype fetch addresses the

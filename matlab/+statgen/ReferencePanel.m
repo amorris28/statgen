@@ -202,6 +202,10 @@ classdef ReferencePanel
                 end
             end
         end
+
+        function save_cache(obj, path, varargin)
+            statgen.save_reference_cache(obj, path, varargin{:});
+        end
     end
 
     methods (Static, Access = private)

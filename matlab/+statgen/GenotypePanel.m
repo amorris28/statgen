@@ -146,6 +146,10 @@ classdef GenotypePanel
             out = double(geno_int8);
             out(geno_int8 == int8(-1)) = NaN;
         end
+
+        function save_cache(obj, path, varargin)
+            statgen.save_genotype_cache(obj, path, varargin{:});
+        end
     end
 end
 

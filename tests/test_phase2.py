@@ -1,6 +1,7 @@
 import gzip
 import json
 import math
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -27,19 +28,19 @@ def _valid_sumstats_text(include_optional: bool = True) -> str:
             "1\t100\tA\tG\t2.5\t1000\t0.01\t0.2\t0.1\t0.4\t0.9\n"
             "1\t200\tC\tT\t1.0\t950\t0.5\t-0.1\t0.2\t0.3\t0.8\n"
             "1\t300\tA\tC\t1.8\t1000\t0\t0.3\t0.15\t0.25\t0.95\n"
-            "1\t400\tG\tA\t-1.2\t1000\t-0.1\t0.0\t0.3\t0.2\t0.7\n"
+            "1\t400\tG\tA\t-1.2\t1000\t0.2\t0.0\t0.3\t0.2\t0.7\n"
             "X\t100\tA\tG\t3.0\t500\t0.003\t0.5\t0.12\t0.45\t0.85\n"
             "X\t200\tC\tT\t0.5\t500\t0.6\t0.05\t0.25\t0.35\t0.75\n"
             "9\t999\tA\tG\t1.0\t1000\t0.3\t0.1\t0.1\t0.1\t0.1\n"
         )
     return (
-        "chr\tbp\ta1\ta2\tz\tn\tp\n"
-        "1\t100\tA\tG\t2.5\t1000\t0.01\n"
-        "1\t200\tC\tT\t1.0\t950\t0.5\n"
-        "1\t300\tA\tC\t1.8\t1000\t0\n"
-        "1\t400\tG\tA\t-1.2\t1000\t-0.1\n"
-        "X\t100\tA\tG\t3.0\t500\t0.003\n"
-        "X\t200\tC\tT\t0.5\t500\t0.6\n"
+        "chr\tbp\ta1\ta2\tp\n"
+        "1\t100\tA\tG\t0.01\n"
+        "1\t200\tC\tT\t0.5\n"
+        "1\t300\tA\tC\t0\n"
+        "1\t400\tG\tA\t0.2\n"
+        "X\t100\tA\tG\t0.003\n"
+        "X\t200\tC\tT\t0.6\n"
     )
 
 
@@ -85,11 +86,15 @@ def test_load_sumstats_alignment_and_accessors(tmp_path):
     assert math.isclose(s.logpvec[0], 2.0)
     assert math.isclose(s.logpvec[1], -math.log10(0.5))
     assert math.isinf(s.logpvec[2])
-    assert np.isnan(s.logpvec[3])
+    assert math.isclose(s.logpvec[3], -math.log10(0.2))
     assert np.isnan(s.logpvec[4])
     assert math.isclose(s.logpvec[5], -math.log10(0.003))
     assert math.isclose(s.logpvec[6], -math.log10(0.6))
     assert np.isnan(s.logpvec[7])
+    np.testing.assert_array_equal(
+        s.is_present,
+        np.array([True, True, True, True, False, True, True, False]),
+    )
 
     assert s.beta_vec is not None
     assert s.se_vec is not None
@@ -122,9 +127,9 @@ def test_load_sumstats_duplicate_matching_key_fails(tmp_path):
     path = tmp_path / "duplicate_key.tsv.gz"
     _write_gz_tsv(
         path,
-        "chr\tbp\ta1\ta2\tz\tn\n"
-        "1\t100\tA\tG\t2.5\t1000\n"
-        "1\t100\tA\tG\t2.6\t1000\n",
+        "chr\tbp\ta1\ta2\tz\tn\tp\n"
+        "1\t100\tA\tG\t2.5\t1000\t0.01\n"
+        "1\t100\tA\tG\t2.6\t1000\t0.02\n",
     )
     reference = load_reference(SHARDED_REF)
     with pytest.raises(ValueError, match="Ambiguous duplicate sumstats/reference matching key"):
@@ -153,8 +158,8 @@ def test_duplicate_columns_after_column_normalization_fail(tmp_path):
     path = tmp_path / "duplicate.tsv.gz"
     _write_gz_tsv(
         path,
-        "chr\tCHR\tbp\ta1\ta2\tz\tn\n"
-        "1\t1\t100\tA\tG\t1.0\t1000\n",
+        "chr\tCHR\tbp\ta1\ta2\tz\tn\tp\n"
+        "1\t1\t100\tA\tG\t1.0\t1000\t0.1\n",
     )
     reference = load_reference(SHARDED_REF)
     with pytest.raises(ValueError, match="duplicate columns after column normalization: chr"):
@@ -165,14 +170,51 @@ def test_optional_fields_absent_use_sentinel(tmp_path):
     path = tmp_path / "traits_required_only.tsv.gz"
     _write_gz_tsv(path, _valid_sumstats_text(include_optional=False))
     reference = load_reference(SHARDED_REF)
-    s = load_sumstats(path, reference)
+    with pytest.warns(RuntimeWarning) as warn:
+        s = load_sumstats(path, reference)
+    messages = [str(w.message) for w in warn]
+    assert any("zvec is absent" in msg for msg in messages)
+    assert any("nvec is absent" in msg for msg in messages)
+    assert s.zvec is None
+    assert s.nvec is None
     assert s.beta_vec is None
     assert s.se_vec is None
     assert s.eaf_vec is None
     assert s.info_vec is None
+    cache = tmp_path / "sumstats_required_only_cache.npz"
+    s.save_cache(cache)
+    with pytest.warns(RuntimeWarning) as cache_warn:
+        loaded = load_sumstats_cache(cache)
+    cache_messages = [str(w.message) for w in cache_warn]
+    assert any("zvec is absent" in msg for msg in cache_messages)
+    assert any("nvec is absent" in msg for msg in cache_messages)
+    assert loaded.zvec is None
+    assert loaded.nvec is None
 
 
-@pytest.mark.parametrize("missing_col", ["chr", "bp", "a1", "a2", "z", "n"])
+def test_sumstats_warning_stacklevels(tmp_path):
+    path = tmp_path / "traits_required_only.tsv.gz"
+    _write_gz_tsv(path, _valid_sumstats_text(include_optional=False))
+    reference = load_reference(SHARDED_REF)
+
+    with warnings.catch_warnings(record=True) as load_warn:
+        warnings.simplefilter("always")
+        s = load_sumstats(path, reference)
+    assert load_warn
+    assert all(Path(w.filename).name == "sumstats.py" for w in load_warn)
+    assert all(w.lineno == load_sumstats.__code__.co_firstlineno + 2 for w in load_warn)
+
+    cache = tmp_path / "sumstats_required_only_cache.npz"
+    s.save_cache(cache)
+    with warnings.catch_warnings(record=True) as cache_warn:
+        warnings.simplefilter("always")
+        load_sumstats_cache(cache)
+    assert cache_warn
+    assert all(Path(w.filename).name == "sumstats.py" for w in cache_warn)
+    assert all(w.lineno == load_sumstats_cache.__code__.co_firstlineno + 42 for w in cache_warn)
+
+
+@pytest.mark.parametrize("missing_col", ["chr", "bp", "a1", "a2", "p"])
 def test_missing_required_column_fails(tmp_path, missing_col):
     row = {"chr": "1", "bp": "100", "a1": "A", "a2": "G", "z": "1.2", "n": "900", "p": "0.1"}
     cols = [c for c in ("chr", "bp", "a1", "a2", "z", "n", "p") if c != missing_col]
@@ -184,25 +226,32 @@ def test_missing_required_column_fails(tmp_path, missing_col):
         load_sumstats(path, reference)
 
 
-def test_strict_required_numeric_validation(tmp_path):
-    bad_z = tmp_path / "bad_z.tsv.gz"
+def test_optional_z_n_missing_values_warn(tmp_path):
+    path = tmp_path / "missing_zn_values.tsv.gz"
     _write_gz_tsv(
-        bad_z,
-        "chr\tbp\ta1\ta2\tz\tn\n"
-        "1\t100\tA\tG\tNA\t1000\n",
+        path,
+        "chr\tbp\ta1\ta2\tz\tn\tp\n"
+        "1\t100\tA\tG\tNaN\t1000\t0.1\n"
+        "1\t200\tC\tT\t1.5\tInf\t0.2\n",
     )
     reference = load_reference(SHARDED_REF)
-    with pytest.raises(ValueError, match="z must be finite numeric"):
-        load_sumstats(bad_z, reference)
+    with pytest.warns(RuntimeWarning) as warn:
+        s = load_sumstats(path, reference)
+    messages = [str(w.message) for w in warn]
+    assert any("zvec has missing values" in msg for msg in messages)
+    assert any("nvec has missing values" in msg for msg in messages)
+    assert np.isnan(s.zvec[0])
+    assert np.isnan(s.nvec[1])
 
-    bad_n = tmp_path / "bad_n.tsv.gz"
-    _write_gz_tsv(
-        bad_n,
-        "chr\tbp\ta1\ta2\tz\tn\n"
-        "1\t100\tA\tG\t1.5\tInf\n",
-    )
-    with pytest.raises(ValueError, match="n must be finite numeric"):
-        load_sumstats(bad_n, reference)
+    cache = tmp_path / "sumstats_missing_zn_cache.npz"
+    s.save_cache(cache)
+    with pytest.warns(RuntimeWarning) as cache_warn:
+        loaded = load_sumstats_cache(cache)
+    cache_messages = [str(w.message) for w in cache_warn]
+    assert any("zvec has missing values" in msg for msg in cache_messages)
+    assert any("nvec has missing values" in msg for msg in cache_messages)
+    np.testing.assert_allclose(loaded.zvec, s.zvec, equal_nan=True)
+    np.testing.assert_allclose(loaded.nvec, s.nvec, equal_nan=True)
 
 
 def test_p_edge_cases(tmp_path):
@@ -211,9 +260,9 @@ def test_p_edge_cases(tmp_path):
         path,
         "chr\tbp\ta1\ta2\tz\tn\tp\n"
         "1\t100\tA\tG\t1.0\t1000\t1\n"
-        "1\t200\tC\tT\t1.0\t1000\t-0.1\n"
-        "1\t300\tA\tC\t1.0\t1000\t1.1\n"
-        "1\t400\tG\tA\t1.0\t1000\t\n"
+        "1\t200\tC\tT\t1.0\t1000\t0.5\n"
+        "1\t300\tA\tC\t1.0\t1000\t0.25\n"
+        "1\t400\tG\tA\t1.0\t1000\t0.1\n"
         "X\t100\tA\tG\t1.0\t1000\t0\n"
         "X\t200\tC\tT\t1.0\t1000\t0.2\n",
     )
@@ -221,13 +270,26 @@ def test_p_edge_cases(tmp_path):
     s = load_sumstats(path, reference)
 
     assert s.logpvec[0] == 0.0
-    assert np.isnan(s.logpvec[1])
-    assert np.isnan(s.logpvec[2])
-    assert np.isnan(s.logpvec[3])
+    assert math.isclose(s.logpvec[1], -math.log10(0.5))
+    assert math.isclose(s.logpvec[2], -math.log10(0.25))
+    assert math.isclose(s.logpvec[3], 1.0)
     assert np.isnan(s.logpvec[4])
     assert math.isinf(s.logpvec[5])
     assert math.isclose(s.logpvec[6], -math.log10(0.2))
     assert np.isnan(s.logpvec[7])
+
+
+@pytest.mark.parametrize("bad_p", ["-0.1", "1.1", "", "NaN", "Inf"])
+def test_invalid_p_values_fail(tmp_path, bad_p):
+    path = tmp_path / "bad_p.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tz\tn\tp\n"
+        f"1\t100\tA\tG\t1.0\t1000\t{bad_p}\n",
+    )
+    reference = load_reference(SHARDED_REF)
+    with pytest.raises(ValueError, match=r"p must be finite numeric in \[0, 1\]"):
+        load_sumstats(path, reference)
 
 
 def test_allele_flip_does_not_match_reference_key(tmp_path):
@@ -265,10 +327,12 @@ def test_cache_roundtrip_and_subset(tmp_path):
     s = load_sumstats(path, reference)
 
     cache = tmp_path / "sumstats_cache.npz"
-    save_sumstats_cache(s, cache)
+    s.save_cache(cache)
     loaded = load_sumstats_cache(cache)
     np.testing.assert_allclose(loaded.zvec, s.zvec, equal_nan=True)
+    np.testing.assert_allclose(loaded.nvec, s.nvec, equal_nan=True)
     np.testing.assert_allclose(loaded.logpvec, s.logpvec, equal_nan=True)
+    np.testing.assert_array_equal(loaded.is_present, s.is_present)
     assert reference.is_object_compatible(loaded) is True
 
     loaded_x = load_sumstats_cache(cache, shards=["X"])
@@ -313,21 +377,22 @@ def test_create_sumstats_from_vectors():
     reference = load_reference(SHARDED_REF)
     zvec = np.array([2.5, 1.0, 1.8, -1.2, np.nan, 3.0, 0.5, np.nan], dtype=float)
     nvec = np.array([1000, 950, 1000, 1000, np.nan, 500, 500, np.nan], dtype=float)
-    pvec = np.array([0.01, 0.5, 0.0, -0.1, np.nan, 0.003, 0.6, 1.1], dtype=float)
+    pvec = np.array([0.01, 0.5, 0.0, 0.2, 1.0, 0.003, 0.6, 0.9], dtype=float)
     beta_vec = np.array([0.2, -0.1, 0.3, 0.0, np.nan, 0.5, 0.05, np.nan], dtype=float)
 
-    s = create_sumstats(reference, zvec, nvec, pvec=pvec, beta_vec=beta_vec)
+    s = create_sumstats(reference, pvec, zvec=zvec, nvec=nvec, beta_vec=beta_vec)
 
     np.testing.assert_allclose(s.zvec, zvec, equal_nan=True)
     np.testing.assert_allclose(s.nvec, nvec, equal_nan=True)
+    np.testing.assert_array_equal(s.is_present, np.ones(reference.num_snp, dtype=bool))
     assert math.isclose(s.logpvec[0], 2.0)
     assert math.isclose(s.logpvec[1], -math.log10(0.5))
     assert math.isinf(s.logpvec[2])
-    assert np.isnan(s.logpvec[3])
-    assert np.isnan(s.logpvec[4])
+    assert math.isclose(s.logpvec[3], -math.log10(0.2))
+    assert s.logpvec[4] == 0.0
     assert math.isclose(s.logpvec[5], -math.log10(0.003))
     assert math.isclose(s.logpvec[6], -math.log10(0.6))
-    assert np.isnan(s.logpvec[7])
+    assert math.isclose(s.logpvec[7], -math.log10(0.9))
     np.testing.assert_allclose(s.beta_vec, beta_vec, equal_nan=True)
     assert s.se_vec is None
     assert s.eaf_vec is None
@@ -336,17 +401,23 @@ def test_create_sumstats_from_vectors():
 
 def test_create_sumstats_validation_errors():
     reference = load_reference(SHARDED_REF)
+    pvec = np.full(reference.num_snp, 0.5)
+    with pytest.raises(ValueError, match="pvec length mismatch"):
+        create_sumstats(reference, np.array([1.0]))
     with pytest.raises(ValueError, match="zvec length mismatch"):
-        create_sumstats(reference, np.array([1.0]), np.ones(reference.num_snp))
+        create_sumstats(reference, pvec, zvec=np.array([1.0]))
     with pytest.raises(ValueError, match="nvec\\[0\\] must be finite numeric or NaN"):
-        create_sumstats(reference, np.zeros(reference.num_snp), np.r_[np.inf, np.zeros(reference.num_snp - 1)])
-    with pytest.raises(ValueError, match="pvec\\[0\\] must be finite numeric or NaN"):
-        create_sumstats(reference, np.zeros(reference.num_snp), np.zeros(reference.num_snp), pvec=np.r_[np.inf, np.zeros(reference.num_snp - 1)])
+        create_sumstats(reference, pvec, nvec=np.r_[np.inf, np.zeros(reference.num_snp - 1)])
+    with pytest.raises(ValueError, match=r"pvec\[0\] must be finite numeric in \[0, 1\]"):
+        create_sumstats(reference, np.r_[np.inf, np.zeros(reference.num_snp - 1)])
+    with pytest.raises(ValueError, match=r"pvec\[0\] must be finite numeric in \[0, 1\]"):
+        create_sumstats(reference, np.r_[np.nan, np.zeros(reference.num_snp - 1)])
+    with pytest.raises(ValueError, match=r"pvec\[0\] must be finite numeric in \[0, 1\]"):
+        create_sumstats(reference, np.r_[-0.1, np.zeros(reference.num_snp - 1)])
     with pytest.raises(ValueError, match="beta_vec\\[0\\] must be finite numeric or NaN"):
         create_sumstats(
             reference,
-            np.zeros(reference.num_snp),
-            np.zeros(reference.num_snp),
+            pvec,
             beta_vec=np.r_[np.inf, np.zeros(reference.num_snp - 1)],
         )
 
@@ -359,23 +430,6 @@ def _octave_script(expr: str) -> str:
         f"fixture_dir = '{fixture_dir}'; "
         + expr
     )
-
-
-@pytest.mark.octave
-@skipif_no_octave
-def test_octave_load_sumstats_fixture_fails_required_z():
-    script = _octave_script(
-        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
-        "try; "
-        "  s = statgen.load_sumstats([fixture_dir '/sumstats/traits.tsv.gz'], ref); "
-        "  fprintf('NOFAIL\\n'); "
-        "catch; "
-        "  fprintf('FAIL\\n'); "
-        "end"
-    )
-    result = run_octave(script)
-    assert result.returncode == 0, result.stderr
-    assert "FAIL" in result.stdout
 
 
 @pytest.mark.octave
@@ -412,9 +466,9 @@ def test_octave_load_sumstats_duplicate_matching_key_fails(tmp_path):
     path = tmp_path / "duplicate_key.tsv.gz"
     _write_gz_tsv(
         path,
-        "chr\tbp\ta1\ta2\tz\tn\n"
-        "1\t777\tACGT\tATCGGCTA\t2.5\t1000\n"
-        "1\t777\tACGT\tATCGGCTA\t2.6\t1000\n",
+        "chr\tbp\ta1\ta2\tz\tn\tp\n"
+        "1\t777\tACGT\tATCGGCTA\t2.5\t1000\t0.01\n"
+        "1\t777\tACGT\tATCGGCTA\t2.6\t1000\t0.02\n",
     )
     script = _octave_script(
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
@@ -435,7 +489,7 @@ def test_octave_sumstats_roundtrip(tmp_path):
     script = _octave_script(
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         f"s = statgen.load_sumstats('{path}', ref); "
-        f"statgen.save_sumstats_cache(s, '{cache}'); "
+        f"s.save_cache('{cache}'); "
         f"s2 = statgen.load_sumstats_cache('{cache}'); "
         "fprintf('%d\\n', s2.num_snp); "
         "fprintf('%d\\n', ref.is_object_compatible(s2)); "
@@ -497,9 +551,51 @@ def test_octave_sumstats_gzip_uses_statgen_scratch(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_sumstats_gzip_parse_error_cleans_scratch(tmp_path):
+    path = tmp_path / "bad_numeric_token.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tp\n"
+        "1\t100\tA\tG\tNA\n",
+    )
+    scratch = tmp_path / "scratch"
+    script = _octave_script(
+        f"setenv('STATGEN_SCRATCH', '{scratch}'); "
+        f"ref = statgen.load_reference('{SHARDED_REF}'); "
+        f"ok = 0; try; statgen.load_sumstats('{path}', ref); catch; ok = 1; end; "
+        f"d = dir('{scratch}'); "
+        "names = {d.name}; "
+        "names = names(~strcmp(names, '.') & ~strcmp(names, '..')); "
+        "fprintf('%d %d\\n', ok, numel(names)); "
+        "setenv('STATGEN_SCRATCH', '');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "1 0"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_sumstats_gzip_default_scratch_does_not_use_fixture_dir():
+    source_dir = FIXTURES_DIR / "sumstats"
+    before = {p.name for p in source_dir.glob("sumstats_gunzip_*") if p.is_dir()}
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        "s = statgen.load_sumstats([fixture_dir '/sumstats/traits.tsv.gz'], ref); "
+        "fprintf('%d\\n', s.num_snp);"
+    )
+    result = run_octave(script)
+    after = {p.name for p in source_dir.glob("sumstats_gunzip_*") if p.is_dir()}
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "8"
+    assert after == before
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_missing_required_columns_fail(tmp_path):
     base_row = {"chr": "1", "bp": "100", "a1": "A", "a2": "G", "z": "1.2", "n": "900", "p": "0.1"}
-    missing_cols = ["chr", "bp", "a1", "a2", "z", "n"]
+    missing_cols = ["chr", "bp", "a1", "a2", "p"]
     paths = []
     for missing_col in missing_cols:
         cols = [c for c in ("chr", "bp", "a1", "a2", "z", "n", "p") if c != missing_col]
@@ -521,33 +617,27 @@ def test_octave_missing_required_columns_fail(tmp_path):
         "    ok(i) = 1; "
         "  end; "
         "end; "
-        "fprintf('%d %d %d %d %d %d\\n', ok);"
+        "fprintf('%d %d %d %d %d\\n', ok);"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1 1"
+    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1"
 
 
 @pytest.mark.octave
 @skipif_no_octave
-def test_octave_strict_required_numeric_validation(tmp_path):
-    bad_z = tmp_path / "bad_z.tsv.gz"
+def test_octave_optional_z_n_missing_values_warn(tmp_path):
+    path = tmp_path / "missing_zn_values.tsv.gz"
     _write_gz_tsv(
-        bad_z,
-        "chr\tbp\ta1\ta2\tz\tn\n"
-        "1\t100\tA\tG\tNA\t1000\n",
-    )
-    bad_n = tmp_path / "bad_n.tsv.gz"
-    _write_gz_tsv(
-        bad_n,
-        "chr\tbp\ta1\ta2\tz\tn\n"
-        "1\t100\tA\tG\t1.5\tInf\n",
+        path,
+        "chr\tbp\ta1\ta2\tz\tn\tp\n"
+        "1\t100\tA\tG\tNaN\t1000\t0.1\n"
+        "1\t200\tC\tT\t1.5\tInf\t0.2\n",
     )
     script = _octave_script(
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
-        f"ok1 = 0; try; statgen.load_sumstats('{bad_z}', ref); catch; ok1 = 1; end; "
-        f"ok2 = 0; try; statgen.load_sumstats('{bad_n}', ref); catch; ok2 = 1; end; "
-        "fprintf('%d %d\\n', ok1, ok2);"
+        f"s = statgen.load_sumstats('{path}', ref); "
+        "fprintf('%d %d\\n', isnan(s.zvec(1)), isnan(s.nvec(2)));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
@@ -561,24 +651,24 @@ def test_octave_sumstats_explicit_nan_tokens(tmp_path):
     _write_gz_tsv(
         optional_nan,
         "chr\tbp\ta1\ta2\tz\tn\tp\tbeta\tse\teaf\tinfo\n"
-        "1\t100\tA\tG\t1.0\t1000\tNaN\tNaN\tNaN\tNaN\tNaN\n",
+        "1\t100\tA\tG\t1.0\t1000\t0.1\tNaN\tNaN\tNaN\tNaN\n",
     )
     required_nan = tmp_path / "required_nan.tsv.gz"
     _write_gz_tsv(
         required_nan,
-        "chr\tbp\ta1\ta2\tz\tn\n"
-        "1\t100\tA\tG\tNaN\t1000\n",
+        "chr\tbp\ta1\ta2\tp\n"
+        "1\t100\tA\tG\tNaN\n",
     )
     script = _octave_script(
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         f"s = statgen.load_sumstats('{optional_nan}', ref); "
-        "ok = [isnan(s.logpvec(1)), isnan(s.beta_vec(1)), isnan(s.se_vec(1)), isnan(s.eaf_vec(1)), isnan(s.info_vec(1))]; "
+        "ok = [isnan(s.beta_vec(1)), isnan(s.se_vec(1)), isnan(s.eaf_vec(1)), isnan(s.info_vec(1))]; "
         f"required_fails = 0; try; statgen.load_sumstats('{required_nan}', ref); catch; required_fails = 1; end; "
-        "fprintf('%d %d %d %d %d %d\\n', ok, required_fails);"
+        "fprintf('%d %d %d %d %d\\n', ok, required_fails);"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1 1"
+    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1"
 
 
 @pytest.mark.octave
@@ -589,9 +679,9 @@ def test_octave_p_edge_cases(tmp_path):
         path,
         "chr\tbp\ta1\ta2\tz\tn\tp\n"
         "1\t100\tA\tG\t1.0\t1000\t1\n"
-        "1\t200\tC\tT\t1.0\t1000\t-0.1\n"
-        "1\t300\tA\tC\t1.0\t1000\t1.1\n"
-        "1\t400\tG\tA\t1.0\t1000\t\n"
+        "1\t200\tC\tT\t1.0\t1000\t0.5\n"
+        "1\t300\tA\tC\t1.0\t1000\t0.25\n"
+        "1\t400\tG\tA\t1.0\t1000\t0.1\n"
         "X\t100\tA\tG\t1.0\t1000\t0\n"
         "X\t200\tC\tT\t1.0\t1000\t0.2\n",
     )
@@ -601,9 +691,9 @@ def test_octave_p_edge_cases(tmp_path):
         "v = s.logpvec; "
         "ok = zeros(1, 8); "
         "ok(1) = (v(1) == 0); "
-        "ok(2) = isnan(v(2)); "
-        "ok(3) = isnan(v(3)); "
-        "ok(4) = isnan(v(4)); "
+        "ok(2) = abs(v(2) - (-log10(0.5))) < 1e-12; "
+        "ok(3) = abs(v(3) - (-log10(0.25))) < 1e-12; "
+        "ok(4) = abs(v(4) - 1.0) < 1e-12; "
         "ok(5) = isnan(v(5)); "
         "ok(6) = isinf(v(6)) && v(6) > 0; "
         "ok(7) = abs(v(7) - (-log10(0.2))) < 1e-12; "
@@ -613,6 +703,48 @@ def test_octave_p_edge_cases(tmp_path):
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1 1 1 1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_sumstats_is_present_from_load(tmp_path):
+    path = tmp_path / "traits.tsv.gz"
+    _write_gz_tsv(path, _valid_sumstats_text(include_optional=True))
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"s = statgen.load_sumstats('{path}', ref); "
+        "fprintf('%.0f %.0f %.0f %.0f %.0f %.0f %.0f %.0f\\n', s.is_present);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 0 1 1 0"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_invalid_p_values_fail(tmp_path):
+    paths = []
+    for i, bad_p in enumerate(["-0.1", "1.1", "", "NaN", "Inf"]):
+        path = tmp_path / f"bad_p_{i}.tsv.gz"
+        _write_gz_tsv(
+            path,
+            "chr\tbp\ta1\ta2\tz\tn\tp\n"
+            f"1\t100\tA\tG\t1.0\t1000\t{bad_p}\n",
+        )
+        paths.append(str(path))
+    paths_expr = "{" + ", ".join(f"'{p}'" for p in paths) + "}"
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"paths = {paths_expr}; "
+        "ok = zeros(1, numel(paths)); "
+        "for i = 1:numel(paths); "
+        "  try; statgen.load_sumstats(paths{i}, ref); catch; ok(i) = 1; end; "
+        "end; "
+        "fprintf('%d %d %d %d %d\\n', ok);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1"
 
 
 @pytest.mark.octave
@@ -680,16 +812,16 @@ def test_octave_optional_fields_absent_use_empty_vector_sentinel(tmp_path):
     script = _octave_script(
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         f"s = statgen.load_sumstats('{path}', ref); "
-        "fprintf('%d %d %d %d\\n', isempty(s.beta_vec), isempty(s.se_vec), isempty(s.eaf_vec), isempty(s.info_vec)); "
+        "fprintf('%d %d %d %d %d %d\\n', isempty(s.zvec), isempty(s.nvec), isempty(s.beta_vec), isempty(s.se_vec), isempty(s.eaf_vec), isempty(s.info_vec)); "
         f"statgen.save_sumstats_cache(s, '{cache}'); "
         f"s2 = statgen.load_sumstats_cache('{cache}'); "
-        "fprintf('%d %d %d %d\\n', isempty(s2.beta_vec), isempty(s2.se_vec), isempty(s2.eaf_vec), isempty(s2.info_vec));"
+        "fprintf('%d %d %d %d %d %d\\n', isempty(s2.zvec), isempty(s2.nvec), isempty(s2.beta_vec), isempty(s2.se_vec), isempty(s2.eaf_vec), isempty(s2.info_vec));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     lines = result.stdout.strip().splitlines()
-    assert lines[0] == "1 1 1 1"
-    assert lines[1] == "1 1 1 1"
+    assert lines[0] == "1 1 1 1 1 1"
+    assert lines[1] == "1 1 1 1 1 1"
 
 
 @pytest.mark.octave
@@ -699,17 +831,17 @@ def test_octave_create_sumstats_from_vectors():
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         "z = [2.5; 1.0; 1.8; -1.2; NaN; 3.0; 0.5; NaN]; "
         "n = [1000; 950; 1000; 1000; NaN; 500; 500; NaN]; "
-        "p = [0.01; 0.5; 0; -0.1; NaN; 0.003; 0.6; 1.1]; "
-        "s = statgen.create_sumstats(ref, z, n, p); "
+        "p = [0.01; 0.5; 0; 0.2; 1.0; 0.003; 0.6; 0.9]; "
+        "s = statgen.create_sumstats(ref, p, z, n); "
         "ok = zeros(1,8); "
         "ok(1) = (s.logpvec(1) == 2); "
         "ok(2) = abs(s.logpvec(2) - (-log10(0.5))) < 1e-12; "
         "ok(3) = isinf(s.logpvec(3)); "
-        "ok(4) = isnan(s.logpvec(4)); "
-        "ok(5) = isnan(s.logpvec(5)); "
+        "ok(4) = abs(s.logpvec(4) - (-log10(0.2))) < 1e-12; "
+        "ok(5) = (s.logpvec(5) == 0); "
         "ok(6) = abs(s.logpvec(6) - (-log10(0.003))) < 1e-12; "
         "ok(7) = abs(s.logpvec(7) - (-log10(0.6))) < 1e-12; "
-        "ok(8) = isnan(s.logpvec(8)); "
+        "ok(8) = abs(s.logpvec(8) - (-log10(0.9))) < 1e-12; "
         "fprintf('%d %d %d %d %d %d %d %d\\n', ok); "
         "fprintf('%d\\n', isempty(s.beta_vec) && isempty(s.se_vec) && isempty(s.eaf_vec) && isempty(s.info_vec));"
     )
@@ -729,8 +861,9 @@ def test_octave_create_sumstats_rejects_inf_inputs():
         "n = zeros(ref.num_snp, 1); "
         "p = zeros(ref.num_snp, 1); p(1) = Inf; "
         "b = zeros(ref.num_snp, 1); b(1) = Inf; "
-        "ok1 = 0; try; statgen.create_sumstats(ref, z, n, p); catch; ok1 = 1; end; "
-        "ok2 = 0; try; statgen.create_sumstats(ref, z, n, [], b); catch; ok2 = 1; end; "
+        "ok1 = 0; try; statgen.create_sumstats(ref, p, z, n); catch; ok1 = 1; end; "
+        "p = zeros(ref.num_snp, 1); "
+        "ok2 = 0; try; statgen.create_sumstats(ref, p, z, n, b); catch; ok2 = 1; end; "
         "fprintf('%d %d\\n', ok1, ok2);"
     )
     result = run_octave(script)

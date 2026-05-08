@@ -20,7 +20,7 @@ function sumstats = build_sumstats_(tbl, reference, path)
     else
         var_names = canonicalize_var_names_(tbl.statgen_var_names__(:)', path);
     end
-    required = {'chr', 'bp', 'a1', 'a2', 'z', 'n'};
+    required = {'chr', 'bp', 'a1', 'a2', 'p'};
     for i = 1:numel(required)
         if ~any(strcmp(var_names, required{i}))
             error('statgen:sumstats', '%s: missing required column: %s', path, required{i});
@@ -31,8 +31,7 @@ function sumstats = build_sumstats_(tbl, reference, path)
     bp_num  = to_numeric_col_(get_col_(tbl, var_names, 'bp'));
     a1_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a1'));
     a2_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a2'));
-    z_num   = to_numeric_col_(get_col_(tbl, var_names, 'z'));
-    n_num   = to_numeric_col_(get_col_(tbl, var_names, 'n'));
+    p_num   = to_numeric_col_(get_col_(tbl, var_names, 'p'));
 
     bad_chr = cellfun('isempty', chr_col);
     if any(bad_chr), error('statgen:sumstats', '%s: row %d: chr must be non-empty', path, find(bad_chr, 1, 'first') + 1); end
@@ -47,24 +46,20 @@ function sumstats = build_sumstats_(tbl, reference, path)
         error('statgen:sumstats', '%s: row %d: bp is not an integer', path, i + 1);
     end
 
-    bad_z = ~isfinite(z_num);
-    if any(bad_z)
-        i = find(bad_z, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: z must be finite numeric', path, i + 1);
+    bad_p = ~isfinite(p_num) | p_num < 0 | p_num > 1;
+    if any(bad_p)
+        i = find(bad_p, 1, 'first');
+        error('statgen:sumstats', '%s: row %d: p must be finite numeric in [0, 1]', path, i + 1);
     end
 
-    bad_n = ~isfinite(n_num);
-    if any(bad_n)
-        i = find(bad_n, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: n must be finite numeric', path, i + 1);
-    end
-
-    optional_map = struct('p', [], 'beta', [], 'se', [], 'eaf', [], 'info', []);
+    optional_map = struct('z', [], 'n', [], 'beta', [], 'se', [], 'eaf', [], 'info', []);
     optional_names = fieldnames(optional_map);
     for i = 1:numel(optional_names)
         nm = optional_names{i};
         if any(strcmp(var_names, nm))
-            optional_map.(nm) = to_numeric_col_(get_col_(tbl, var_names, nm));
+            vals = to_numeric_col_(get_col_(tbl, var_names, nm));
+            vals(~isfinite(vals)) = NaN;
+            optional_map.(nm) = vals;
         end
     end
 
@@ -72,18 +67,9 @@ function sumstats = build_sumstats_(tbl, reference, path)
     src_a1_hash64 = statgen.internal.allele_hash64(a1_col);
     src_a2_hash64 = statgen.internal.allele_hash64(a2_col);
 
-    aligned_z = nan(n_ref, 1);
-    aligned_n = nan(n_ref, 1);
+    p_aligned = nan(n_ref, 1);
 
-    if isempty(optional_map.p)
-        p_aligned = [];
-        aligned_logp = nan(n_ref, 1);
-    else
-        p_aligned = nan(n_ref, 1);
-        aligned_logp = [];
-    end
-
-    aligned_optional = struct('beta', [], 'se', [], 'eaf', [], 'info', []);
+    aligned_optional = struct('z', [], 'n', [], 'beta', [], 'se', [], 'eaf', [], 'info', []);
     for i = 1:numel(optional_names)
         nm = optional_names{i};
         vals = optional_map.(nm);
@@ -107,11 +93,7 @@ function sumstats = build_sumstats_(tbl, reference, path)
         matched_ref_ix = ix(has_match);
         matched_src_ix = src_idx(loc(has_match));
 
-        aligned_z(matched_ref_ix) = z_num(matched_src_ix);
-        aligned_n(matched_ref_ix) = n_num(matched_src_ix);
-        if ~isempty(p_aligned)
-            p_aligned(matched_ref_ix) = optional_map.p(matched_src_ix);
-        end
+        p_aligned(matched_ref_ix) = p_num(matched_src_ix);
         for j = 1:numel(optional_names)
             nm = optional_names{j};
             if ~isempty(aligned_optional.(nm))
@@ -123,15 +105,9 @@ function sumstats = build_sumstats_(tbl, reference, path)
         end
     end
 
-    if ~isempty(p_aligned)
-        aligned_logp = nan(n_ref, 1);
-        finite_mask = isfinite(p_aligned);
-        in_range = finite_mask & p_aligned >= 0 & p_aligned <= 1;
-        zero_mask = in_range & p_aligned == 0;
-        pos_mask = in_range & p_aligned > 0;
-        aligned_logp(zero_mask) = inf;
-        aligned_logp(pos_mask) = -log10(p_aligned(pos_mask));
-    end
+    aligned_logp = statgen.internal.sumstats_derive_logp(p_aligned);
+    statgen.internal.sumstats_warn_optional_zn_completeness( ...
+        aligned_optional.z, aligned_optional.n, aligned_logp, 'load_sumstats');
 
     shards = cell(numel(reference.shards), 1);
     for i = 1:numel(reference.shards)
@@ -145,7 +121,9 @@ function sumstats = build_sumstats_(tbl, reference, path)
 
         shards{i} = statgen.SumstatsShard( ...
             s_ref.label, s_ref.checksum, ...
-            aligned_z(ix), aligned_n(ix), aligned_logp(ix), ...
+            aligned_logp(ix), ...
+            pick_optional_(aligned_optional.z, ix), ...
+            pick_optional_(aligned_optional.n, ix), ...
             beta_vec, se_vec, eaf_vec, info_vec);
     end
 
@@ -173,14 +151,15 @@ end
 function [tbl, cleanup_fn] = parse_sumstats_table_(path)
     cleanup_fn = @() [];
     actual_path = path;
+    cleanup_guard = [];
     if ends_with_(path, '.gz')
         [~, base, ~] = fileparts(path);
         scratch_root = statgen_scratch_root_(path);
         tmpdir = unique_tmpdir_(scratch_root, ['sumstats_gunzip_' base]);
         mkdir(tmpdir);
+        cleanup_guard = onCleanup(@() cleanup_tmpdir_(tmpdir));
         gunzip(path, tmpdir);
         actual_path = fullfile(tmpdir, base);
-        cleanup_fn = @() cleanup_tmpdir_(tmpdir);
     end
 
     fid = fopen(actual_path, 'r');
@@ -206,6 +185,7 @@ function [tbl, cleanup_fn] = parse_sumstats_table_(path)
         end
     end
     tbl = S;
+    clear cleanup_guard;
 end
 
 function col = get_col_(tbl, var_names, name)
@@ -246,10 +226,7 @@ function root = statgen_scratch_root_(path)
     if ~isempty(env_root)
         root = char(env_root);
     else
-        [root, ~, ~] = fileparts(path);
-        if isempty(root)
-            root = pwd;
-        end
+        root = tempdir;
     end
     if exist(root, 'dir') ~= 7
         [ok, msg] = mkdir(root);
@@ -286,16 +263,7 @@ function tf = ends_with_(s, suffix)
 end
 
 function fmt = build_col_formats_(raw_names)
-    numeric_set = {'bp', 'pos', 'z', 'n', 'p', 'beta', 'se', 'eaf', 'info'};
-    parts = cell(1, numel(raw_names));
-    for i = 1:numel(raw_names)
-        if any(strcmp(numeric_set, lower(raw_names{i})))
-            parts{i} = '%f';
-        else
-            parts{i} = '%s';
-        end
-    end
-    fmt = [parts{:}];
+    fmt = repmat('%s', 1, numel(raw_names));
 end
 
 function out = to_numeric_col_(x)

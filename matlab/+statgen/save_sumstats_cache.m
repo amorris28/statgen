@@ -11,6 +11,8 @@ function save_sumstats_cache(sumstats, path, varargin)
     metadata.shard_checksums = cell(n_shards, 1);
     metadata.shard_start0 = zeros(n_shards, 1);
     metadata.shard_stop0 = zeros(n_shards, 1);
+    metadata.has_z = ~isempty(sumstats.zvec);
+    metadata.has_n = ~isempty(sumstats.nvec);
     metadata.has_beta = ~isempty(sumstats.beta_vec);
     metadata.has_se = ~isempty(sumstats.se_vec);
     metadata.has_eaf = ~isempty(sumstats.eaf_vec);
@@ -25,9 +27,9 @@ function save_sumstats_cache(sumstats, path, varargin)
         metadata.shard_stop0(i) = off.stop0;
     end
 
+    logpvec = sumstats.logpvec;
     zvec = sumstats.zvec;
     nvec = sumstats.nvec;
-    logpvec = sumstats.logpvec;
     beta_vec = sumstats.beta_vec;
     se_vec = sumstats.se_vec;
     eaf_vec = sumstats.eaf_vec;

@@ -138,6 +138,10 @@ classdef AnnotationPanel
 
             out = statgen.AnnotationPanel(out_shards, [obj.annonames; rhs_names]);
         end
+
+        function save_cache(obj, path, varargin)
+            statgen.save_annotations_cache(obj, path, varargin{:});
+        end
     end
 end
 

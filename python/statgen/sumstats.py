@@ -1,4 +1,5 @@
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -9,8 +10,9 @@ from ._utils import allele_hash64, validate_requested_shards
 from ._variant_match import match_shard_numeric, numeric_variant_keys
 
 _CACHE_SCHEMA = "sumstats_cache/0.1"
-_REQUIRED_COLS = ("chr", "bp", "a1", "a2", "z", "n")
-_OPTIONAL_COLS = ("p", "beta", "se", "eaf", "info")
+_REQUIRED_COLS = ("chr", "bp", "a1", "a2", "p")
+_OPTIONAL_COLS = ("z", "n", "beta", "se", "eaf", "info")
+_OPTIONAL_VECTOR_FIELDS = ("z", "n", "beta", "se", "eaf", "info")
 _SUMSTATS_COL_MAP = {
     "pos": "bp",
     "effectallele": "a1",
@@ -55,25 +57,25 @@ def _parse_sumstats(path: Path) -> pd.DataFrame:
         raise ValueError(f"{path}: row {idx + 2}: bp is not an integer: {out['bp'].iat[idx]!r}")
     out["bp"] = bp_num.astype(np.int64)
 
-    for required_num in ("z", "n"):
-        vals = pd.to_numeric(out[required_num], errors="coerce")
-        bad = vals.isna() | ~np.isfinite(vals.to_numpy(dtype=float))
-        if bad.any():
-            idx = int(bad.idxmax())
-            raise ValueError(
-                f"{path}: row {idx + 2}: {required_num} must be finite numeric: {out[required_num].iat[idx]!r}"
-            )
-        out[required_num] = vals.astype(float)
-
     for col in ("chr", "a1", "a2"):
         bad_empty = out[col].eq("")
         if bad_empty.any():
             idx = int(bad_empty.idxmax())
             raise ValueError(f"{path}: row {idx + 2}: {col} must be non-empty")
 
+    p_vals = pd.to_numeric(out["p"], errors="coerce")
+    p_arr = p_vals.to_numpy(dtype=float)
+    bad_p = p_vals.isna() | ~np.isfinite(p_arr) | (p_arr < 0.0) | (p_arr > 1.0)
+    if bad_p.any():
+        idx = int(bad_p.idxmax())
+        raise ValueError(f"{path}: row {idx + 2}: p must be finite numeric in [0, 1]: {out['p'].iat[idx]!r}")
+    out["p"] = p_vals.astype(float)
+
     for opt in _OPTIONAL_COLS:
         if opt in out.columns:
-            out[opt] = pd.to_numeric(out[opt], errors="coerce").astype(float)
+            vals = pd.to_numeric(out[opt], errors="coerce").astype(float)
+            vals = vals.mask(~np.isfinite(vals.to_numpy(dtype=float)))
+            out[opt] = vals
 
     return out
 
@@ -83,9 +85,9 @@ class SumstatsShard:
         self,
         label: str,
         reference_checksum: str,
-        zvec,
-        nvec,
         logpvec,
+        zvec=None,
+        nvec=None,
         beta_vec=None,
         se_vec=None,
         eaf_vec=None,
@@ -93,13 +95,18 @@ class SumstatsShard:
     ):
         self._label = label
         self._reference_checksum = str(reference_checksum)
-        self._zvec = np.asarray(zvec, dtype=float)
-        self._nvec = np.asarray(nvec, dtype=float)
-        self._logpvec = np.asarray(logpvec, dtype=float)
-        self._beta_vec = None if beta_vec is None else np.asarray(beta_vec, dtype=float)
-        self._se_vec = None if se_vec is None else np.asarray(se_vec, dtype=float)
-        self._eaf_vec = None if eaf_vec is None else np.asarray(eaf_vec, dtype=float)
-        self._info_vec = None if info_vec is None else np.asarray(info_vec, dtype=float)
+        self._logpvec = np.asarray(logpvec, dtype=float).reshape(-1)
+        n = self._logpvec.size
+        self._zvec = None if zvec is None else _as_optional_shard_vec("zvec", zvec, n)
+        self._nvec = None if nvec is None else _as_optional_shard_vec("nvec", nvec, n)
+        self._beta_vec = None if beta_vec is None else np.asarray(beta_vec, dtype=float).reshape(-1)
+        self._se_vec = None if se_vec is None else np.asarray(se_vec, dtype=float).reshape(-1)
+        self._eaf_vec = None if eaf_vec is None else np.asarray(eaf_vec, dtype=float).reshape(-1)
+        self._info_vec = None if info_vec is None else np.asarray(info_vec, dtype=float).reshape(-1)
+        for name in ("beta_vec", "se_vec", "eaf_vec", "info_vec"):
+            vec = getattr(self, f"_{name}")
+            if vec is not None and vec.reshape(-1).size != n:
+                raise ValueError(f"{name} length mismatch: expected {n}, got {vec.reshape(-1).size}")
 
     @property
     def label(self) -> str:
@@ -111,7 +118,7 @@ class SumstatsShard:
 
     @property
     def num_snp(self) -> int:
-        return self._zvec.size
+        return self._logpvec.size
 
     @property
     def zvec(self) -> np.ndarray:
@@ -124,6 +131,10 @@ class SumstatsShard:
     @property
     def logpvec(self) -> np.ndarray:
         return self._logpvec
+
+    @property
+    def is_present(self) -> np.ndarray:
+        return ~np.isnan(self._logpvec)
 
     @property
     def beta_vec(self):
@@ -146,9 +157,9 @@ class SumstatsShard:
         cls,
         label,
         reference_checksum,
+        logpvec,
         zvec,
         nvec,
-        logpvec,
         beta_vec,
         se_vec,
         eaf_vec,
@@ -157,9 +168,9 @@ class SumstatsShard:
         return cls(
             label=label,
             reference_checksum=reference_checksum,
+            logpvec=logpvec,
             zvec=zvec,
             nvec=nvec,
-            logpvec=logpvec,
             beta_vec=beta_vec,
             se_vec=se_vec,
             eaf_vec=eaf_vec,
@@ -195,21 +206,21 @@ class Sumstats:
 
     @property
     def zvec(self):
-        if not self._shards:
-            return np.array([], dtype=float)
-        return np.concatenate([s.zvec for s in self._shards])
+        return self._optional_concat("zvec")
 
     @property
     def nvec(self):
-        if not self._shards:
-            return np.array([], dtype=float)
-        return np.concatenate([s.nvec for s in self._shards])
+        return self._optional_concat("nvec")
 
     @property
     def logpvec(self):
         if not self._shards:
             return np.array([], dtype=float)
         return np.concatenate([s.logpvec for s in self._shards])
+
+    @property
+    def is_present(self):
+        return ~np.isnan(self.logpvec)
 
     def _optional_concat(self, field_name: str):
         if not self._shards:
@@ -241,6 +252,9 @@ class Sumstats:
         by_label = {s.label: s for s in self._shards}
         return Sumstats([by_label[label] for label in selected])
 
+    def save_cache(self, path, format=None) -> None:
+        save_sumstats_cache(self, path, format=format)
+
 
 def _derive_logp(p_vals: np.ndarray) -> np.ndarray:
     logp = np.full(p_vals.size, np.nan, dtype=float)
@@ -251,6 +265,20 @@ def _derive_logp(p_vals: np.ndarray) -> np.ndarray:
     logp[zero_mask] = np.inf
     logp[pos_mask] = -np.log10(p_vals[pos_mask])
     return logp
+
+
+def _validate_pvec(p_vals: np.ndarray, name: str) -> None:
+    bad = ~np.isfinite(p_vals) | (p_vals < 0.0) | (p_vals > 1.0)
+    if bad.any():
+        idx = int(np.flatnonzero(bad)[0])
+        raise ValueError(f"{name}[{idx}] must be finite numeric in [0, 1]")
+
+
+def _as_optional_shard_vec(name: str, vec, n: int) -> np.ndarray:
+    arr = np.asarray(vec, dtype=float).reshape(-1)
+    if arr.size != n:
+        raise ValueError(f"{name} length mismatch: expected {n}, got {arr.size}")
+    return arr
 
 
 def _coerce_aligned_vec(name: str, vec, n: int, allow_inf: bool) -> np.ndarray:
@@ -270,14 +298,15 @@ def _coerce_aligned_vec(name: str, vec, n: int, allow_inf: bool) -> np.ndarray:
 
 def _build_sumstats_from_aligned(
     reference,
-    aligned_z: np.ndarray,
-    aligned_n: np.ndarray,
     aligned_logp: np.ndarray,
     aligned_optional: dict[str, np.ndarray | None],
 ) -> Sumstats:
     n = int(reference.num_snp)
-    if aligned_z.size != n or aligned_n.size != n or aligned_logp.size != n:
+    if aligned_logp.size != n:
         raise ValueError("aligned vector length mismatch with reference")
+    for field, vec in aligned_optional.items():
+        if vec is not None and vec.size != n:
+            raise ValueError(f"aligned {field} vector length mismatch with reference")
 
     shards = []
     for ref_shard, off in zip(reference.shards, reference.shard_offsets):
@@ -287,9 +316,9 @@ def _build_sumstats_from_aligned(
             SumstatsShard(
                 label=ref_shard.label,
                 reference_checksum=ref_shard.checksum,
-                zvec=aligned_z[start:stop],
-                nvec=aligned_n[start:stop],
                 logpvec=aligned_logp[start:stop],
+                zvec=None if aligned_optional["z"] is None else aligned_optional["z"][start:stop],
+                nvec=None if aligned_optional["n"] is None else aligned_optional["n"][start:stop],
                 beta_vec=None if aligned_optional["beta"] is None else aligned_optional["beta"][start:stop],
                 se_vec=None if aligned_optional["se"] is None else aligned_optional["se"][start:stop],
                 eaf_vec=None if aligned_optional["eaf"] is None else aligned_optional["eaf"][start:stop],
@@ -301,14 +330,11 @@ def _build_sumstats_from_aligned(
 
 def _build_sumstats_panel(df: pd.DataFrame, reference) -> Sumstats:
     n = int(reference.num_snp)
-    aligned_z = np.full(n, np.nan, dtype=float)
-    aligned_n = np.full(n, np.nan, dtype=float)
-    aligned_p = np.full(n, np.nan, dtype=float) if "p" in df.columns else None
-
     aligned_optional = {
         col: (np.full(n, np.nan, dtype=float) if col in df.columns else None)
-        for col in ("beta", "se", "eaf", "info")
+        for col in _OPTIONAL_VECTOR_FIELDS
     }
+    aligned_p = np.full(n, np.nan, dtype=float)
 
     src_chr = df["chr"].to_numpy(dtype=object)
     src_bp = df["bp"].to_numpy(dtype=np.int64)
@@ -327,23 +353,22 @@ def _build_sumstats_panel(df: pd.DataFrame, reference) -> Sumstats:
         matched_src = src_idx[local_match[has_match]]
         aligned_ix = np.arange(start, stop, dtype=np.int64)[has_match]
 
-        aligned_z[aligned_ix] = df["z"].to_numpy(dtype=float)[matched_src]
-        aligned_n[aligned_ix] = df["n"].to_numpy(dtype=float)[matched_src]
-        if aligned_p is not None:
-            aligned_p[aligned_ix] = df["p"].to_numpy(dtype=float)[matched_src]
+        aligned_p[aligned_ix] = df["p"].to_numpy(dtype=float)[matched_src]
         for col, out in aligned_optional.items():
             if out is not None:
                 out[aligned_ix] = df[col].to_numpy(dtype=float)[matched_src]
 
-    if aligned_p is None:
-        aligned_logp = np.full(n, np.nan, dtype=float)
-    else:
-        aligned_logp = _derive_logp(aligned_p)
+    aligned_logp = _derive_logp(aligned_p)
+    _warn_optional_zn_completeness(
+        aligned_optional["z"],
+        aligned_optional["n"],
+        aligned_logp,
+        context="load_sumstats",
+        stacklevel=3,
+    )
 
     return _build_sumstats_from_aligned(
         reference,
-        aligned_z=aligned_z,
-        aligned_n=aligned_n,
         aligned_logp=aligned_logp,
         aligned_optional=aligned_optional,
     )
@@ -356,25 +381,22 @@ def load_sumstats(path, reference) -> Sumstats:
 
 def create_sumstats(
     reference,
-    zvec,
-    nvec,
-    pvec=None,
+    pvec,
+    zvec=None,
+    nvec=None,
     beta_vec=None,
     se_vec=None,
     eaf_vec=None,
     info_vec=None,
 ) -> Sumstats:
     n = int(reference.num_snp)
-    aligned_z = _coerce_aligned_vec("zvec", zvec, n=n, allow_inf=False)
-    aligned_n = _coerce_aligned_vec("nvec", nvec, n=n, allow_inf=False)
-
-    if pvec is None:
-        aligned_logp = np.full(n, np.nan, dtype=float)
-    else:
-        aligned_p = _coerce_aligned_vec("pvec", pvec, n=n, allow_inf=False)
-        aligned_logp = _derive_logp(aligned_p)
+    aligned_p = _coerce_aligned_vec("pvec", pvec, n=n, allow_inf=True)
+    _validate_pvec(aligned_p, "pvec")
+    aligned_logp = _derive_logp(aligned_p)
 
     aligned_optional = {
+        "z": None if zvec is None else _coerce_aligned_vec("zvec", zvec, n=n, allow_inf=False),
+        "n": None if nvec is None else _coerce_aligned_vec("nvec", nvec, n=n, allow_inf=False),
         "beta": None if beta_vec is None else _coerce_aligned_vec("beta_vec", beta_vec, n=n, allow_inf=False),
         "se": None if se_vec is None else _coerce_aligned_vec("se_vec", se_vec, n=n, allow_inf=False),
         "eaf": None if eaf_vec is None else _coerce_aligned_vec("eaf_vec", eaf_vec, n=n, allow_inf=False),
@@ -383,18 +405,18 @@ def create_sumstats(
 
     return _build_sumstats_from_aligned(
         reference,
-        aligned_z=aligned_z,
-        aligned_n=aligned_n,
         aligned_logp=aligned_logp,
         aligned_optional=aligned_optional,
     )
 
 
-def save_sumstats_cache(sumstats: Sumstats, path) -> None:
+def save_sumstats_cache(sumstats: Sumstats, path, format=None) -> None:
     meta = {
         "schema": _CACHE_SCHEMA,
         "shard_labels": [s.label for s in sumstats.shards],
         "shard_checksums": [s.reference_checksum for s in sumstats.shards],
+        "has_z": sumstats.zvec is not None,
+        "has_n": sumstats.nvec is not None,
         "has_beta": sumstats.beta_vec is not None,
         "has_se": sumstats.se_vec is not None,
         "has_eaf": sumstats.eaf_vec is not None,
@@ -403,9 +425,11 @@ def save_sumstats_cache(sumstats: Sumstats, path) -> None:
     arrays = {"_meta": np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8)}
     for i, s in enumerate(sumstats.shards):
         p = f"s{i}_"
-        arrays[p + "zvec"] = s.zvec
-        arrays[p + "nvec"] = s.nvec
         arrays[p + "logpvec"] = s.logpvec
+        if meta["has_z"]:
+            arrays[p + "zvec"] = s.zvec
+        if meta["has_n"]:
+            arrays[p + "nvec"] = s.nvec
         if meta["has_beta"]:
             arrays[p + "beta_vec"] = s.beta_vec
         if meta["has_se"]:
@@ -432,6 +456,10 @@ def load_sumstats_cache(path, shards=None) -> Sumstats:
         selected = validate_requested_shards(shards, labels, "load_sumstats_cache")
         label_to_index = {label: i for i, label in enumerate(labels)}
 
+        if "has_z" not in meta or "has_n" not in meta:
+            raise ValueError("Invalid sumstats cache: missing has_z/has_n metadata")
+        has_z = bool(meta["has_z"])
+        has_n = bool(meta["has_n"])
         has_beta = bool(meta.get("has_beta", False))
         has_se = bool(meta.get("has_se", False))
         has_eaf = bool(meta.get("has_eaf", False))
@@ -445,13 +473,35 @@ def load_sumstats_cache(path, shards=None) -> Sumstats:
                 SumstatsShard._from_arrays(
                     label=label,
                     reference_checksum=checksums[i],
-                    zvec=data[p + "zvec"],
-                    nvec=data[p + "nvec"],
                     logpvec=data[p + "logpvec"],
+                    zvec=data[p + "zvec"] if has_z else None,
+                    nvec=data[p + "nvec"] if has_n else None,
                     beta_vec=data[p + "beta_vec"] if has_beta else None,
                     se_vec=data[p + "se_vec"] if has_se else None,
                     eaf_vec=data[p + "eaf_vec"] if has_eaf else None,
                     info_vec=data[p + "info_vec"] if has_info else None,
                 )
             )
-    return Sumstats(shard_objs)
+    out = Sumstats(shard_objs)
+    _warn_optional_zn_completeness(
+        out.zvec,
+        out.nvec,
+        out.logpvec,
+        context="load_sumstats_cache",
+        stacklevel=2,
+    )
+    return out
+
+
+def _warn_optional_zn_completeness(zvec, nvec, logpvec, context: str, stacklevel: int) -> None:
+    is_present = ~np.isnan(logpvec)
+    for name, vec in (("zvec", zvec), ("nvec", nvec)):
+        if vec is None:
+            warnings.warn(f"{context}: {name} is absent", RuntimeWarning, stacklevel=stacklevel)
+            continue
+        if np.isnan(vec[is_present]).any():
+            warnings.warn(
+                f"{context}: {name} has missing values among present sumstats variants",
+                RuntimeWarning,
+                stacklevel=stacklevel,
+            )

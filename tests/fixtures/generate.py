@@ -370,7 +370,6 @@ ANNO2_BED = [
 # Row notes:
 #   1:200  z=NA  (missing z)
 #   1:300  p=0   (logp → Inf)
-#   1:400  p=-0.1 (invalid p → logp NaN)
 #   9:999  absent from reference → NaN row in aligned output
 #   X:300 (rsX003) absent from file → NaN row in aligned output
 SUMSTATS_ROWS = """\
@@ -378,7 +377,7 @@ chr\tbp\ta1\ta2\tz\tn\tp
 1\t100\tA\tG\t2.5\t1000\t0.012
 1\t200\tC\tT\tNA\t1000\t0.5
 1\t300\tA\tC\t1.8\t1000\t0
-1\t400\tG\tA\t-1.2\t1000\t-0.1
+1\t400\tG\tA\t-1.2\t1000\t0.2
 X\t100\tA\tG\t3.0\t500\t0.003
 X\t200\tC\tT\t0.5\t500\t0.6
 9\t999\tA\tG\t1.0\t1000\t0.3

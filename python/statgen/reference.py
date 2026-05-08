@@ -283,6 +283,9 @@ class ReferencePanel:
                 ok = False
         return ok
 
+    def save_cache(self, path, mode: str = "full", format=None) -> None:
+        save_reference_cache(self, path, mode=mode, format=format)
+
 
 def load_reference(path, shards=None) -> ReferencePanel:
     path_str = str(path)
@@ -342,7 +345,7 @@ def load_reference(path, shards=None) -> ReferencePanel:
     return ReferencePanel(out_shards)
 
 
-def save_reference_cache(panel: ReferencePanel, path, mode: str = "full") -> None:
+def save_reference_cache(panel: ReferencePanel, path, mode: str = "full", format=None) -> None:
     mode = str(mode).lower()
     if mode not in {"full", "thin"}:
         raise ValueError("save_reference_cache mode must be 'full' or 'thin'")
