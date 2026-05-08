@@ -71,6 +71,25 @@ def test_reference_allele_hashes_are_uint64_and_panel_wide():
     assert np.array_equal(panel.a2_hash64[5:], panel.shards[1].a2_hash64)
 
 
+def test_reference_variant_type_accessors_are_hash_backed():
+    shard = ReferenceShard(
+        "1",
+        ["1"] * 6,
+        ["rs1", "rs2", "rs3", "rs4", "rs5", "rs6"],
+        [100, 200, 300, 400, 500, 600],
+        ["A", "T", "C", "A", "AC", "A"],
+        ["T", "A", "G", "C", "G", "AT"],
+    )
+    panel = ReferencePanel([shard])
+
+    expected_single_base = np.array([True, True, True, True, False, False])
+    expected_ambiguous = np.array([True, True, True, False, False, False])
+    assert np.array_equal(shard.is_single_nucleotide_variant, expected_single_base)
+    assert np.array_equal(panel.is_single_nucleotide_variant, expected_single_base)
+    assert np.array_equal(shard.is_strand_ambiguous, expected_ambiguous)
+    assert np.array_equal(panel.is_strand_ambiguous, expected_ambiguous)
+
+
 def test_validate_checksums_passes_for_loaded_reference():
     panel = load_reference(SHARDED)
     assert panel.validate_checksums() is True
@@ -395,6 +414,13 @@ def test_bim_bad_allele_syntax_fails(tmp_path):
         load_reference(bad)
 
 
+def test_bim_equal_a1_a2_fails(tmp_path):
+    bad = tmp_path / "same_alleles.bim"
+    bad.write_text("1\trs1\t0\t100\tA\tA\n")
+    with pytest.raises(ValueError, match="a1 and a2 must differ"):
+        load_reference(bad)
+
+
 def test_bim_multibase_alleles_are_valid(tmp_path):
     path = tmp_path / "multibase.bim"
     path.write_text(
@@ -528,6 +554,44 @@ def test_octave_checksums_match_python():
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_reference_variant_type_accessors():
+    script = _octave_script(
+        "shard = statgen.ReferenceShard('1', "
+        "{'1'; '1'; '1'; '1'; '1'; '1'}, "
+        "{'rs1'; 'rs2'; 'rs3'; 'rs4'; 'rs5'; 'rs6'}, "
+        "[100; 200; 300; 400; 500; 600], "
+        "{'A'; 'T'; 'C'; 'A'; 'AC'; 'A'}, "
+        "{'T'; 'A'; 'G'; 'C'; 'G'; 'AT'}); "
+        "ref = statgen.ReferencePanel({shard}); "
+        "fprintf('%d ', ref.is_single_nucleotide_variant); fprintf('\\n'); "
+        "fprintf('%d ', ref.is_strand_ambiguous); fprintf('\\n');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0].strip() == "1 1 1 1 0 0"
+    assert lines[1].strip() == "1 1 1 0 0 0"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_reference_equal_a1_a2_fails():
+    script = _octave_script(
+        "ok = 0; "
+        "try; "
+        "  statgen.ReferenceShard('1', {'1'}, {'rs1'}, 100, {'A'}, {'A'}); "
+        "catch ME; "
+        "  ok = ~isempty(strfind(ME.message, 'a1 and a2 must differ')); "
+        "end; "
+        "fprintf('%d\\n', ok);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_nonsharded_split():
     script = _octave_script(
         "ref = statgen.load_reference([fixture_dir '/reference/nonsharded/all.bim']); "
@@ -595,7 +659,7 @@ def test_octave_cache_roundtrip(tmp_path):
         f"           && isequal(s1.bp, s2.bp) && isequal(s1.a1, s2.a1) && isequal(s1.a2, s2.a2) "
         f"           && isequal(s1.a1_hash64, s2.a1_hash64) && isequal(s1.a2_hash64, s2.a2_hash64); "
         f"end; "
-        f"thin_ok = isequal(ref.chr, ref3.chr) && isequal(ref.bp, ref3.bp) && isequal(ref.a1_hash64, ref3.a1_hash64) && isequal(ref.a2_hash64, ref3.a2_hash64); "
+        f"thin_ok = isequal(ref.chr, ref3.chr) && isequal(ref.bp, ref3.bp) && isequal(ref.a1_hash64, ref3.a1_hash64) && isequal(ref.a2_hash64, ref3.a2_hash64) && isequal(ref.is_single_nucleotide_variant, ref3.is_single_nucleotide_variant) && isequal(ref.is_strand_ambiguous, ref3.is_strand_ambiguous); "
         f"thin_snp_fails = 0; try; ref3.snp; catch; thin_snp_fails = 1; end; "
         f"thin_validate_fails = 0; try; ref3.validate_checksums(); catch; thin_validate_fails = 1; end; "
         f"fprintf('%d\\n', full_ok); "

@@ -12,6 +12,40 @@ from ._utils import CANONICAL_CHR_ORDER, allele_hash64, validate_requested_shard
 logger = logging.getLogger(__name__)
 
 _CACHE_SCHEMA = "reference_cache/0.1"
+_A_HASH64, _C_HASH64, _G_HASH64, _T_HASH64 = allele_hash64(
+    np.array(["A", "C", "G", "T"], dtype=object)
+)
+_SINGLE_BASE_HASH64 = np.array(
+    [_A_HASH64, _C_HASH64, _G_HASH64, _T_HASH64], dtype=np.uint64
+)
+
+
+def _is_single_nucleotide_variant(a1_hash64, a2_hash64) -> np.ndarray:
+    return np.isin(a1_hash64, _SINGLE_BASE_HASH64) & np.isin(
+        a2_hash64, _SINGLE_BASE_HASH64
+    )
+
+
+def _is_strand_ambiguous(a1_hash64, a2_hash64) -> np.ndarray:
+    a1 = np.asarray(a1_hash64, dtype=np.uint64).reshape(-1)
+    a2 = np.asarray(a2_hash64, dtype=np.uint64).reshape(-1)
+    return (
+        ((a1 == _A_HASH64) & (a2 == _T_HASH64))
+        | ((a1 == _T_HASH64) & (a2 == _A_HASH64))
+        | ((a1 == _C_HASH64) & (a2 == _G_HASH64))
+        | ((a1 == _G_HASH64) & (a2 == _C_HASH64))
+    )
+
+
+def _validate_distinct_alleles(label: str, a1_arr: np.ndarray, a2_arr: np.ndarray) -> None:
+    same = np.asarray(a1_arr, dtype=object).reshape(-1) == np.asarray(
+        a2_arr, dtype=object
+    ).reshape(-1)
+    if np.any(same):
+        idx0 = int(np.flatnonzero(same)[0])
+        raise ValueError(
+            f"Reference shard {label} variant {idx0 + 1}: a1 and a2 must differ"
+        )
 
 
 def _checksum_from_arrays(
@@ -56,6 +90,7 @@ class ReferenceShard:
             raise ValueError("ReferenceShard vector lengths must match")
         if self._chr.size and not np.all(self._chr == self._label):
             raise ValueError(f"Reference shard {self._label} contains multiple chr labels")
+        _validate_distinct_alleles(self._label, self._a1, self._a2)
         self._a1_hash64 = allele_hash64(self._a1)
         self._a2_hash64 = allele_hash64(self._a2)
         self._checksum = _checksum_from_arrays(self._chr, self._bp, self._a1, self._a2)
@@ -97,6 +132,14 @@ class ReferenceShard:
         return self._a2_hash64
 
     @property
+    def is_single_nucleotide_variant(self) -> np.ndarray:
+        return _is_single_nucleotide_variant(self._a1_hash64, self._a2_hash64)
+
+    @property
+    def is_strand_ambiguous(self) -> np.ndarray:
+        return _is_strand_ambiguous(self._a1_hash64, self._a2_hash64)
+
+    @property
     def checksum(self) -> str:
         return self._checksum
 
@@ -130,6 +173,7 @@ class ReferenceShard:
             raise ValueError("Invalid reference cache: panel-wide vector lengths mismatch")
         if obj._chr.size and not np.all(obj._chr == obj._label):
             raise ValueError(f"Invalid reference cache: shard {obj._label} contains multiple chr labels")
+        _validate_distinct_alleles(obj._label, obj._a1, obj._a2)
         obj._a1_hash64 = (
             allele_hash64(obj._a1)
             if a1_hash64 is None
@@ -204,6 +248,18 @@ class ReferencePanel:
         if not self._shards:
             return np.array([], dtype=np.uint64)
         return np.concatenate([s.a2_hash64 for s in self._shards])
+
+    @property
+    def is_single_nucleotide_variant(self) -> np.ndarray:
+        if not self._shards:
+            return np.array([], dtype=bool)
+        return np.concatenate([s.is_single_nucleotide_variant for s in self._shards])
+
+    @property
+    def is_strand_ambiguous(self) -> np.ndarray:
+        if not self._shards:
+            return np.array([], dtype=bool)
+        return np.concatenate([s.is_strand_ambiguous for s in self._shards])
 
     @property
     def shard_offsets(self) -> list:

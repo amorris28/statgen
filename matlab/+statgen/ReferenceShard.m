@@ -13,6 +13,8 @@ classdef ReferenceShard
         snp        % n×1 cell array of strings
         a1         % n×1 cell array of strings
         a2         % n×1 cell array of strings
+        is_single_nucleotide_variant  % n×1 logical vector
+        is_strand_ambiguous     % n×1 logical vector
     end
     properties (Access = private)
         chr_data
@@ -40,6 +42,7 @@ classdef ReferenceShard
             if any(bad)
                 error('statgen:reference', 'Reference shard %s contains multiple chr labels', obj.label);
             end
+            validate_distinct_alleles_(obj.label, obj.a1_data, obj.a2_data);
             obj.a1_hash64 = statgen.internal.allele_hash64(obj.a1_data);
             obj.a2_hash64 = statgen.internal.allele_hash64(obj.a2_data);
             if ~isempty(checksum)
@@ -77,6 +80,14 @@ classdef ReferenceShard
             end
             out = obj.a2_data;
         end
+
+        function out = get.is_single_nucleotide_variant(obj)
+            [out, ~] = statgen.internal.reference_hash_masks(obj.a1_hash64, obj.a2_hash64);
+        end
+
+        function out = get.is_strand_ambiguous(obj)
+            [~, out] = statgen.internal.reference_hash_masks(obj.a1_hash64, obj.a2_hash64);
+        end
     end
 
     methods (Static)
@@ -92,7 +103,22 @@ classdef ReferenceShard
             if numel(obj.bp) ~= obj.num_snp || numel(obj.a1_hash64) ~= obj.num_snp || numel(obj.a2_hash64) ~= obj.num_snp
                 error('statgen:cache', 'Invalid reference cache: thin payload vector lengths mismatch');
             end
+            same_hash = obj.a1_hash64 == obj.a2_hash64;
+            if any(same_hash)
+                idx = find(same_hash, 1, 'first');
+                error('statgen:cache', ...
+                    'Invalid reference cache: shard %s variant %d has equal allele hashes for a1 and a2', ...
+                    obj.label, idx);
+            end
         end
+    end
+end
+
+function validate_distinct_alleles_(label, a1, a2)
+    same = strcmp(a1, a2);
+    if any(same)
+        idx = find(same, 1, 'first');
+        error('statgen:reference', 'Reference shard %s variant %d: a1 and a2 must differ', label, idx);
     end
 end
 

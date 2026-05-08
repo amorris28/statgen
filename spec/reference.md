@@ -120,6 +120,14 @@ Regardless of how the panel is sharded, callers access genome-wide vectors and
 matrices through read-only panel-level accessors that concatenate across shards
 transparently.
 
+Reference panels expose two derived logical variant masks computed from
+`a1_hash64` and `a2_hash64` so they are available for both full and thin
+references:
+
+- `is_single_nucleotide_variant`: true when both alleles are single
+  nucleotides (`A`, `C`, `G`, or `T`);
+- `is_strand_ambiguous`: true for unordered `A/T` and `C/G` allele pairs.
+
 ## Representation
 
 Implementations may use language-native containers. They must preserve shard
@@ -211,6 +219,8 @@ ReferencePanel.a1  -> num_snp string vector
 ReferencePanel.a2  -> num_snp string vector
 ReferencePanel.a1_hash64 -> num_snp uint64 vector
 ReferencePanel.a2_hash64 -> num_snp uint64 vector
+ReferencePanel.is_single_nucleotide_variant -> num_snp logical vector
+ReferencePanel.is_strand_ambiguous -> num_snp logical vector
 ReferencePanel.shard_offsets -> table with shard_label, start0, stop0
 ReferencePanel.select_shards(shards) -> ReferencePanel
 ReferencePanel.is_object_compatible(object) -> bool
@@ -231,6 +241,8 @@ Expected behavior:
 - Reference source loaders validate only `chr_rank`/`bp` ordering, not
   allele-string ordering within equal-position groups. They still reject
   duplicate matching keys within each shard using `(bp, a1_hash64, a2_hash64)`.
+- Reference shard construction and source loading fail clearly if any variant
+  has `a1 == a2`.
 - Each `ReferenceShard` must contain exactly one chromosome label. This is a
   global invariant of the object model, not just a cache-loader assumption.
 - Compute and retain each shard reference checksum and each per-row
@@ -241,9 +253,10 @@ Expected behavior:
   must fail clearly unless a full reference cache was loaded. Thin `chr` is
   synthesized lazily by repeating each shard label `num_snp` times and
   concatenating shard vectors in panel order, without caching. Thin `bp`,
-  `a1_hash64`, and `a2_hash64` are available. Other runtimes may accept the
-  thin save option while still writing full caches, as long as the metadata
-  accurately records `mode = "full"`.
+  `a1_hash64`, `a2_hash64`, `is_single_nucleotide_variant`, and
+  `is_strand_ambiguous` are available. Other runtimes may accept the thin save
+  option while still writing full caches, as long as the metadata accurately
+  records `mode = "full"`.
 - `shard_offsets` uses zero-based half-open intervals into genome-wide arrays.
 - `shard_offsets.start0`/`stop0` are cross-language coordinate metadata, not
   direct language indices. MATLAB/Octave callers convert at use-site

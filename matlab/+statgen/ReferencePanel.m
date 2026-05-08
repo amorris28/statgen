@@ -21,6 +21,10 @@ classdef ReferencePanel
 %   snp        SNP identifiers.
 %   bp         Base-pair positions.
 %   a1, a2     Alleles from the BIM input.
+%   is_single_nucleotide_variant
+%              True for variants where both alleles are single nucleotides.
+%   is_strand_ambiguous
+%              True for A/T, T/A, C/G, and G/C allele pairs.
 %
 % Common methods:
 %   select_shards           Restrict the reference to selected shards.
@@ -42,6 +46,8 @@ classdef ReferencePanel
         a2             % num_snp×1 cell array
         a1_hash64      % num_snp×1 uint64 vector
         a2_hash64      % num_snp×1 uint64 vector
+        is_single_nucleotide_variant  % num_snp×1 logical vector
+        is_strand_ambiguous     % num_snp×1 logical vector
     end
 
     methods
@@ -128,6 +134,24 @@ classdef ReferencePanel
             vals = cell(numel(obj.shards), 1);
             for i = 1:numel(obj.shards)
                 vals{i} = obj.shards{i}.a2_hash64;
+            end
+            out = vertcat(vals{:});
+        end
+
+        function out = get.is_single_nucleotide_variant(obj)
+            if isempty(obj.shards), out = false(0, 1); return; end
+            vals = cell(numel(obj.shards), 1);
+            for i = 1:numel(obj.shards)
+                vals{i} = obj.shards{i}.is_single_nucleotide_variant;
+            end
+            out = vertcat(vals{:});
+        end
+
+        function out = get.is_strand_ambiguous(obj)
+            if isempty(obj.shards), out = false(0, 1); return; end
+            vals = cell(numel(obj.shards), 1);
+            for i = 1:numel(obj.shards)
+                vals{i} = obj.shards{i}.is_strand_ambiguous;
             end
             out = vertcat(vals{:});
         end
