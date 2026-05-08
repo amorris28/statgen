@@ -72,6 +72,87 @@ def test_octave_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_fetch_genotypes_ploidy_scaled_maps_haploid_calls():
+    script = (
+        f"ref = statgen.load_reference('{REF_SHARDED}'); "
+        f"g = statgen.load_genotype('{G_SHARDED}', ref); "
+        "raw = g.fetch_genotypes(6); "
+        "scaled = g.fetch_genotypes(6, 'ploidy_scaled'); "
+        "fprintf('%.0f ', raw); fprintf('\\n'); "
+        "fprintf('%.0f ', scaled); fprintf('\\n');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = matlab_data_lines(result.stdout)
+    assert lines == [
+        "2 2 2 2",
+        "1 2 1 2",
+    ]
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_fetch_genotypes_ploidy_scaled_rejects_unknown_sex(tmp_path):
+    copy_genotype_shard_files(tmp_path, "X")
+    (tmp_path / "X.fam").write_text(
+        "FAM1\tIND1\t0\t0\t0\t-9\n"
+        "FAM1\tIND2\t0\t0\t2\t-9\n"
+        "FAM2\tIND3\t0\t0\t1\t-9\n"
+        "FAM2\tIND4\t0\t0\t2\t-9\n"
+    )
+    script = (
+        f"ref = statgen.load_reference('{REF_SHARDED}', {{'X'}}); "
+        f"g = statgen.load_genotype('{tmp_path / 'X'}', ref); "
+        "raw = g.fetch_genotypes(1); "
+        "err = 0; try; g.fetch_genotypes(1, 'ploidy_scaled'); catch; err = 1; end; "
+        "fprintf('%d %.0f\\n', err, raw(1));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert matlab_data_lines(result.stdout) == ["1 2"]
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_fetch_genotypes_ploidy_scaled_allows_unknown_sex_absent_from_chrx(tmp_path):
+    copy_genotype_shard_files(tmp_path, "1")
+    copy_genotype_shard_files(tmp_path, "X")
+    (tmp_path / "1.fam").write_text(
+        "FAM1\tIND1\t0\t0\t1\t-9\n"
+        "FAM1\tIND2\t0\t0\t0\t-9\n"
+        "FAM2\tIND3\t0\t0\t1\t-9\n"
+        "FAM2\tIND4\t0\t0\t2\t-9\n"
+    )
+    (tmp_path / "X.fam").write_text(
+        "FAM1\tIND1\t0\t0\t1\t-9\n"
+        "FAM2\tIND3\t0\t0\t1\t-9\n"
+        "FAM2\tIND4\t0\t0\t2\t-9\n"
+    )
+    write_plink_bed_calls(
+        tmp_path / "X.bed",
+        np.array(
+            [
+                [2, 2, 2],
+                [2, 2, 2],
+                [2, 2, 2],
+            ],
+            dtype=np.int8,
+        ),
+    )
+    script = (
+        f"ref = statgen.load_reference('{REF_SHARDED}'); "
+        f"g = statgen.load_genotype('{tmp_path / '@'}', ref); "
+        "scaled = g.fetch_genotypes(6, 'ploidy_scaled'); "
+        "scaled(isnan(scaled)) = -9; "
+        "fprintf('%.0f ', scaled); fprintf('\\n');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert matlab_data_lines(result.stdout) == ["1 -9 1 2"]
+
+
+@pytest.mark.octave
+@skipif_no_octave
 @pytest.mark.parametrize("num_sample", [5, 6, 7, 8])
 def test_octave_fetch_decodes_partial_final_bed_byte_for_all_sample_count_modulo_4(tmp_path, num_sample):
     (tmp_path / "mod4.bim").write_text(

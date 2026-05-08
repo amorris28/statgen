@@ -20,6 +20,7 @@ from ._variant_match import match_shard_numeric, numeric_variant_keys
 
 _CACHE_SCHEMA = "genotype_cache/0.1"
 _BED_MISSING_INT8 = np.int8(-1)
+_HAPLOID_MODES = {"raw", "ploidy_scaled"}
 _CACHE_ARRAY_FIELDS = (
     "is_present",
     "ploidy_male",
@@ -73,6 +74,13 @@ def _normalize_snp_indices(snp_indices, num_snp: int) -> np.ndarray:
         )
     return out
 
+
+def _normalize_haploid_mode(haploid_mode) -> str:
+    mode = str(haploid_mode)
+    if mode not in _HAPLOID_MODES:
+        raise ValueError("GenotypePanel.fetch_genotypes: haploid_mode must be 'raw' or 'ploidy_scaled'")
+    return mode
+
 @dataclass(frozen=True)
 class _SourceRecord:
     bed_path: Path
@@ -105,11 +113,16 @@ def _load_source_record(prefix: str, label: str | None) -> _SourceRecord:
     source_fam = _parse_fam(fam)
     if label == "X" and ploidy is None:
         warnings.warn(
-            f"{prefix}: chrX genotype source has no .ploidy sidecar; defaulting matched rows to diploid ploidy",
+            f"{prefix}: chrX genotype source has no .ploidy sidecar; "
+            "defaulting chrX rows to male/female ploidy (1, 2)",
             RuntimeWarning,
             stacklevel=2,
         )
-    ploidy_male, ploidy_female = _parse_ploidy(ploidy, source_num_snp)
+    ploidy_male, ploidy_female = _parse_ploidy(
+        ploidy,
+        source_num_snp,
+        source_bim["chr"].to_numpy(dtype=object),
+    )
     bed_file_size = _validate_bed(bed, source_fam.shape[0], source_num_snp)
     return _SourceRecord(
         bed_path=bed,
@@ -466,11 +479,43 @@ class GenotypePanel:
                 out[np.ix_(panel_rows, cols)] = source_geno[source_subject_rows, :]
         return out
 
-    def fetch_genotypes(self, snp_indices, bed_path=None):
+    def fetch_genotypes(self, snp_indices, bed_path=None, haploid_mode="raw"):
+        mode = _normalize_haploid_mode(haploid_mode)
         geno_int8 = self.fetch_genotypes_int8(snp_indices, bed_path=bed_path)
         geno = geno_int8.astype(np.float64)
         geno[geno_int8 == _BED_MISSING_INT8] = np.nan
+        if mode == "ploidy_scaled":
+            self._apply_ploidy_scaled(geno, _normalize_snp_indices(snp_indices, self._num_snp))
         return geno
+
+    def _apply_ploidy_scaled(self, geno: np.ndarray, indices: np.ndarray) -> None:
+        if indices.size == 0:
+            return
+        is_male = self._sex == 1
+        is_female = self._sex == 2
+        is_unknown = self._sex == 0
+        addressed = self._addressed_shards(indices)
+        for shard, cols, local_indices in addressed:
+            ploidy_male = shard.ploidy_male[local_indices]
+            ploidy_female = shard.ploidy_female[local_indices]
+            differs = ploidy_male != ploidy_female
+            unknown_present = is_unknown & shard.subject_present
+            if (
+                np.any(unknown_present)
+                and np.any(differs)
+                and np.any(np.isfinite(geno[np.ix_(unknown_present, cols[differs])]))
+            ):
+                raise ValueError(
+                    "GenotypePanel.fetch_genotypes: haploid_mode='ploidy_scaled' "
+                    "requires known FAM sex when male and female ploidy differ"
+                )
+            if np.any(is_male):
+                geno[np.ix_(is_male, cols)] *= ploidy_male.reshape(1, -1) / 2.0
+            if np.any(is_female):
+                geno[np.ix_(is_female, cols)] *= ploidy_female.reshape(1, -1) / 2.0
+            if np.any(is_unknown):
+                same_ploidy = ploidy_male.reshape(1, -1)
+                geno[np.ix_(is_unknown, cols)] *= same_ploidy / 2.0
 
     def save_cache(self, path, format=None) -> None:
         save_genotype_cache(self, path, format=format)
@@ -589,7 +634,8 @@ def load_genotype(bfile_prefix, reference) -> GenotypePanel:
         shared = _load_source_record(prefix, None)
         if "X" in ref_labels and Path(prefix + ".ploidy").is_file() is False:
             warnings.warn(
-                f"{prefix}: chrX genotype source has no .ploidy sidecar; defaulting matched rows to diploid ploidy",
+                f"{prefix}: chrX genotype source has no .ploidy sidecar; "
+                "defaulting chrX rows to male/female ploidy (1, 2)",
                 RuntimeWarning,
                 stacklevel=2,
             )

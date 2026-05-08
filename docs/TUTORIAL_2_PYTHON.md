@@ -126,6 +126,9 @@ print(pruned_genotypes.shape)
 
 `pruned_snp_indices` are zero-based reference-coordinate indices in Python.
 `pruned_genotypes` has samples as rows and requested SNPs as columns.
+`fetch_genotypes` returns raw PLINK-decoded calls by default; pass
+`haploid_mode="ploidy_scaled"` when haploid calls should be mapped onto declared
+biological ploidy.
 
 When using a genotype metadata cache, the original BED files must still be
 available. If they moved, pass a replacement `bed_path` to `fetch_genotypes`.

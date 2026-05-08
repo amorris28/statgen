@@ -265,8 +265,8 @@ def test_chrx_only_load_defines_sample_axis():
     assert panel.is_subject_present("X").tolist() == [True] * 4
 
 
-def test_chrx_without_ploidy_warns_and_defaults_to_diploid(tmp_path):
-    """chrX load without .ploidy emits the documented warning; matched rows default to (2, 2)."""
+def test_chrx_without_ploidy_warns_and_defaults_to_haploid_male(tmp_path):
+    """chrX load without .ploidy emits the documented warning; matched rows default to (1, 2)."""
     for label in ("1", "X"):
         for suffix in (".bim", ".bed", ".fam"):
             src = FIXTURES_DIR / f"genotype/sharded/{label}{suffix}"
@@ -278,8 +278,22 @@ def test_chrx_without_ploidy_warns_and_defaults_to_diploid(tmp_path):
         panel = load_genotype(str(tmp_path / "@"), ref)
 
     chrx = panel.shards[1]
-    assert chrx.ploidy_male.tolist() == [2.0, 2.0, 2.0]
+    assert chrx.ploidy_male.tolist() == [1.0, 1.0, 1.0]
     assert chrx.ploidy_female.tolist() == [2.0, 2.0, 2.0]
+
+
+def test_nonsharded_without_ploidy_defaults_autosomes_and_chrx_separately(tmp_path):
+    """Missing .ploidy in mixed non-sharded input defaults autosomes to (2,2) and chrX to (1,2)."""
+    for suffix in (".bim", ".bed", ".fam"):
+        src = FIXTURES_DIR / f"genotype/nonsharded/all{suffix}"
+        (tmp_path / f"all{suffix}").write_bytes(src.read_bytes())
+
+    ref = load_reference(REF_NONSHARDED)
+    with pytest.warns(RuntimeWarning, match="chrX genotype source has no .ploidy"):
+        panel = load_genotype(tmp_path / "all", ref)
+
+    assert panel.ploidy_male.tolist() == [2.0, 2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0]
+    assert panel.ploidy_female.tolist() == [2.0] * 8
 
 
 def test_is_present_false_for_absent_variants(tmp_path):

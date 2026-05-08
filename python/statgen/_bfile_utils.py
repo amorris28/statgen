@@ -180,12 +180,16 @@ def _parse_fam(path: Path) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def _parse_ploidy(path: Path | None, source_num_snp: int) -> tuple[np.ndarray, np.ndarray]:
+def _parse_ploidy(path: Path | None, source_num_snp: int, source_chr=None) -> tuple[np.ndarray, np.ndarray]:
     if path is None:
-        return (
-            np.full(source_num_snp, 2.0, dtype=float),
-            np.full(source_num_snp, 2.0, dtype=float),
-        )
+        ploidy_male = np.full(source_num_snp, 2.0, dtype=float)
+        ploidy_female = np.full(source_num_snp, 2.0, dtype=float)
+        if source_chr is not None:
+            chrs = np.asarray(source_chr, dtype=object).reshape(-1)
+            if chrs.size != source_num_snp:
+                raise ValueError("source_chr length must match source_num_snp")
+            ploidy_male[chrs == "X"] = 1.0
+        return ploidy_male, ploidy_female
 
     path = Path(path)
     df = _read_csv_strict(

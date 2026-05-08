@@ -70,9 +70,9 @@ allele orientation should be resolved upstream by
 - chrX LD sex-specific shards use FAM sex labels.
 - Genotype `.ploidy` sidecars belong to genotype access, not LD reference
   inputs.
-- Missing genotype `.ploidy` sidecars imply diploid ploidy for both sexes;
-  chrX genotype sources should provide `.ploidy` when male hemizygous calls are
-  expected.
+- Missing genotype `.ploidy` sidecars imply `(2, 2)` ploidy for autosomes and
+  `(1, 2)` for chrX, with a warning for chrX. Provide `.ploidy` for PAR/non-PAR
+  mixtures or nonstandard chrX encodings.
 - Shard objects are internal; users work with panel objects and `select_shards`.
 
 ## Setup
@@ -172,9 +172,11 @@ distributions. In Octave, the package overview is available with
 - `load_genotype(bfile_prefix, reference)` loads PLINK 1 genotype metadata and
   aligns it to a `ReferencePanel`. `bfile_prefix` may be a single prefix or an
   `@`-sharded prefix.
-- `panel.fetch_genotypes(snp_indices)` returns selected genotype dosages without
-  loading the full BED file. In MATLAB, `snp_indices` are one-based panel SNP
-  indices; requested SNPs must be present in the genotype source.
+- `panel.fetch_genotypes(snp_indices)` returns selected genotype calls without
+  loading the full BED file. It defaults to raw PLINK-decoded calls; use the
+  `ploidy_scaled` haploid mode to map male chrX ploidy `1` calls from `0/2` to
+  `0/1`. In MATLAB, `snp_indices` are one-based panel SNP indices; requested
+  SNPs must be present in the genotype source.
 - `panel.fetch_genotypes_int8(snp_indices)` returns selected hardcalls as compact
   integer calls.
 - `panel.is_present` is a boolean mask in reference coordinates for variants

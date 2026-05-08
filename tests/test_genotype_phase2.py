@@ -10,6 +10,7 @@ from tests.conftest import (
     GENOTYPE_CHR1_CALLS,
     copy_genotype_shard_files,
     write_plink_bed_calls,
+    write_plink_fam,
 )
 
 
@@ -61,6 +62,86 @@ def test_fetch_decodes_all_two_bit_states_and_preserves_order(tmp_path):
     expected_float = expected.astype(np.float64)
     expected_float[expected == -1] = np.nan
     assert np.array_equal(geno, expected_float, equal_nan=True)
+
+
+def test_fetch_genotypes_ploidy_scaled_maps_haploid_calls():
+    ref = load_reference(REF_SHARDED)
+    panel = load_genotype(G_SHARDED, ref)
+
+    raw = panel.fetch_genotypes([5])
+    scaled = panel.fetch_genotypes([5], haploid_mode="ploidy_scaled")
+
+    assert raw[:, 0].tolist() == [2.0, 2.0, 2.0, 2.0]
+    assert scaled[:, 0].tolist() == [1.0, 2.0, 1.0, 2.0]
+
+
+def test_fetch_genotypes_ploidy_scaled_rejects_unknown_sex_when_ploidy_differs(tmp_path):
+    copy_genotype_shard_files(tmp_path, "X")
+    write_plink_fam(
+        tmp_path / "X.fam",
+        [
+            ("FAM1", "IND1", 0, 0, 0, -9),
+            ("FAM1", "IND2", 0, 0, 2, -9),
+            ("FAM2", "IND3", 0, 0, 1, -9),
+            ("FAM2", "IND4", 0, 0, 2, -9),
+        ],
+    )
+    ref = load_reference(REF_SHARDED, shards=["X"])
+    panel = load_genotype(tmp_path / "X", ref)
+
+    assert panel.fetch_genotypes([0]).shape == (4, 1)
+    with pytest.raises(ValueError, match="requires known FAM sex"):
+        panel.fetch_genotypes([0], haploid_mode="ploidy_scaled")
+
+
+def test_fetch_genotypes_ploidy_scaled_allows_unknown_sex_absent_from_chrx(tmp_path):
+    copy_genotype_shard_files(tmp_path, "1")
+    copy_genotype_shard_files(tmp_path, "X")
+    write_plink_fam(
+        tmp_path / "1.fam",
+        [
+            ("FAM1", "IND1", 0, 0, 1, -9),
+            ("FAM1", "IND2", 0, 0, 0, -9),
+            ("FAM2", "IND3", 0, 0, 1, -9),
+            ("FAM2", "IND4", 0, 0, 2, -9),
+        ],
+    )
+    write_plink_fam(
+        tmp_path / "X.fam",
+        [
+            ("FAM1", "IND1", 0, 0, 1, -9),
+            ("FAM2", "IND3", 0, 0, 1, -9),
+            ("FAM2", "IND4", 0, 0, 2, -9),
+        ],
+    )
+    write_plink_bed_calls(
+        tmp_path / "X.bed",
+        np.array(
+            [
+                [2, 2, 2],
+                [2, 2, 2],
+                [2, 2, 2],
+            ],
+            dtype=np.int8,
+        ),
+    )
+    ref = load_reference(REF_SHARDED)
+    panel = load_genotype(str(tmp_path / "@"), ref)
+
+    scaled = panel.fetch_genotypes([5], haploid_mode="ploidy_scaled")
+    assert np.array_equal(
+        scaled[:, 0],
+        np.array([1.0, np.nan, 1.0, 2.0]),
+        equal_nan=True,
+    )
+
+
+def test_fetch_genotypes_rejects_unknown_haploid_mode():
+    ref = load_reference(REF_SHARDED)
+    panel = load_genotype(G_SHARDED, ref)
+
+    with pytest.raises(ValueError, match="haploid_mode"):
+        panel.fetch_genotypes([0], haploid_mode="normalized")
 
 
 @pytest.mark.parametrize("num_sample", [5, 6, 7, 8])

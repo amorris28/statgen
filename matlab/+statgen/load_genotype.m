@@ -15,9 +15,10 @@ function panel = load_genotype(bfile_prefix, reference)
 % missing calls when chrX genotypes are fetched.
 %
 % A .ploidy sidecar may be present next to each bfile prefix, with columns
-% male_ploidy and female_ploidy in BIM row order. Missing .ploidy means diploid
-% ploidy for both sexes; loading chrX without a .ploidy sidecar warns because
-% that default is usually wrong for male chrX calls.
+% male_ploidy and female_ploidy in BIM row order. Missing .ploidy defaults
+% autosomal rows to (2, 2). Missing chrX .ploidy defaults chrX rows to (1, 2)
+% and warns because PAR/non-PAR mixtures and nonstandard encodings should
+% provide explicit ploidy metadata.
 %
 % See also statgen.GenotypePanel, statgen.load_genotype_cache,
 % statgen.save_genotype_cache.
@@ -44,7 +45,7 @@ function panel = load_genotype(bfile_prefix, reference)
         shared = load_source_record_(prefix, []);
         if any(strcmp(ref_labels, 'X')) && exist([prefix '.ploidy'], 'file') ~= 2
             warning('statgen:genotype', ...
-                '%s: chrX genotype source has no .ploidy sidecar; defaulting matched rows to diploid ploidy', ...
+                '%s: chrX genotype source has no .ploidy sidecar; defaulting chrX rows to male/female ploidy (1, 2)', ...
                 prefix);
         end
         sources = struct();
@@ -152,10 +153,11 @@ function source = load_source_record_(prefix, label)
     source_fam = statgen.internal.bfile_parse_fam(fam_path);
     if isequal(label, 'X') && isempty(ploidy_path)
         warning('statgen:genotype', ...
-            '%s: chrX genotype source has no .ploidy sidecar; defaulting matched rows to diploid ploidy', ...
+            '%s: chrX genotype source has no .ploidy sidecar; defaulting chrX rows to male/female ploidy (1, 2)', ...
             prefix);
     end
-    [ploidy_male, ploidy_female] = statgen.internal.bfile_parse_ploidy(ploidy_path, source_num_snp);
+    [ploidy_male, ploidy_female] = statgen.internal.bfile_parse_ploidy( ...
+        ploidy_path, source_num_snp, source_bim.chr);
     bed_file_size = statgen.internal.bfile_validate_bed(bed_path, numel(source_fam.fid), source_num_snp);
 
     source.bed_path = bed_path;

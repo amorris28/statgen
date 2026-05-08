@@ -1,8 +1,17 @@
-function [ploidy_male, ploidy_female] = bfile_parse_ploidy(path, source_num_snp)
+function [ploidy_male, ploidy_female] = bfile_parse_ploidy(path, source_num_snp, source_chr)
 %BFILE_PARSE_PLOIDY Parse optional genomatch BFILE .ploidy sidecar.
+    if nargin < 3
+        source_chr = [];
+    end
     if isempty(path)
         ploidy_male = 2 * ones(source_num_snp, 1);
         ploidy_female = 2 * ones(source_num_snp, 1);
+        if ~isempty(source_chr)
+            if numel(source_chr) ~= source_num_snp
+                error('statgen:ploidy', 'source_chr length must match source_num_snp');
+            end
+            ploidy_male(strcmp(cellstr(source_chr(:)), 'X')) = 1;
+        end
         return
     end
 

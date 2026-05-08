@@ -69,13 +69,13 @@ order, with exactly two integer columns:
 male_ploidy  female_ploidy
 ```
 
-Allowed ploidy values are `0`, `1`, and `2`. Missing `.ploidy` means all
-source rows are diploid in both sexes, equivalent to `(2, 2)`. For
-`@`-sharded bfiles, each resolved shard's `.ploidy` sidecar is optional
-independently; it is normal for only the chrX shard to carry a `.ploidy`
-file. Implementations must warn when a chrX shard is loaded without a
-`.ploidy` sidecar, as the default `(2, 2)` ploidy is incorrect for
-hemizygous males.
+Allowed ploidy values are `0`, `1`, and `2`. Missing `.ploidy` means autosomal
+source rows are diploid in both sexes, equivalent to `(2, 2)`. Missing chrX
+`.ploidy` defaults to `(1, 2)` and must warn, because this is an assumption;
+users should provide `.ploidy` for PAR/non-PAR mixtures or other nonstandard
+chrX encodings. For `@`-sharded bfiles, each resolved shard's `.ploidy` sidecar
+is optional independently; it is normal for only the chrX shard to carry a
+`.ploidy` file.
 
 Converted dense genotype matrices are not a `statgen` storage format and are
 not saved by genotype cache APIs.
@@ -123,9 +123,9 @@ Ploidy vectors are aligned the same way:
 - `ploidy_male`: numeric vector, length equal to `is_present`;
 - `ploidy_female`: numeric vector, length equal to `is_present`.
 
-For matched SNPs, ploidy values come from `.ploidy` when present and are `2`
-when `.ploidy` is absent. For unmatched SNPs, `ploidy_male` and
-`ploidy_female` are `NaN` by definition.
+For matched SNPs, ploidy values come from `.ploidy` when present. When
+`.ploidy` is absent, autosomal rows use `(2, 2)` and chrX rows use `(1, 2)`.
+For unmatched SNPs, `ploidy_male` and `ploidy_female` are `NaN` by definition.
 
 Each `GenotypeShard` retains the paired `ReferenceShard` checksum. Genotype
 caches save reference checksums and loaders trust those stored checksums in
@@ -355,7 +355,7 @@ contract.
 
 ```text
 GenotypePanel.fetch_genotypes_int8(snp_indices, optional bed_path) -> matrix
-GenotypePanel.fetch_genotypes(snp_indices, optional bed_path) -> matrix
+GenotypePanel.fetch_genotypes(snp_indices, optional bed_path, optional haploid_mode) -> matrix
 ```
 
 `snp_indices` are panel-global SNP indices in the host language's ordinary
@@ -367,10 +367,25 @@ num_sample × length(snp_indices)
 
 Columns are returned in exactly the requested `snp_indices` order.
 `fetch_genotypes_int8` is the core hardcall accessor. It returns an `int8`
-matrix with `a1` counts encoded as `0`, `1`, and `2`, and missing hardcalls
-encoded as `-1`. `fetch_genotypes` is a thin wrapper over
-`fetch_genotypes_int8`; it returns a double-precision matrix with `0`, `1`, and
-`2` converted to double and missing hardcalls represented as `NaN`.
+matrix with raw PLINK-decoded `a1` counts encoded as `0`, `1`, and `2`, and
+missing hardcalls encoded as `-1`.
+
+`fetch_genotypes` wraps `fetch_genotypes_int8` and returns a double-precision
+matrix. Its `haploid_mode` argument defaults to `"raw"`. In `"raw"` mode,
+`0`, `1`, and `2` are converted to double and missing hardcalls are represented
+as `NaN`. In `"ploidy_scaled"` mode, non-missing calls are transformed as
+`raw * ploidy / 2`, using `ploidy_male` for FAM sex `1` and `ploidy_female`
+for FAM sex `2`. It maps PLINK diploid-style hardcall encodings onto the
+declared biological ploidy. So male chrX with ploidy `1` turns `0/2` into
+`0/1`, while diploid calls stay `0/1/2`.
+
+`haploid_mode` is a per-call output option, not object state. In
+`"ploidy_scaled"` mode, the call fails if any addressed subject has unknown sex
+and a non-missing addressed call for a SNP where `ploidy_male` differs from
+`ploidy_female`. Unknown-sex subjects absent from a shard do not trigger this
+guard because their fetched calls are missing before and after scaling. When a
+`bed_path` override is supplied, scaling still uses the loaded or cached ploidy
+metadata, because PLINK `.bed` files do not carry ploidy metadata.
 
 Every requested SNP must have `is_present == true`; otherwise the call fails
 clearly before reading genotype payloads. Repeated SNP indices are allowed and
@@ -440,7 +455,7 @@ GenotypePanel.is_female -> num_sample logical vector
 GenotypePanel.is_subject_present(shard) -> num_sample logical vector
 GenotypePanel.fetch_genotypes_int8(snp_indices, optional bed_path)
     -> num_sample × len(snp_indices) int8 matrix
-GenotypePanel.fetch_genotypes(snp_indices, optional bed_path)
+GenotypePanel.fetch_genotypes(snp_indices, optional bed_path, optional haploid_mode)
     -> num_sample × len(snp_indices) double matrix
 GenotypePanel.source_layout -> "non_sharded" | "sharded"
 GenotypePanel.select_shards(shards) -> GenotypePanel
@@ -496,11 +511,15 @@ Expected behavior:
   optional `shards` subsetting; per-shard reference checksums and BED file-size
   metadata are trusted from cache metadata until a genotype fetch addresses the
   corresponding shard.
-- `GenotypePanel.fetch_genotypes_int8` reads hardcalls on demand, returns
-  `int8` `a1` counts with `-1` for missing calls, and fails on any requested
-  SNP where `is_present == false`.
-- `GenotypePanel.fetch_genotypes` is a thin double-precision wrapper over
-  `fetch_genotypes_int8`, converting `-1` to `NaN`.
+- `GenotypePanel.fetch_genotypes_int8` reads hardcalls on demand, returns raw
+  PLINK-decoded `int8` `a1` counts with `-1` for missing calls, and fails on any
+  requested SNP where `is_present == false`.
+- `GenotypePanel.fetch_genotypes` is a double-precision wrapper over
+  `fetch_genotypes_int8`, converting `-1` to `NaN` by default. Its
+  `haploid_mode` argument accepts `"raw"` and `"ploidy_scaled"`; the latter
+  applies `raw * ploidy / 2` using per-SNP ploidy metadata and FAM sex. Unknown
+  sex is an error only for non-missing fetched calls where male and female
+  ploidy differ.
 - Both genotype fetch accessors always return rows in panel-level sample order.
   For chrX shards with a FAM subset, subjects absent from the chrX source FAM
   receive missing calls (`-1` for `fetch_genotypes_int8`, `NaN` for

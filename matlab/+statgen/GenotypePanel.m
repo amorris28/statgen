@@ -200,17 +200,29 @@ classdef GenotypePanel
         %
         %   G = genotype.fetch_genotypes(snp_indices)
         %   G = genotype.fetch_genotypes(snp_indices, bed_path)
+        %   G = genotype.fetch_genotypes(snp_indices, haploid_mode)
+        %   G = genotype.fetch_genotypes(snp_indices, bed_path, haploid_mode)
         %
         % Returns a num_sample-by-numel(snp_indices) matrix. Missing calls are
-        % returned as NaN. snp_indices are one-based panel SNP indices in MATLAB.
-        % bed_path overrides cached source BED paths and may contain '@' for
-        % sharded panels. Requesting a reference SNP absent from the genotype
-        % source is an error.
+        % returned as NaN. haploid_mode is 'raw' by default. Use
+        % 'ploidy_scaled' to map PLINK diploid-style hardcalls onto declared
+        % biological ploidy: male chrX with ploidy 1 maps 0/2 to 0/1, while
+        % diploid calls stay 0/1/2.
+        %
+        % snp_indices are one-based panel SNP indices in MATLAB. bed_path
+        % overrides cached source BED paths and may contain '@' for sharded
+        % panels. Requesting a reference SNP absent from the genotype source is
+        % an error.
         %
         % See also statgen.GenotypePanel.fetch_genotypes_int8.
-            geno_int8 = obj.fetch_genotypes_int8(snp_indices, varargin{:});
+            [bed_path, haploid_mode] = parse_fetch_genotypes_args_(varargin{:});
+            geno_int8 = obj.fetch_genotypes_int8(snp_indices, bed_path);
             out = double(geno_int8);
             out(geno_int8 == int8(-1)) = NaN;
+            if strcmp(haploid_mode, 'ploidy_scaled')
+                indices0 = normalize_snp_indices_(snp_indices, obj.num_snp);
+                out = apply_ploidy_scaled_(obj, out, indices0);
+            end
         end
 
         function save_cache(obj, path, varargin)
@@ -223,6 +235,82 @@ classdef GenotypePanel
         %
         % See also statgen.save_genotype_cache, statgen.load_genotype_cache.
             statgen.save_genotype_cache(obj, path, varargin{:});
+        end
+    end
+end
+
+function [bed_path, haploid_mode] = parse_fetch_genotypes_args_(varargin)
+    bed_path = [];
+    haploid_mode = 'raw';
+    if nargin == 0
+        return
+    elseif nargin == 1
+        if is_haploid_mode_(varargin{1})
+            haploid_mode = normalize_haploid_mode_(varargin{1});
+        else
+            bed_path = parse_bed_path_(varargin{1});
+        end
+    elseif nargin == 2
+        bed_path = parse_bed_path_(varargin{1});
+        haploid_mode = normalize_haploid_mode_(varargin{2});
+    else
+        error('statgen:genotype', ...
+            'GenotypePanel.fetch_genotypes accepts at most bed_path and haploid_mode optional arguments');
+    end
+end
+
+function tf = is_haploid_mode_(value)
+    if isstring(value)
+        tf = isscalar(value) && any(strcmp(char(value), {'raw', 'ploidy_scaled'}));
+    elseif ischar(value)
+        tf = any(strcmp(value, {'raw', 'ploidy_scaled'}));
+    else
+        tf = false;
+    end
+end
+
+function haploid_mode = normalize_haploid_mode_(value)
+    if isstring(value)
+        if ~isscalar(value)
+            error('statgen:genotype', 'GenotypePanel.fetch_genotypes: haploid_mode must be raw or ploidy_scaled');
+        end
+        value = char(value);
+    end
+    if ~ischar(value) || ~any(strcmp(value, {'raw', 'ploidy_scaled'}))
+        error('statgen:genotype', 'GenotypePanel.fetch_genotypes: haploid_mode must be raw or ploidy_scaled');
+    end
+    haploid_mode = value;
+end
+
+function out = apply_ploidy_scaled_(obj, out, indices0)
+    if isempty(indices0)
+        return
+    end
+    male_rows = find(obj.sex == 1);
+    female_rows = find(obj.sex == 2);
+    unknown_rows = find(obj.sex == 0);
+    addressed = addressed_shards_(obj, indices0);
+    for i = 1:numel(addressed)
+        a = addressed{i};
+        shard = obj.shards{a.shard_index};
+        ploidy_male = shard.ploidy_male(a.local_indices0 + 1);
+        ploidy_female = shard.ploidy_female(a.local_indices0 + 1);
+        differs = ploidy_male ~= ploidy_female;
+        unknown_present = unknown_rows(shard.subject_present(unknown_rows));
+        if ~isempty(unknown_present) && any(differs) && ...
+                any(isfinite(reshape(out(unknown_present, a.columns(differs)), [], 1)))
+            error('statgen:genotype', ...
+                ['GenotypePanel.fetch_genotypes: haploid_mode=''ploidy_scaled'' ' ...
+                 'requires known FAM sex when male and female ploidy differ']);
+        end
+        if ~isempty(male_rows)
+            out(male_rows, a.columns) = bsxfun(@times, out(male_rows, a.columns), ploidy_male(:)' ./ 2);
+        end
+        if ~isempty(female_rows)
+            out(female_rows, a.columns) = bsxfun(@times, out(female_rows, a.columns), ploidy_female(:)' ./ 2);
+        end
+        if ~isempty(unknown_rows)
+            out(unknown_rows, a.columns) = bsxfun(@times, out(unknown_rows, a.columns), ploidy_male(:)' ./ 2);
         end
     end
 end

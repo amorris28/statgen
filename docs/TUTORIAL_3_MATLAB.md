@@ -116,6 +116,9 @@ disp(size(pruned_genotypes))
 `pruned_snp_indices` are one-based reference-coordinate indices in
 MATLAB/Octave. `pruned_genotypes` has samples as rows and requested SNPs as
 columns.
+`fetch_genotypes` returns raw PLINK-decoded calls by default; pass
+`'ploidy_scaled'` when haploid calls should be mapped onto declared biological
+ploidy.
 
 When using a genotype metadata cache, the original BED files must still be
 available. If they moved, pass a replacement BED path as the second argument to
