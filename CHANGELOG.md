@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+ ## [0.2.4] - 2026-05-09
+
+### Added
+- `GenotypePanel.fetch_genotypes(...)` now support
+  `haploid_mode="ploidy_scaled"` to scale decoded allele counts by per-variant
+  male/female ploidy.
+- `ReferencePanel` and `ReferenceShard` expose `is_single_nucleotide_variant` and
+  `is_strand_ambiguous` masks.
+- Source-to-reference loading for sumstats and genotype data now warns when an
+  unmatched source-side variant would match the reference if `a1` and `a2` were
+  swapped. The variant remains unmatched; loaders still never flip alleles.
+
+### Changed
+- Updated documentation and tutorials for genotype loading, genotype fetching,
+  LD distribution workflows, and MATLAB/Octave API usage.
+- Missing chrX genotype `.ploidy` sidecars now default chrX rows to male
+  haploid and female diploid and warn.
+
+### Fixed
+- Reference loading now fails clearly when a reference variant has identical
+  `a1` and `a2` alleles.
+
 ## [0.2.3] - 2026-05-08
 
 ### Added

@@ -660,7 +660,7 @@ def test_octave_sumstats_warns_on_unmatched_swapped_alleles(tmp_path):
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    combined = result.stdout + result.stderr
+    combined = " ".join((result.stdout + result.stderr).replace("\b", "").split())
     assert "shard 1: 1 unmatched sumstats variant" in combined
     assert "a1/a2 were swapped" in combined
     assert matlab_data_lines(result.stdout)[-1] == "1 0 0 0 0"
