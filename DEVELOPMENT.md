@@ -1,5 +1,28 @@
 # Development Notes
 
+## Setup
+
+Create and activate the conda environment:
+
+```sh
+conda create -n statgen python=3.11 numpy scipy pytest -y
+conda activate statgen
+pip install -e python/
+```
+
+Run the full test suite. Octave tests are skipped automatically when Octave is
+not installed:
+
+```sh
+make test
+```
+
+Regenerate committed test fixtures after a format change:
+
+```sh
+make fixtures
+```
+
 ## Releases (brief)
 
 - Manual validation and optional TestPyPI publish are run via GitHub Actions

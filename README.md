@@ -1,76 +1,137 @@
 # statgen
 
-`statgen` is the working design area for a paired Python and MATLAB/Octave
-package for statistical genetics data objects and basic inference utilities.
+`statgen` provides Python and MATLAB/Octave tools for working with
+reference-aligned statistical genetics data: reference variants, genotypes, LD,
+annotations, and GWAS summary statistics.
 
-The canonical specification starts at [spec/SPEC.md](spec/SPEC.md). The spec is
-object-centered, with separate files for:
+All panel objects use reference coordinates and are sharded internally by
+chromosome. User-facing APIs work at the panel level and preserve input contig
+labels and allele fields exactly. `statgen` expects post-harmonization inputs;
+genome build, contig naming, and allele orientation should be resolved upstream
+by [genomatch](https://github.com/precimed/genomatch) or an equivalent pipeline.
 
-- reference shards and panels;
-- genotype shards and panels;
-- LD shards and panels;
-- annotation shards and panels;
-- GWAS summary statistics;
-- implementation and testing strategy.
+The format and behavior contracts are specified in [spec/SPEC.md](spec/SPEC.md).
 
-`statgen` consumes post-harmonization inputs. Variant build, `genomatch` NCBI
-contig naming, and allele orientation are expected to be resolved upstream by
-`genomatch` or an equivalent pipeline. Loaders preserve contig labels and
-allele fields exactly; they do not normalize aliases such as `chr1` to `1` or
-swap alleles.
+## Tutorials
 
-## Object overview
+- [Prepare LD and object caches](docs/TUTORIAL_1_PREPARE_DATA.md): build an LD
+  distribution and save Python and MATLAB/Octave caches from source files.
+- [Python analysis from caches](docs/TUTORIAL_2_PYTHON.md): load caches, run LD
+  operations, prune variants, and fetch genotypes.
+- [MATLAB/Octave analysis from caches](docs/TUTORIAL_3_MATLAB.md): run the same
+  cached analysis workflow in MATLAB or Octave.
 
-| Object | Meaning | Portable disk representation | MATLAB/Octave representation |
+## Object Overview
+
+| Object | Meaning | Typical input | Cache format |
 | --- | --- | --- | --- |
-| `ReferenceShard` / `ReferencePanel` | One chromosome SNP table / ordered multi-chromosome SNP table | External input: sharded (one `.bim` per chromosome, `@` placeholder) or non-sharded (single `.bim`); auto-split by `chr` column on load | Struct with SNP columns; panel struct with ordered shards and optional offsets |
-| `GenotypeShard` / `GenotypePanel` | One chromosome genotype shard / ordered genotype panel | External input: sharded (one PLINK `.bed/.bim/.fam` per chromosome) or single non-sharded bfile | Struct with paths and BIM/FAM metadata; `.bed` read on demand |
-| `LDShard` / `LDPanel` | One chromosome sparse LD / ordered LD panel | Built by `statgen_build_ld.py`: sharded and must match the reference exactly; upper-triangle directory with `metadata.json`, `ld_idx1.i32`, `ld_idx2.i32`, `ld_r.f32`, `mafvec.f32`; tied to a specific reference (checksum in `metadata.json`) | Sparse matrix `LD_r` of size `num_snp x num_snp`; tied to the paired reference; optional `.mat` cache |
-| `AnnotationShard` / `AnnotationPanel` | SNP annotation matrices painted from BED intervals onto a reference | External BED files (one per annotation); painted `annomat` is in-memory only; tied to the paired reference | Dense matrix `annomat` of size `num_snp x num_annot`; optional `.mat` cache |
-| `SumstatsShard` / `Sumstats` | One sumstats shard / ordered shards for one trait/source | External input: single `.tsv.gz` per trait; rows matched to reference by `chr:bp:a1:a2` on load | Shard struct of aligned vectors; `Sumstats` struct with ordered shard cells; tied to the paired reference; optional aligned `.mat` cache |
+| `ReferencePanel` | Ordered reference variant table | PLINK `.bim`, either one file or an `@`-sharded path | Python `.npz`; MATLAB/Octave `.mat` |
+| `LDPanel` | Sparse LD distribution tied to a matching reference | Built LD distribution directory | No panel cache; build or convert the distribution |
+| `AnnotationPanel` | Binary annotation matrix painted onto the reference | BED files | Python `.npz`; MATLAB/Octave `.mat` |
+| `GenotypePanel` | Reference-aligned PLINK genotype metadata with on-demand hardcall access | PLINK 1 bfile prefix, either one bfile or an `@`-sharded prefix | Metadata cache: Python `.npz`; MATLAB/Octave `.mat` |
+| `Sumstats` | One aligned summary-statistics trait or source | `.tsv.gz` with `chr`, `bp`, `a1`, `a2`, and `p` columns | Python `.npz`; MATLAB/Octave `.mat` |
 
-## API provenance
+## Key APIs
 
-| Object | `load` | `save` | `save_cache` / `load_cache` |
-| --- | --- | --- | --- |
-| Reference | ✓ from `.bim` | — external | ✓ |
-| Genotype | ✓ from bfile | — external | — |
-| LD | ✓ from binary triplets | — build script | ✓ sparse `.mat` |
-| Annotations | ✓ paint from BED | — external | ✓ painted `.mat` |
-| Sumstats | ✓ from `.tsv.gz` | — external | ✓ aligned `.mat` |
+### ReferencePanel
 
-Shared preprocessing scripts may use external tools or Python utility
-functions. Scripts should not depend on MATLAB. MATLAB functionality should be
-validated with Octave through `pytest`-driven tests.
+- `load_reference(path)` loads a `.bim` file or an `@`-sharded `.bim` pattern.
+- `panel.chr`, `panel.snp`, `panel.bp`, `panel.a1`, and `panel.a2` expose
+  reference-coordinate variant fields.
+- `panel.select_shards(shards)` subsets by shard label.
+- `panel.is_object_compatible(other)` checks reference compatibility.
+- `panel.save_cache(path, mode="full")` and `load_reference_cache(...)` save and
+  reload reference caches. Thin caches use `mode="thin"`.
 
-Planned implementation layout:
+### LDPanel
 
-```text
-python
-matlab
-script
-tests
-spec
-```
+- `load_ld(path, reference=None, shards=None, default_chrX_sex=None)` loads a
+  sparse LD distribution.
+- `panel.a1freq(chrX_sex=None)` returns reference-aligned allele frequencies.
+- `panel.multiply_r2(M, chrX_sex=None)` multiplies by LD `r²`.
+- `panel.select_shards(shards)` subsets by shard label.
+- `fast_prune(logpvec, ld_panel, r2_threshold=0.2, chrX_sex=None)` performs LD
+  pruning using aligned scores.
 
-## Development setup
+### Building LD Distributions
 
-Create and activate the conda environment (once):
+- `python script/statgen_build_ld.py ... --shard SHARD` builds one LD shard.
+- `python script/statgen_create_ld_manifest.py --ld PATH` finalizes a Python LD
+  distribution.
+- `statgen.convert_ld_npz_to_mat(input_root, output_root, shard)` converts a
+  Python LD shard for MATLAB/Octave.
+- `statgen.create_ld_mat_manifest(input_root, output_root, shards)` finalizes a
+  MATLAB/Octave LD distribution after conversion.
+
+### AnnotationPanel
+
+- `load_annotations(bed_paths, reference)` paints BED intervals onto a
+  `ReferencePanel`.
+- `create_annotations(reference, annomat, annonames)` creates an annotation
+  panel from an already aligned matrix.
+- `panel.annomat` exposes the reference-aligned annotation matrix.
+- `panel.select_shards(shards)` and `panel.select_annotations(names)` subset an
+  annotation panel.
+- `panel.union_annotations(other, mode="by_name")` combines annotation panels.
+- `panel.save_cache(path)` and `load_annotations_cache(...)` save and reload
+  painted annotation caches.
+
+### GenotypePanel
+
+- `load_genotype(bfile_prefix, reference)` loads PLINK 1 genotype metadata and
+  aligns it to a `ReferencePanel`. `bfile_prefix` may be a single prefix or an
+  `@`-sharded prefix.
+- `panel.fetch_genotypes(snp_indices)` returns selected genotype dosages without
+  loading the full BED file.
+- `panel.fetch_genotypes_int8(snp_indices)` returns selected hardcalls as compact
+  integer calls.
+- `panel.is_present` is a boolean mask in reference coordinates for variants
+  present after alignment.
+- `panel.fid`, `panel.iid`, `panel.sex`, `panel.is_male`, and
+  `panel.is_female` expose sample metadata.
+- `panel.save_cache(path)` and `load_genotype_cache(...)` save and reload
+  genotype metadata caches for faster repeated loading.
+
+### Sumstats
+
+- `load_sumstats(path, reference)` loads a `.tsv.gz` summary-statistics file and
+  aligns rows by `chr:bp:a1:a2`.
+- Input files require `p`; `z` and `n` are optional.
+- `create_sumstats(reference, pvec, zvec=None, nvec=None, ...)` creates a
+  `Sumstats` object from already aligned vectors.
+- `sumstats.logpvec`, `sumstats.zvec`, and `sumstats.nvec` expose aligned
+  vectors. Optional vectors are `None` in Python or empty in MATLAB/Octave when
+  absent.
+- `sumstats.is_present` is a boolean mask in reference coordinates for variants
+  present after alignment.
+- `sumstats.select_shards(shards)` subsets by shard label.
+- `sumstats.save_cache(path)` and `load_sumstats_cache(...)` save and reload
+  aligned summary-statistics caches.
+
+## Setup
+
+### Python
+
+Install from a cloned repository:
 
 ```sh
-conda create -n statgen python=3.11 numpy scipy pytest -y
-conda activate statgen
 pip install -e python/
 ```
 
-Run the full test suite (Octave tests are skipped automatically if Octave is not installed):
+Then import APIs from the relevant submodule, for example:
 
-```sh
-make test
+```python
+from statgen.reference import load_reference
+from statgen.sumstats import load_sumstats
 ```
 
-Regenerate committed test fixtures after a format change:
+### MATLAB/Octave
 
-```sh
-make fixtures
+From a cloned repository, add the MATLAB package folder to the path:
+
+```matlab
+addpath('/path/to/statgen/matlab')
 ```
+
+Alternatively, download the MATLAB/Octave bundle from a GitHub release and add
+that bundle's `matlab` folder to the path.

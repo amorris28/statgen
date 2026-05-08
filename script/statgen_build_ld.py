@@ -73,22 +73,20 @@ def build_ld_distribution(
     plink_version = _plink_version(plink2)
     tmp_root = _prepare_scratch_dir(out, scratch)
     shard_spec = shards[0]
-    _copy_reference_bim_for_shard(Path(out), shard_spec)
-    shard_records = write_ld_npz_shards(
-        out,
-        _build_shard_specs(
-            shard_spec,
-            tmp_root,
-            out_root=Path(out),
-            plink2=plink2,
-            ld_window_kb=int(ld_window_kb),
-            ld_r2_threshold=float(ld_r2_threshold),
-            no_sex_split=bool(no_sex_split),
-            allow_monomorphic_snps=bool(allow_monomorphic_snps),
-            plink_version=plink_version,
-            plink_options=plink_options,
-        ),
+    write_specs = _build_shard_specs(
+        shard_spec,
+        tmp_root,
+        out_root=Path(out),
+        plink2=plink2,
+        ld_window_kb=int(ld_window_kb),
+        ld_r2_threshold=float(ld_r2_threshold),
+        no_sex_split=bool(no_sex_split),
+        allow_monomorphic_snps=bool(allow_monomorphic_snps),
+        plink_version=plink_version,
+        plink_options=plink_options,
     )
+    _copy_reference_bim_for_shard(Path(out), shard_spec)
+    shard_records = write_ld_npz_shards(out, write_specs)
     for record in shard_records:
         validate_npz_shard_file(Path(out) / record["file"], check_payload_structure=True)
 

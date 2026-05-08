@@ -1,0 +1,282 @@
+# Tutorial 1: Prepare LD and Object Caches
+
+This tutorial prepares the files used by the Python and MATLAB/Octave analysis
+tutorials:
+
+- build a sparse LD distribution from PLINK bfiles;
+- convert the LD distribution for MATLAB/Octave;
+- load reference, summary statistics, annotations, and genotype metadata from
+  disk representations;
+- save Python and MATLAB/Octave caches for repeated analyses.
+
+The example uses chromosomes 21, 22, and X. Paths are relative to a tutorial
+working directory; replace them with paths on your system. Tutorial 1 reads
+from `source/`, writes reusable artifacts to `derived/`, and uses `scratch/`
+for disposable LD build files.
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Inputs and Paths](#inputs-and-paths)
+- [Build the LD Distribution](#build-the-ld-distribution)
+- [Convert LD for MATLAB/Octave](#convert-ld-for-matlaboctave)
+- [Build Python Caches](#build-python-caches)
+- [Build MATLAB/Octave Caches](#build-matlaboctave-caches)
+- [Outputs](#outputs)
+
+## Prerequisites
+
+The LD build step assumes `plink2` is installed and available on `PATH`:
+
+```bash
+plink2 --version
+```
+
+Use a Python environment with `statgen` installed from the repository:
+
+```bash
+conda create -n statgen python=3.11 numpy scipy pandas pytest -y
+conda activate statgen
+pip install -e python/
+```
+
+Run shell and Python commands from the repository root so
+`script/statgen_build_ld.py` and `script/statgen_create_ld_manifest.py` resolve
+as shown.
+
+For MATLAB/Octave cache preparation, use MATLAB or Octave with the repository's
+MATLAB package folder on the path:
+
+```matlab
+addpath('/path/to/statgen/matlab')
+```
+
+## Inputs and Paths
+
+```text
+PLINK LD reference bfiles:
+source/ld_reference/chr21.{bed,bim,fam}
+source/ld_reference/chr22.{bed,bim,fam}
+source/ld_reference/chrX.{bed,bim,fam}
+
+Optional chrX ploidy sidecar:
+source/ld_reference/chrX.ploidy
+
+PLINK genotype bfiles for on-demand genotype access:
+source/genotypes/chr21.{bed,bim,fam}
+source/genotypes/chr22.{bed,bim,fam}
+source/genotypes/chrX.{bed,bim,fam}
+
+Summary statistics:
+source/sumstats/trait_a.tsv.gz
+source/sumstats/trait_b.tsv.gz
+
+Annotations:
+source/annotations/coding_exon.bed
+source/annotations/exon.bed
+source/annotations/intron.bed
+source/annotations/utr3.bed
+source/annotations/utr5.bed
+source/annotations/whole_gene.bed
+```
+
+The bfile prefixes are sharded by chromosome, so commands can use an `@`
+placeholder:
+
+```bash
+BFILE="source/ld_reference/chr@"
+GENOTYPE_BFILE="source/genotypes/chr@"
+LD_NPZ_DIR="derived/ld_npz"
+LD_MAT_DIR="derived/ld_mat"
+PY_CACHE="derived/python_cache"
+MAT_CACHE="derived/matlab_cache"
+SCRATCH="scratch/ld_build"
+```
+
+`statgen` consumes post-harmonization inputs. Contig labels, genome build, and
+allele orientation should already be consistent across the reference,
+summary-statistics, annotation, genotype, and LD inputs.
+
+Summary-statistics files are matched to the reference by `chr:bp:a1:a2`. They
+must contain `chr`, `bp`, `a1`, `a2`, and `p` columns. `z` and `n` are optional;
+when present, missing values among variants with `p` values will produce
+warnings.
+
+## Build the LD Distribution
+
+Build one chromosome per job. The `--shard` argument makes the same command
+suitable for scheduler array jobs.
+
+```bash
+mkdir -p "$LD_NPZ_DIR" "$SCRATCH"
+
+for shard in 21 22 X; do
+  python script/statgen_build_ld.py \
+    --bfile "$BFILE" \
+    --out "$LD_NPZ_DIR" \
+    --shard "$shard" \
+    --scratch "$SCRATCH/shard_${shard}"
+done
+```
+
+Autosomes write files such as `ld_chr21.npz` and `ld_chr22.npz`. chrX writes
+sex-specific files by default, such as `ld_chrX_female.npz` and
+`ld_chrX_male.npz`.
+
+After all shard jobs finish, create the Python LD manifest:
+
+```bash
+python script/statgen_create_ld_manifest.py --ld "$LD_NPZ_DIR"
+```
+
+The manifest step writes `ld_manifest.json` and validates the completed LD
+distribution.
+
+## Convert LD for MATLAB/Octave
+
+MATLAB/Octave loads native sparse `.mat` LD distributions. Convert the Python
+`.npz` handoff files first.
+
+```matlab
+addpath('/path/to/statgen/matlab')
+
+ld_npz_dir = 'derived/ld_npz';
+ld_mat_dir = 'derived/ld_mat';
+
+shards = {'21', '22', 'X'};
+for i = 1:numel(shards)
+    statgen.convert_ld_npz_to_mat(ld_npz_dir, ld_mat_dir, shards{i});
+end
+
+statgen.create_ld_mat_manifest(ld_npz_dir, ld_mat_dir, shards);
+statgen.validate_ld_distribution(ld_mat_dir, false);
+```
+
+The default conversion writes v7.3 MAT-files under MATLAB. Octave users may use
+`'format', 'v5'` for fixture-scale validation.
+
+## Build Python Caches
+
+This pass loads source BIM, TSV, BED, and genotype metadata files and writes
+reference-aligned caches.
+
+```python
+from pathlib import Path
+
+from statgen.annotations import load_annotations
+from statgen.genotype import load_genotype
+from statgen.reference import load_reference
+from statgen.sumstats import load_sumstats
+
+cache_root = Path("derived/python_cache")
+cache_root.mkdir(parents=True, exist_ok=True)
+
+reference = load_reference(
+    "source/ld_reference/chr@.bim",
+    shards=["21", "22", "X"],
+)
+
+trait_a = load_sumstats("source/sumstats/trait_a.tsv.gz", reference)
+trait_b = load_sumstats("source/sumstats/trait_b.tsv.gz", reference)
+
+annot_root = Path("source/annotations")
+annotations = load_annotations(
+    [
+        annot_root / "coding_exon.bed",
+        annot_root / "exon.bed",
+        annot_root / "intron.bed",
+        annot_root / "utr3.bed",
+        annot_root / "utr5.bed",
+        annot_root / "whole_gene.bed",
+    ],
+    reference,
+)
+
+genotype = load_genotype("source/genotypes/chr@", reference)
+
+assert reference.is_object_compatible(trait_a)
+assert reference.is_object_compatible(trait_b)
+assert reference.is_object_compatible(annotations)
+assert reference.is_object_compatible(genotype)
+
+reference.save_cache(cache_root / "reference.npz")
+trait_a.save_cache(cache_root / "trait_a.sumstats.npz")
+trait_b.save_cache(cache_root / "trait_b.sumstats.npz")
+annotations.save_cache(cache_root / "annotations.npz")
+genotype.save_cache(cache_root / "genotype.npz")
+```
+
+The genotype cache stores metadata. The original BED files must still be
+available when later fetching genotype calls, unless a replacement `bed_path` is
+passed to `fetch_genotypes`.
+
+## Build MATLAB/Octave Caches
+
+This pass writes MATLAB/Octave-native caches for the same reference-aligned
+objects. The LD panel itself is already stored as the converted `.mat`
+distribution from the previous step.
+
+```matlab
+addpath('/path/to/statgen/matlab')
+
+mat_cache = 'derived/matlab_cache';
+if exist(mat_cache, 'dir') ~= 7
+    mkdir(mat_cache);
+end
+
+reference = statgen.load_reference( ...
+    'source/ld_reference/chr@.bim', ...
+    {'21', '22', 'X'});
+
+trait_a = statgen.load_sumstats( ...
+    'source/sumstats/trait_a.tsv.gz', ...
+    reference);
+trait_b = statgen.load_sumstats( ...
+    'source/sumstats/trait_b.tsv.gz', ...
+    reference);
+
+annot_root = 'source/annotations';
+bed_paths = {
+    fullfile(annot_root, 'coding_exon.bed')
+    fullfile(annot_root, 'exon.bed')
+    fullfile(annot_root, 'intron.bed')
+    fullfile(annot_root, 'utr3.bed')
+    fullfile(annot_root, 'utr5.bed')
+    fullfile(annot_root, 'whole_gene.bed')
+};
+annotations = statgen.load_annotations(bed_paths, reference);
+
+genotype = statgen.load_genotype( ...
+    'source/genotypes/chr@', ...
+    reference);
+
+assert(reference.is_object_compatible(trait_a))
+assert(reference.is_object_compatible(trait_b))
+assert(reference.is_object_compatible(annotations))
+assert(reference.is_object_compatible(genotype))
+
+reference.save_cache(fullfile(mat_cache, 'reference.mat'));
+trait_a.save_cache(fullfile(mat_cache, 'trait_a.sumstats.mat'));
+trait_b.save_cache(fullfile(mat_cache, 'trait_b.sumstats.mat'));
+annotations.save_cache(fullfile(mat_cache, 'annotations.mat'));
+genotype.save_cache(fullfile(mat_cache, 'genotype.mat'));
+```
+
+## Outputs
+
+This tutorial prepares these outputs for the next tutorials:
+
+```text
+derived/ld_npz/
+derived/ld_mat/
+derived/python_cache/
+derived/matlab_cache/
+```
+
+The `scratch/ld_build/` directory contains temporary LD build files and can be
+deleted after successful builds.
+
+Continue with:
+
+- [Tutorial 2: Python Analysis from Caches](TUTORIAL_2_PYTHON.md)
+- [Tutorial 3: MATLAB/Octave Analysis from Caches](TUTORIAL_3_MATLAB.md)

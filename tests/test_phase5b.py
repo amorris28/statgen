@@ -311,6 +311,7 @@ def test_build_ld_distribution_rejects_monomorphic_snps_before_ld(tmp_path, monk
     assert "--freq" in commands
     assert "--r-unphased" not in commands
     assert not (tmp_path / "ld_reject_monomorphic" / "ld_chr1.monomorphic.tsv").exists()
+    assert not (tmp_path / "ld_reject_monomorphic" / "reference_chr1.bim").exists()
 
 
 def test_build_ld_distribution_allows_monomorphic_snps_with_sidecar(tmp_path, monkeypatch):
