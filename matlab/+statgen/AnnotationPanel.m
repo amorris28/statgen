@@ -64,6 +64,31 @@ classdef AnnotationPanel
             obj.shard_offsets = offsets;
         end
 
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.AnnotationPanel array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            nnz_total = count_nnz_(obj.shards);
+            denom = max(1, obj.num_snp * obj.num_annot);
+            fprintf('  statgen.AnnotationPanel object\n\n');
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    num_annot: %d\n', obj.num_annot);
+            fprintf('    shards: %d\n', numel(obj.shards));
+            fprintf('    shard_labels: %s\n', shard_labels_string_(obj.shards));
+            fprintf('    annonames: %s\n', statgen.internal.display_join_strings(obj.annonames));
+            fprintf('    annomat: %d-by-%d sparse logical-equivalent, nnz=%d, density=%.4g\n', ...
+                obj.num_snp, obj.num_annot, nnz_total, nnz_total / denom);
+        end
+
         function out = get.annomat(obj)
             if isempty(obj.shards)
                 out = sparse([], [], [], 0, obj.num_annot);
@@ -219,5 +244,20 @@ function out = ensure_names_(names)
     end
     if numel(unique(out)) ~= numel(out)
         error('statgen:annotations', 'annotation names must be unique');
+    end
+end
+
+function out = shard_labels_string_(shards)
+    labels = cell(numel(shards), 1);
+    for i = 1:numel(shards)
+        labels{i} = shards{i}.label;
+    end
+    out = statgen.internal.display_join_strings(labels);
+end
+
+function n = count_nnz_(shards)
+    n = 0;
+    for i = 1:numel(shards)
+        n = n + nnz(shards{i}.annomat);
     end
 end

@@ -52,6 +52,30 @@ classdef ReferenceShard
             end
         end
 
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.ReferenceShard array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.ReferenceShard object\n\n');
+            fprintf('    label: %s\n', obj.label);
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    checksum: %s\n', obj.checksum);
+            if obj.is_thin
+                fprintf('    snp, a1, a2: unavailable in thin reference cache\n');
+            else
+                fprintf('    chr, snp, a1, a2: %d-by-1 cell\n', obj.num_snp);
+            end
+        end
+
         function out = get.chr(obj)
             if obj.is_thin
                 out = repmat({obj.label}, obj.num_snp, 1);

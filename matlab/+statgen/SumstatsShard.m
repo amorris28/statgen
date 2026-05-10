@@ -35,11 +35,49 @@ classdef SumstatsShard
             validate_optional_length_(obj.info_vec, obj.num_snp, 'info_vec');
             obj.is_present = ~isnan(obj.logpvec);
         end
+
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.SumstatsShard array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.SumstatsShard object\n\n');
+            fprintf('    label: %s\n', obj.label);
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    present_snps: %d\n', sum(obj.is_present));
+            fprintf('    logpvec: %d-by-1 double\n', obj.num_snp);
+            [present, absent] = optional_field_groups_(obj, ...
+                {'zvec', 'nvec', 'beta_vec', 'se_vec', 'eaf_vec', 'info_vec'});
+            fprintf('    optional_present: %s\n', statgen.internal.display_join_strings(present));
+            fprintf('    optional_absent: %s\n', statgen.internal.display_join_strings(absent));
+            fprintf('    reference_checksum: %s\n', obj.reference_checksum);
+        end
     end
 end
 
 function validate_optional_length_(vec, n, name)
     if ~isempty(vec) && numel(vec) ~= n
         error('statgen:sumstats', '%s length mismatch: expected %d, got %d', name, n, numel(vec));
+    end
+end
+
+function [present, absent] = optional_field_groups_(obj, fields)
+    present = {};
+    absent = {};
+    for i = 1:numel(fields)
+        field = fields{i};
+        if isempty(obj.(field))
+            absent{end + 1, 1} = field;
+        else
+            present{end + 1, 1} = field;
+        end
     end
 end

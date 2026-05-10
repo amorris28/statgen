@@ -75,6 +75,31 @@ classdef ReferencePanel
             obj.shard_offsets = offsets;
         end
 
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.ReferencePanel array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.ReferencePanel object\n\n');
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    shards: %d\n', numel(obj.shards));
+            if ~isempty(obj.shards)
+                labels = cell(numel(obj.shards), 1);
+                for i = 1:numel(obj.shards)
+                    labels{i} = obj.shards{i}.label;
+                end
+                fprintf('    shard_labels: %s\n', statgen.internal.display_join_strings(labels));
+            end
+        end
+
         function out = get.chr(obj)
             if isempty(obj.shards), out = {}; return; end
             vals = cell(numel(obj.shards), 1);

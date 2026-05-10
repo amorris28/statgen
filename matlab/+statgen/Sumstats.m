@@ -67,6 +67,31 @@ classdef Sumstats
             obj.shard_offsets = offsets;
         end
 
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.Sumstats array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.Sumstats object\n\n');
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    shards: %d\n', numel(obj.shards));
+            fprintf('    shard_labels: %s\n', shard_labels_string_(obj.shards));
+            fprintf('    present_snps: %d\n', count_present_(obj.shards));
+            fprintf('    logpvec: %d-by-1 double\n', obj.num_snp);
+            [present, absent] = optional_field_groups_(obj.shards, ...
+                {'zvec', 'nvec', 'beta_vec', 'se_vec', 'eaf_vec', 'info_vec'});
+            fprintf('    optional_present: %s\n', statgen.internal.display_join_strings(present));
+            fprintf('    optional_absent: %s\n', statgen.internal.display_join_strings(absent));
+        end
+
         function out = get.zvec(obj)
             out = concat_optional_(obj.shards, 'zvec');
         end
@@ -161,4 +186,39 @@ function out = concat_optional_(shards, field_name)
         vals{i} = v;
     end
     out = vertcat(vals{:});
+end
+
+function out = shard_labels_string_(shards)
+    labels = cell(numel(shards), 1);
+    for i = 1:numel(shards)
+        labels{i} = shards{i}.label;
+    end
+    out = statgen.internal.display_join_strings(labels);
+end
+
+function n = count_present_(shards)
+    n = 0;
+    for i = 1:numel(shards)
+        n = n + sum(shards{i}.is_present);
+    end
+end
+
+function [present, absent] = optional_field_groups_(shards, fields)
+    present = {};
+    absent = {};
+    for j = 1:numel(fields)
+        field = fields{j};
+        has_field = true;
+        for i = 1:numel(shards)
+            if isempty(shards{i}.(field))
+                has_field = false;
+                break;
+            end
+        end
+        if has_field
+            present{end + 1, 1} = field;
+        else
+            absent{end + 1, 1} = field;
+        end
+    end
 end

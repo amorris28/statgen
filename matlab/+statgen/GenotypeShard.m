@@ -75,5 +75,29 @@ classdef GenotypeShard
 
             obj.reference_checksum = char(reference_checksum);
         end
+
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.GenotypeShard array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.GenotypeShard object\n\n');
+            fprintf('    label: %s\n', obj.label);
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    present_snps: %d\n', sum(obj.is_present));
+            fprintf('    source_num_snp: %d\n', obj.source_num_snp);
+            fprintf('    source_num_sample: %d\n', obj.source_num_sample);
+            fprintf('    present_subjects: %d\n', sum(obj.subject_present));
+            fprintf('    bed_path: %s\n', obj.bed_path);
+            fprintf('    reference_checksum: %s\n', obj.reference_checksum);
+        end
     end
 end

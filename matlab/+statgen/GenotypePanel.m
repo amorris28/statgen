@@ -98,6 +98,32 @@ classdef GenotypePanel
             obj.shard_offsets = offsets;
         end
 
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.GenotypePanel array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.GenotypePanel object\n\n');
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    num_sample: %d\n', obj.num_sample);
+            fprintf('    source_layout: %s\n', obj.source_layout);
+            fprintf('    shards: %d\n', numel(obj.shards));
+            fprintf('    shard_labels: %s\n', shard_labels_string_(obj.shards));
+            fprintf('    present_snps: %d\n', count_present_(obj.shards));
+            fprintf('    samples: male=%d, female=%d, unknown=%d\n', ...
+                sum(obj.is_male), sum(obj.is_female), sum(obj.sex == 0));
+            fprintf('    fid, iid: %d-by-1 cell\n', obj.num_sample);
+            fprintf('    genotype_calls: lazy BED fetch via fetch_genotypes/fetch_genotypes_int8\n');
+        end
+
         function out = get.is_present(obj)
             out = concat_required_(obj.shards, 'is_present');
         end
@@ -325,6 +351,21 @@ function out = concat_required_(shards, field_name)
         vals{i} = shards{i}.(field_name);
     end
     out = vertcat(vals{:});
+end
+
+function out = shard_labels_string_(shards)
+    labels = cell(numel(shards), 1);
+    for i = 1:numel(shards)
+        labels{i} = shards{i}.label;
+    end
+    out = statgen.internal.display_join_strings(labels);
+end
+
+function n = count_present_(shards)
+    n = 0;
+    for i = 1:numel(shards)
+        n = n + sum(shards{i}.is_present);
+    end
 end
 
 function bed_path = parse_bed_path_(varargin)

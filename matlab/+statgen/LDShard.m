@@ -39,5 +39,38 @@ classdef LDShard
             obj.a1freq = double(a1freq(:));
             obj.reference_checksum = char(reference_checksum);
         end
+
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.LDShard array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.LDShard object\n\n');
+            fprintf('    chr: %s\n', obj.chr);
+            if isempty(obj.sex)
+                fprintf('    sex: []\n');
+            else
+                fprintf('    sex: %s\n', obj.sex);
+            end
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            if obj.retain_ld_r
+                fprintf('    ld_r: %d-by-%d sparse double, nnz=%d\n', ...
+                    size(obj.ld_r, 1), size(obj.ld_r, 2), nnz(obj.ld_r));
+            else
+                fprintf('    ld_r: unavailable (not retained)\n');
+            end
+            fprintf('    ld_r2: %d-by-%d sparse double, nnz=%d\n', ...
+                size(obj.ld_r2, 1), size(obj.ld_r2, 2), nnz(obj.ld_r2));
+            fprintf('    a1freq: %d-by-1 double\n', numel(obj.a1freq));
+            fprintf('    reference_checksum: %s\n', obj.reference_checksum);
+        end
     end
 end

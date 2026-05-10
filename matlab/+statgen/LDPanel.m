@@ -81,6 +81,27 @@ classdef LDPanel
             obj.validate_default_chrX_sex_();
         end
 
+        function display(obj)
+            name = inputname(1);
+            if ~isempty(name)
+                fprintf('%s =\n\n', name);
+            end
+            disp(obj);
+        end
+
+        function disp(obj)
+            if numel(obj) ~= 1
+                fprintf('  statgen.LDPanel array with size %s\n', statgen.internal.display_size_string(size(obj)));
+                return;
+            end
+            fprintf('  statgen.LDPanel object\n\n');
+            fprintf('    num_snp: %d\n', obj.num_snp);
+            fprintf('    shard_groups: %d\n', numel(obj.shard_groups));
+            fprintf('    shard_labels: %s\n', shard_group_labels_string_(obj.shard_groups));
+            fprintf('    default_chrX_sex: %s\n', obj.default_chrX_sex);
+            fprintf('    chrX_sexes: %s\n', chrx_sexes_string_(obj.shard_groups));
+        end
+
         function out = get.shards(obj)
             out = cell(numel(obj.shard_groups), 1);
             for i = 1:numel(obj.shard_groups)
@@ -256,4 +277,30 @@ classdef LDPanel
             end
         end
     end
+end
+
+function out = shard_group_labels_string_(groups)
+    labels = cell(numel(groups), 1);
+    for i = 1:numel(groups)
+        labels{i} = groups{i}{1}.label;
+    end
+    out = statgen.internal.display_join_strings(labels);
+end
+
+function out = chrx_sexes_string_(groups)
+    sexes = {};
+    for i = 1:numel(groups)
+        group = groups{i};
+        if isempty(group) || ~strcmp(group{1}.chr, 'X')
+            continue;
+        end
+        for j = 1:numel(group)
+            if isempty(group{j}.sex)
+                sexes{end + 1, 1} = '[]';
+            else
+                sexes{end + 1, 1} = group{j}.sex;
+            end
+        end
+    end
+    out = statgen.internal.display_join_strings(sexes);
 end

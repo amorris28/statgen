@@ -122,6 +122,11 @@ concatenations from shard payloads:
 - callers that need repeated use should store one local copy, e.g.
   `A = panel.annomat`.
 
+Panel and shard classes may define `display(obj)`/`disp(obj)` for interactive
+summaries. Display output should be metadata-only and must not materialize
+large genome-wide dependent accessors or fields unavailable in thin/cache-light
+objects.
+
 This keeps MATLAB/Octave behavior aligned with the memory model in the object
 specs and with Python panel-accessor semantics.
 
