@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+ ## [0.2.5] - 2026-05-10
+
+### Fixed
+- MATLAB reference checksums now use the same unpadded base-pair formatting and
+  MD5 implementation path as Python/Octave, avoiding checksum mismatches for
+  LD reference shards.
+
  ## [0.2.4] - 2026-05-09
 
 ### Added
