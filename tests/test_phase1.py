@@ -10,7 +10,7 @@ from statgen.reference import (
     load_reference_cache,
     save_reference_cache,
 )
-from tests.conftest import FIXTURES_DIR, MATLAB_DIR, run_octave, skipif_no_octave
+from tests.conftest import FIXTURES_DIR, MATLAB_DIR, run_octave, skipif_no_octave, write_plink_bim
 
 SHARDED = FIXTURES_DIR / "reference/sharded/@.bim"
 NONSHARDED = FIXTURES_DIR / "reference/nonsharded/all.bim"
@@ -550,6 +550,27 @@ def test_octave_checksums_match_python():
     lines = result.stdout.strip().splitlines()
     assert lines[0] == CHR1_CHECKSUM
     assert lines[1] == CHRX_CHECKSUM
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_reference_checksum_ignores_matlab_num2str_padding(tmp_path):
+    rows = [
+        ("20", "rs1", 0, 82090, "A", "C"),
+        ("20", "rs2", 0, 102060, "C", "T"),
+        ("20", "rs3", 0, 10000000, "G", "A"),
+    ]
+    bim_path = tmp_path / "reference_chr20.bim"
+    write_plink_bim(bim_path, rows)
+    expected = _checksum(rows)
+    script = (
+        f"ref = statgen.load_reference('{bim_path}'); "
+        "fprintf('%s\\n', ref.shards{1}.checksum);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines == [expected]
 
 
 @pytest.mark.octave

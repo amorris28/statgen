@@ -124,8 +124,8 @@ end
 
 function out = reference_checksum_(chr, bp, a1, a2)
     % MD5 over 'chr:bp:a1:a2\n' lines in row order
-    bp_str = cellstr(num2str(round(bp), '%d'));
-    parts = strcat(chr, {':'}, bp_str, {':'}, a1, {':'}, a2, {sprintf('\n')});
+    bp_str = strtrim(cellstr(num2str(round(bp(:)), '%d')));
+    parts = strcat(chr(:), {':'}, bp_str, {':'}, a1(:), {':'}, a2(:), {sprintf('\n')});
     text_payload = [parts{:}];
     out = statgen.internal.md5_hex(text_payload);
 end

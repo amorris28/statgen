@@ -1,10 +1,8 @@
 function out = md5_hex(text_payload)
 % Return lowercase MD5 hex digest for a char/uint8 payload.
-    try
+    if exist('OCTAVE_VERSION', 'builtin') ~= 0
         out = lower(hash('md5', text_payload));
         return
-    catch
-        % MATLAB path: use Java MessageDigest when hash(...) is unavailable.
     end
 
     md = java.security.MessageDigest.getInstance('MD5');
