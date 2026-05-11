@@ -6,6 +6,7 @@
 % Loaders:
 %   load_reference          Load a ReferencePanel from BIM metadata.
 %   load_ld                 Load an LDPanel from a MATLAB LD distribution.
+%   load_ld_reference       Load the ReferencePanel bundled with an LD distribution.
 %   load_sumstats           Load summary statistics aligned to a reference.
 %   load_annotations        Load BED annotations aligned to a reference.
 %   load_genotype           Load PLINK genotype metadata aligned to a reference.

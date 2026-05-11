@@ -473,6 +473,7 @@ returns `a1freq` as double.
 
 ```text
 load_ld(path, optional shards, optional default_chrX_sex) -> LDPanel
+load_ld_reference(path, optional shards) -> ReferencePanel
 validate_ld_distribution(path, optional check_payload_structure) -> report
 
 LDPanel.num_snp -> int
@@ -495,6 +496,12 @@ reference as `LDPanel.reference`. Requesting a shard absent from the reference
 cache or from the LD panel is an error. Missing required LD files or the
 manifest-declared reference cache are errors. Bundled reference BIM files are
 not read by `load_ld`.
+
+`load_ld_reference` loads only the manifest-declared reference cache from an LD
+distribution root, applies the same optional `shards` subsetting, and does not
+load LD shard matrices. It is the convenience API for retrieving the reference
+paired with an LD distribution when callers do not know the manifest-declared
+cache filename.
 
 `validate_ld_distribution` is an explicit distribution-QA path, not part of
 default loading. It is self-contained: no external reference is required. It

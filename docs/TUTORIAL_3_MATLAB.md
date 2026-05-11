@@ -54,8 +54,7 @@ ld_mat_dir = 'derived/ld_mat';
 ## Load Caches
 
 ```matlab
-reference = statgen.load_reference_cache( ...
-    fullfile(mat_cache, 'reference.mat'));
+reference = statgen.load_ld_reference(ld_mat_dir);
 
 ld = statgen.load_ld(ld_mat_dir, 'female');
 

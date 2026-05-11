@@ -9,7 +9,7 @@ from scipy import sparse
 
 import statgen
 from statgen._ld_schema import md5_file
-from statgen.ld import load_ld, validate_ld_distribution
+from statgen.ld import load_ld, load_ld_reference, validate_ld_distribution
 from statgen.reference import load_reference
 from tests.conftest import (
     FIXTURES_DIR,
@@ -97,6 +97,16 @@ def test_load_ld_uses_manifest_reference_cache():
     assert ld.reference.is_object_compatible(ld) is True
 
 
+def test_load_ld_reference_uses_manifest_reference_cache():
+    reference = load_ld_reference(LD_PY)
+    ld = load_ld(LD_PY)
+
+    assert [s.label for s in reference.shards] == ["1", "X"]
+    assert reference.num_snp == ld.reference.num_snp
+    assert [s.checksum for s in reference.shards] == [s.checksum for s in ld.reference.shards]
+    assert reference.is_object_compatible(ld) is True
+
+
 def test_load_ld_shards_filters_manifest_reference_cache():
     ld = load_ld(LD_PY, shards=["1"])
     assert [s.label for s in ld.reference.shards] == ["1"]
@@ -105,6 +115,16 @@ def test_load_ld_shards_filters_manifest_reference_cache():
     ld = load_ld(LD_PY, shards=["X"])
     assert [s.label for s in ld.reference.shards] == ["X"]
     assert [s.label for s in ld.shards] == ["X"]
+
+
+def test_load_ld_reference_shards_filters_manifest_reference_cache():
+    reference = load_ld_reference(LD_PY, shards=["1"])
+    assert [s.label for s in reference.shards] == ["1"]
+    assert reference.num_snp == 5
+
+    reference = load_ld_reference(LD_PY, shards=["X"])
+    assert [s.label for s in reference.shards] == ["X"]
+    assert reference.num_snp == 3
 
 
 def test_verbosity_api_accepts_documented_levels():
@@ -192,6 +212,20 @@ def test_load_ld_missing_manifest_reference_cache_fails(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="LD file not found"):
         load_ld(root)
+
+
+def test_load_ld_reference_missing_manifest_reference_cache_fails(tmp_path):
+    root = _copy_ld_distribution(tmp_path)
+    manifest = _read_manifest(root)
+    (root / manifest["reference_cache"]).unlink()
+
+    with pytest.raises(FileNotFoundError, match="LD file not found"):
+        load_ld_reference(root)
+
+
+def test_load_ld_reference_rejects_single_shard_file_path():
+    with pytest.raises(ValueError, match="panel root directory"):
+        load_ld_reference(LD_PY / "ld_chr1.npz")
 
 
 def test_load_ld_rejects_single_shard_file_path():
@@ -428,6 +462,29 @@ def test_octave_load_ld_uses_reference_cache_and_shard_subset():
     assert lines[2] == "1"
     assert lines[3] == "1"
     assert lines[4] == "0.90"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_ld_reference_uses_manifest_reference_cache_and_subset():
+    script = _octave_script(
+        "old_verbosity = statgen.get_verbosity(); "
+        "cleanup_verbosity = onCleanup(@() statgen.set_verbosity(old_verbosity)); "
+        "statgen.set_verbosity('quiet'); "
+        "ref = statgen.load_ld_reference([fixture_dir '/ld/matlab']); "
+        "ld = statgen.load_ld([fixture_dir '/ld/matlab']); "
+        "fprintf('%d\\n', ref.num_snp); "
+        "fprintf('%d\\n', ref.is_object_compatible(ld)); "
+        "ref1 = statgen.load_ld_reference([fixture_dir '/ld/matlab'], {'1'}); "
+        "fprintf('%d\\n', ref1.num_snp); "
+        "fprintf('%s\\n', ref1.shards{1}.label); "
+        "ref2 = statgen_load_ld_reference([fixture_dir '/ld/matlab'], {'1'}); "
+        "fprintf('%d\\n', ref2.num_snp);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = matlab_data_lines(result.stdout)
+    assert lines == ["8", "1", "5", "1", "5"]
 
 
 @pytest.mark.octave

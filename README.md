@@ -136,6 +136,8 @@ distributions. In Octave, the package overview is available with
 
 - `load_ld(path, shards=None, default_chrX_sex=None)` loads a sparse LD
   distribution and its manifest-declared reference cache.
+- `load_ld_reference(path, shards=None)` loads only the manifest-declared
+  reference cache from an LD distribution root.
 - `validate_ld_distribution(path)` checks manifest, checksums, bundled
   references, and optionally sparse payload structure.
 - `panel.a1freq(chrX_sex=None)` returns reference-aligned allele frequencies.

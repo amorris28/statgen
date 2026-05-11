@@ -19,6 +19,7 @@ matlab/
   +statgen/
     load_reference.m
     load_ld.m
+    load_ld_reference.m
     load_sumstats.m
     load_annotations.m
     load_genotype.m
@@ -36,6 +37,7 @@ matlab/
     +internal/          % shared implementation helpers, not public API
   statgen_load_reference.m
   statgen_load_ld.m
+  statgen_load_ld_reference.m
   statgen_load_sumstats.m
   statgen_load_annotations.m
   statgen_load_genotype.m
@@ -63,8 +65,8 @@ caller discards all outputs. The internal `statgen.*` function is responsible
 for all argument validation and logic; wrappers contain no other code.
 
 Wrappers exist only for: `statgen_load_reference`, `statgen_load_ld`,
-`statgen_load_sumstats`, `statgen_load_annotations`, `statgen_load_genotype`,
-`statgen_fast_prune`.
+`statgen_load_ld_reference`, `statgen_load_sumstats`,
+`statgen_load_annotations`, `statgen_load_genotype`, `statgen_fast_prune`.
 No wrappers are created for classes or internal helpers.
 
 Interactive `help` text conventions are specified in

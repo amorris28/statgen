@@ -251,16 +251,8 @@ def load_ld(path, shards=None, default_chrX_sex=None) -> LDPanel:
         "female" if default_chrX_sex is None else default_chrX_sex,
         "default_chrX_sex",
     )
-    path = Path(path)
-    if not path.is_dir():
-        raise ValueError("load_ld: path must identify a panel root directory")
-
-    manifest = read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
-    from .reference import load_reference_cache
-
-    reference_cache_path = path / manifest["reference_cache"]
-    require_file(reference_cache_path)
-    reference = load_reference_cache(reference_cache_path, shards=shards)
+    path, manifest = _read_panel_manifest(path, "load_ld")
+    reference = _load_manifest_reference_cache(path, manifest, shards)
 
     ref_shards = list(reference.shards)
     if not ref_shards:
@@ -268,6 +260,11 @@ def load_ld(path, shards=None, default_chrX_sex=None) -> LDPanel:
 
     groups = _load_panel_root(path, manifest, ref_shards)
     return LDPanel(groups, default_chrX_sex=default_chrX_sex, reference=reference)
+
+
+def load_ld_reference(path, shards=None):
+    path, manifest = _read_panel_manifest(path, "load_ld_reference")
+    return _load_manifest_reference_cache(path, manifest, shards)
 
 
 def validate_ld_distribution(path, check_payload_structure=False) -> dict:
@@ -349,6 +346,21 @@ def _write_ld_npz_distribution(*args, **kwargs):
     from ._ld_writer import write_ld_npz_distribution
 
     return write_ld_npz_distribution(*args, **kwargs)
+
+
+def _read_panel_manifest(path, where: str) -> tuple[Path, dict]:
+    path = Path(path)
+    if not path.is_dir():
+        raise ValueError(f"{where}: path must identify a panel root directory")
+    return path, read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
+
+
+def _load_manifest_reference_cache(root: Path, manifest: dict, shards):
+    from .reference import load_reference_cache
+
+    reference_cache_path = root / manifest["reference_cache"]
+    require_file(reference_cache_path)
+    return load_reference_cache(reference_cache_path, shards=shards)
 
 
 def _load_panel_root(root: Path, manifest: dict, ref_shards: list) -> list[list[LDShard]]:

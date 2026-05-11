@@ -53,8 +53,7 @@ import numpy as np
 
 from statgen.annotations import load_annotations_cache
 from statgen.genotype import load_genotype_cache
-from statgen.ld import fast_prune, load_ld
-from statgen.reference import load_reference_cache
+from statgen.ld import fast_prune, load_ld, load_ld_reference
 from statgen.sumstats import load_sumstats_cache
 
 cache_root = Path("derived/python_cache")
@@ -64,7 +63,7 @@ ld_npz_dir = Path("derived/ld_npz")
 ## Load Caches
 
 ```python
-reference = load_reference_cache(cache_root / "reference.npz")
+reference = load_ld_reference(ld_npz_dir)
 
 ld = load_ld(
     ld_npz_dir,

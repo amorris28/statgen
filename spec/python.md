@@ -28,7 +28,8 @@ python/
 - Classes: `PascalCase` matching the spec object names (`ReferenceShard`,
   `ReferencePanel`, `LDPanel`, etc.).
 - Public loader functions are module-level free functions: `load_reference`,
-  `load_ld`, `load_sumstats`, `load_annotations`, `load_genotype`.
+  `load_ld`, `load_ld_reference`, `load_sumstats`, `load_annotations`,
+  `load_genotype`.
 - Private helpers are prefixed with a single underscore.
 
 ## Types and return values
