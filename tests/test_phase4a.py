@@ -489,6 +489,24 @@ def test_octave_load_ld_reference_uses_manifest_reference_cache_and_subset():
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_ld_md5_file_falls_back_when_system_hash_is_unavailable():
+    script = _octave_script(
+        "manifest = jsondecode(fileread([fixture_dir '/ld/matlab/ld_manifest.json'])); "
+        "old_path = getenv('PATH'); "
+        "cleanup_path = onCleanup(@() setenv('PATH', old_path)); "
+        "setenv('PATH', ''); "
+        "h = statgen.internal.ld_md5_file([fixture_dir '/ld/matlab/ld_chr1.mat']); "
+        "fprintf('%s\\n', h); "
+        "fprintf('%s\\n', manifest.shards(1).file_md5);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = matlab_data_lines(result.stdout)
+    assert lines[0] == lines[1]
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_validate_ld_distribution_and_bad_chrx_sex(tmp_path):
     bad_root = tmp_path / "ld_bad"
     shutil.copytree(LD_MAT, bad_root)

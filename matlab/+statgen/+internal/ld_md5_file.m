@@ -8,6 +8,49 @@ function out = ld_md5_file(path)
         return
     end
 
+    out = md5_file_stream_(path);
+end
+
+function out = md5_file_stream_(path)
+    try
+        md = java.security.MessageDigest.getInstance('MD5');
+    catch ME
+        out = md5_file_hash_full_(path, ME);
+        return
+    end
+
+    warning('statgen:ld:md5Fallback', ...
+        '%s: system MD5 command unavailable; computing MD5 in MATLAB', path);
+
+    fid = fopen(path, 'rb');
+    if fid < 0
+        error('statgen:io', 'Cannot open LD file: %s', path);
+    end
+    cleaner = onCleanup(@() fclose(fid));
+    chunk_size = 16 * 1024 * 1024;
+    while true
+        bytes = fread(fid, chunk_size, '*uint8');
+        if isempty(bytes)
+            break
+        end
+        md.update(uint8(bytes(:)));
+    end
+    clear cleaner;
+
+    d = typecast(md.digest(), 'uint8');
+    out = lower(reshape(dec2hex(d)', 1, []));
+end
+
+function out = md5_file_hash_full_(path, java_error)
+    if exist('hash', 'builtin') ~= 5 && exist('hash', 'file') ~= 2
+        error('statgen:io', ...
+            'Cannot compute MD5 for %s without md5sum/md5 command, Java MessageDigest, or hash(): %s', ...
+            path, java_error.message);
+    end
+
+    warning('statgen:ld:md5Fallback', ...
+        '%s: system MD5 command unavailable; computing MD5 in MATLAB', path);
+
     fid = fopen(path, 'rb');
     if fid < 0
         error('statgen:io', 'Cannot open LD file: %s', path);
@@ -15,7 +58,7 @@ function out = ld_md5_file(path)
     cleaner = onCleanup(@() fclose(fid));
     bytes = fread(fid, Inf, '*uint8');
     clear cleaner;
-    out = md5_hex_(bytes);
+    out = lower(hash('md5', char(bytes')));
 end
 
 function out = md5_file_system_(path)
@@ -58,18 +101,4 @@ end
 function out = shell_quote_(path)
     replacement = ['''' '\' '''' ''''];
     out = ['''' strrep(path, '''', replacement) ''''];
-end
-
-function out = md5_hex_(bytes)
-    try
-        out = lower(hash('md5', char(bytes')));
-        return
-    catch
-        % MATLAB path: use Java MessageDigest when hash(...) is unavailable.
-    end
-
-    md = java.security.MessageDigest.getInstance('MD5');
-    md.update(uint8(bytes(:)));
-    d = typecast(md.digest(), 'uint8');
-    out = lower(reshape(dec2hex(d)', 1, []));
 end
