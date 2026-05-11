@@ -54,6 +54,9 @@ def test_octave_panel_and_shard_display_methods_are_safe():
     fixture_dir = str(FIXTURES_DIR)
     script = (
         f"fixture_dir = '{fixture_dir}'; "
+        "old_verbosity = statgen.get_verbosity(); "
+        "cleanup_verbosity = onCleanup(@() statgen.set_verbosity(old_verbosity)); "
+        "statgen.set_verbosity('quiet'); "
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         "sumstats = statgen.load_sumstats([fixture_dir '/sumstats/traits.tsv.gz'], ref); "
         "annotations = statgen.load_annotations({[fixture_dir '/annotations/anno1.bed'], [fixture_dir '/annotations/anno2.bed']}, ref); "

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+ ## [0.2.6] - 2026-05-11
+
+### Added
+- Python and MATLAB/Octave now provide `load_ld_reference(...)` to load the
+  manifest-declared `ReferencePanel` from an LD distribution root without
+  loading LD matrices or manually parsing `ld_manifest.json`.
+- Python and MATLAB/Octave now provide global runtime verbosity controls with
+  `set_verbosity(...)` and `get_verbosity(...)`. `load_ld` reports per-shard
+  loading progress at the default `info` level and suppresses it at `quiet`.
+- MATLAB/Octave panel and shard objects now have concise display summaries for
+  interactive use.
+
+### Changed
+- LD distributions now use the manifest-declared reference cache for
+  `load_ld(...)`; runtime loaders no longer rely on hard-coded reference cache
+  filenames. Manifest validation also checks the manifest-declared reference
+  cache against bundled reference BIM shards.
+- MATLAB/Octave `create_ld_mat_manifest(...)` now writes the manifest-declared
+  reference cache into the LD distribution.
+
+### Fixed
+- MATLAB/Octave LD manifest creation and validation now stream the internal MD5
+  fallback instead of reading entire large `.mat` LD shards into Java heap
+  memory. A warning is emitted when the system MD5 command is unavailable and
+  MATLAB-side hashing is used.
+
  ## [0.2.5] - 2026-05-10
 
 ### Fixed
