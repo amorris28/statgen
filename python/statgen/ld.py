@@ -13,6 +13,7 @@ from ._ld_schema import (
     validate_manifest_entry_agreement,
 )
 from ._utils import validate_requested_shards
+from ._verbosity import info as _log_info
 
 
 class LDShard:
@@ -373,6 +374,10 @@ def _load_panel_root(root: Path, manifest: dict, ref_shards: list) -> list[list[
         seen_sex = set()
         for entry in selected:
             shard_path = root / entry["file"]
+            label = str(entry.get("chr"))
+            sex = entry.get("sex")
+            suffix = "" if sex is None else f" ({sex})"
+            _log_info(f"statgen.load_ld: loading shard {label}{suffix} from {shard_path}")
             shard, meta = _load_npz_shard(shard_path)
             validate_manifest_entry_agreement(entry, meta, shard_path)
             _validate_reference_compatibility(shard, ref_shard, shard_path)

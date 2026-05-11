@@ -7,10 +7,18 @@ import numpy as np
 import pytest
 from scipy import sparse
 
+import statgen
 from statgen._ld_schema import md5_file
 from statgen.ld import load_ld, validate_ld_distribution
 from statgen.reference import load_reference
-from tests.conftest import FIXTURES_DIR, MATLAB_DIR, matlab_data_lines, run_octave, skipif_no_octave
+from tests.conftest import (
+    FIXTURES_DIR,
+    MATLAB_DIR,
+    matlab_data_lines,
+    run_octave,
+    skipif_matlab_engine,
+    skipif_no_octave,
+)
 
 
 SHARDED_REF = FIXTURES_DIR / "reference/sharded/@.bim"
@@ -97,6 +105,37 @@ def test_load_ld_shards_filters_manifest_reference_cache():
     ld = load_ld(LD_PY, shards=["X"])
     assert [s.label for s in ld.reference.shards] == ["X"]
     assert [s.label for s in ld.shards] == ["X"]
+
+
+def test_verbosity_api_accepts_documented_levels():
+    old = statgen.get_verbosity()
+    try:
+        for level in ("quiet", "info"):
+            statgen.set_verbosity(level)
+            assert statgen.get_verbosity() == level
+        with pytest.raises(ValueError, match="quiet, info"):
+            statgen.set_verbosity("verbose")
+    finally:
+        statgen.set_verbosity(old)
+
+
+def test_load_ld_reports_shards_unless_verbosity_is_quiet(capsys):
+    old = statgen.get_verbosity()
+    try:
+        statgen.set_verbosity("info")
+        load_ld(LD_PY, shards=["1"])
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "statgen.load_ld: loading shard 1 from" in captured.err
+        assert "ld_chr1.npz" in captured.err
+
+        statgen.set_verbosity("quiet")
+        load_ld(LD_PY, shards=["1"])
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "statgen.load_ld: loading shard" not in captured.err
+    finally:
+        statgen.set_verbosity(old)
 
 
 def test_load_ld_default_chrx_sex_validation():
@@ -304,8 +343,48 @@ def test_npz_archives_are_not_pickle_payloads():
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_verbosity_api_accepts_documented_levels():
+    script = _octave_script(
+        "old_verbosity = statgen.get_verbosity(); "
+        "cleanup_verbosity = onCleanup(@() statgen.set_verbosity(old_verbosity)); "
+        "statgen.set_verbosity('quiet'); fprintf('%s\\n', statgen.get_verbosity()); "
+        "statgen.set_verbosity('info'); fprintf('%s\\n', statgen.get_verbosity()); "
+        "try; statgen.set_verbosity('verbose'); fprintf('NOFAIL\\n'); "
+        "catch; fprintf('FAIL\\n'); end"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert matlab_data_lines(result.stdout) == ["quiet", "info", "FAIL"]
+
+
+@pytest.mark.octave
+@skipif_no_octave
+@skipif_matlab_engine
+def test_octave_load_ld_reports_shards_unless_verbosity_is_quiet():
+    script = _octave_script(
+        "old_verbosity = statgen.get_verbosity(); "
+        "cleanup_verbosity = onCleanup(@() statgen.set_verbosity(old_verbosity)); "
+        "statgen.set_verbosity('info'); "
+        "ld = statgen.load_ld([fixture_dir '/ld/matlab'], {'1'}); "
+        "fprintf('loaded-info:%d\\n', ld.num_snp); "
+        "statgen.set_verbosity('quiet'); "
+        "ld = statgen.load_ld([fixture_dir '/ld/matlab'], {'1'}); "
+        "fprintf('loaded-quiet:%d\\n', ld.num_snp);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert matlab_data_lines(result.stdout) == ["loaded-info:5", "loaded-quiet:5"]
+    assert result.stderr.count("statgen.load_ld: loading shard 1 from") == 1
+    assert "ld_chr1.mat" in result.stderr
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_load_ld_mat_fixture_sparse_payloads():
     script = _octave_script(
+        "old_verbosity = statgen.get_verbosity(); "
+        "cleanup_verbosity = onCleanup(@() statgen.set_verbosity(old_verbosity)); "
+        "statgen.set_verbosity('quiet'); "
         "ld = statgen.load_ld([fixture_dir '/ld/matlab']); "
         "fprintf('%s\\n', ld.default_chrX_sex); "
         "fprintf('%d,%d\\n', numel(ld.shard_groups{1}), numel(ld.shard_groups{2})); "
@@ -331,6 +410,9 @@ def test_octave_load_ld_mat_fixture_sparse_payloads():
 @skipif_no_octave
 def test_octave_load_ld_uses_reference_cache_and_shard_subset():
     script = _octave_script(
+        "old_verbosity = statgen.get_verbosity(); "
+        "cleanup_verbosity = onCleanup(@() statgen.set_verbosity(old_verbosity)); "
+        "statgen.set_verbosity('quiet'); "
         "ld = statgen.load_ld([fixture_dir '/ld/matlab'], {'1'}); "
         "fprintf('%d\\n', numel(ld.shard_groups)); "
         "fprintf('%d\\n', numel(ld.reference.shards)); "
@@ -359,6 +441,9 @@ def test_octave_validate_ld_distribution_and_bad_chrx_sex(tmp_path):
 
     script = _octave_script(
         "warning('off', 'statgen:ld:v5mat'); "
+        "old_verbosity = statgen.get_verbosity(); "
+        "cleanup_verbosity = onCleanup(@() statgen.set_verbosity(old_verbosity)); "
+        "statgen.set_verbosity('quiet'); "
         "report = statgen.validate_ld_distribution([fixture_dir '/ld/matlab'], true); "
         "fprintf('%d\\n', report.ok); "
         f"try; statgen.load_ld('{bad_root}'); fprintf('NOFAIL\\n'); catch; fprintf('FAIL\\n'); end"

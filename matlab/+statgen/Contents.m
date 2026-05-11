@@ -30,6 +30,8 @@
 %   validate_ld_distribution Validate a MATLAB LD distribution.
 %   convert_ld_npz_to_mat   Convert Python LD shards to MATLAB .mat shards.
 %   create_ld_mat_manifest  Create a manifest for converted MATLAB LD shards.
+%   set_verbosity          Set runtime verbosity: quiet or info.
+%   get_verbosity          Return current runtime verbosity.
 %
 % LD preparation:
 %   Build Python .npz LD shards with script/statgen_build_ld.py, convert them

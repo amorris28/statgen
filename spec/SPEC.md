@@ -18,6 +18,7 @@ In this file:
 1. [Alignment and indexing](#alignment-and-indexing)
 1. [Portable storage policy](#portable-storage-policy)
 1. [Object scope and mutability](#object-scope-and-mutability)
+1. [Runtime verbosity](#runtime-verbosity)
 1. [Optional collection manifests](#optional-collection-manifests)
 
 In separate files:
@@ -169,6 +170,15 @@ statistical genetics workflows:
 
 Everything beyond this — regression, likelihood, enrichment, model fitting — is
 user-space code that operates on plain arrays extracted from these objects.
+
+## Runtime verbosity
+
+`statgen` defines a global runtime verbosity setting with levels `quiet` and
+`info`; the default is `info`. The public API is `set_verbosity(level)` and
+`get_verbosity()`.
+
+`load_ld` consults this setting: at `info` it reports progress while loading
+individual shards, and at `quiet` it suppresses that reporting.
 
 ## Optional collection manifests
 

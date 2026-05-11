@@ -121,6 +121,13 @@ function groups = load_panel_root_(root, manifest, ref_shards, retain_ld_r)
         for k = 1:numel(selected)
             entry = entries(selected(k));
             shard_path = fullfile(root, entry.file);
+            suffix = '';
+            if ~isempty(entry.sex)
+                suffix = sprintf(' (%s)', char(entry.sex));
+            end
+            statgen.internal.verbosity_state('info', ...
+                sprintf('statgen.load_ld: loading shard %s%s from %s', ...
+                char(entry.chr), suffix, shard_path));
             [shard, meta] = statgen.internal.ld_read_mat_shard(shard_path, false, retain_ld_r);
             warn_monomorphic_snps_(shard_path, meta);
             statgen.internal.ld_validate_manifest_entry_agreement(entry, meta, shard_path);
