@@ -2,6 +2,8 @@
   "object_type": "ld_panel_manifest",
   "schema_version": "1.0",
   "runtime_format": "matlab_mat_sparse_double",
+  "reference_cache": "reference_cache.mat",
+  "reference_cache_md5": "9cb2b3bf9d07bd64387650b80835d43e",
   "shards": [
     {
       "chr": "1",

@@ -83,7 +83,7 @@ from `.mat`, but constructing huge sparse matrices from COO-like triplets can
 consume excessive CPU and peak RAM. For million-SNP LD matrices, relying on
 MATLAB-only sparse construction at user load time is not acceptable.
 
-The old cache model puts the expensive conversion on each user:
+A user-side cache conversion model puts the expensive conversion on each user:
 
 ```text
 portable LD triplets -> load_ld -> LDPanel -> save_ld_cache

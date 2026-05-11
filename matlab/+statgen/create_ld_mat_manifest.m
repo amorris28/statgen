@@ -62,6 +62,9 @@ function manifest = create_ld_mat_manifest(input_root, output_root, shards)
     manifest.object_type = 'ld_panel_manifest';
     manifest.schema_version = '1.0';
     manifest.runtime_format = 'matlab_mat_sparse_double';
+    manifest.reference_cache = 'reference_cache.mat';
+    reference_cache_path = write_reference_cache_(output_root, records, manifest.reference_cache);
+    manifest.reference_cache_md5 = statgen.internal.ld_md5_file(reference_cache_path);
     manifest.shards = records;
     write_json_atomic_(fullfile(output_root, 'ld_manifest.json'), manifest);
 end
@@ -157,6 +160,37 @@ function validate_expected_metadata_(entry, meta, mat_path)
     if ~strcmp(char(entry.reference_bim), char(meta.reference_bim))
         error('statgen:ld', '%s: expected .mat metadata mismatch for reference_bim', mat_path);
     end
+end
+
+function cache_path = write_reference_cache_(root, records, file_name)
+    ref_shards = {};
+    seen = {};
+    for i = 1:numel(records)
+        label = char(records(i).chr);
+        if any(strcmp(seen, label))
+            continue
+        end
+        seen{end+1} = label; %#ok<AGROW>
+        reference_path = fullfile(root, records(i).reference_bim);
+        panel = statgen.load_reference(reference_path);
+        if numel(panel.shards) ~= 1
+            error('statgen:ld', '%s: bundled reference_bim must contain exactly one shard', reference_path);
+        end
+        ref = panel.shards{1};
+        if ~strcmp(ref.label, label)
+            error('statgen:ld', '%s: bundled reference_bim chr does not match manifest', reference_path);
+        end
+        if ref.num_snp ~= double(records(i).num_snp)
+            error('statgen:ld', '%s: bundled reference_bim num_snp does not match manifest', reference_path);
+        end
+        if ~strcmp(ref.checksum, records(i).reference_checksum)
+            error('statgen:ld', '%s: bundled reference_bim reference_checksum does not match manifest', reference_path);
+        end
+        ref_shards{end+1, 1} = ref; %#ok<AGROW>
+    end
+    cache_path = fullfile(root, file_name);
+    reference = statgen.ReferencePanel(ref_shards);
+    reference.save_cache(cache_path);
 end
 
 function write_json_atomic_(path, obj)

@@ -129,13 +129,13 @@ distributions. In Octave, the package overview is available with
 - `panel.select_shards(shards)` subsets by shard label.
 - `panel.is_object_compatible(other)` checks reference compatibility and returns
   `false` on mismatch rather than raising.
-- `panel.save_cache(path, mode="full")` and `load_reference_cache(...)` save and
-  reload reference caches. Thin caches use `mode="thin"`.
+- `panel.save_cache(path)` and `load_reference_cache(...)` save and reload
+  reference caches.
 
 ### LDPanel
 
-- `load_ld(path, reference=None, shards=None, default_chrX_sex=None)` loads a
-  sparse LD distribution.
+- `load_ld(path, shards=None, default_chrX_sex=None)` loads a sparse LD
+  distribution and its manifest-declared reference cache.
 - `validate_ld_distribution(path)` checks manifest, checksums, bundled
   references, and optionally sparse payload structure.
 - `panel.a1freq(chrX_sex=None)` returns reference-aligned allele frequencies.

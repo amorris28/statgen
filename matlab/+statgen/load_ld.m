@@ -2,16 +2,14 @@ function panel = load_ld(path, varargin)
 %LOAD_LD Load a MATLAB sparse LD distribution.
 %
 %   ld = statgen.load_ld(path)
-%   ld = statgen.load_ld(path, reference)
-%   ld = statgen.load_ld(path, reference, chrX_sex)
-%   ld = statgen.load_ld(path, reference, shards)
-%   ld = statgen.load_ld(path, reference, shards, chrX_sex)
+%   ld = statgen.load_ld(path, shards)
+%   ld = statgen.load_ld(path, shards, chrX_sex)
 %   ld = statgen.load_ld(..., retain_ld_r)
 %
 % path is an LD distribution directory containing ld_manifest.json and converted
 % .mat LD shard files; load_ld does not load a single shard file or @ template.
-% If reference is omitted, load_ld uses the reference BIM files bundled with the
-% LD distribution. Optional shards restrict loading to selected canonical shard
+% load_ld uses the manifest-declared reference cache bundled with the LD
+% distribution. Optional shards restrict loading to selected canonical shard
 % labels. chrX_sex selects the default chrX shard; use 'female', 'male', or
 % 'combined'.
 %
@@ -25,7 +23,7 @@ function panel = load_ld(path, varargin)
 %
 % See also statgen.LDPanel, statgen.convert_ld_npz_to_mat,
 % statgen.create_ld_mat_manifest, statgen.validate_ld_distribution.
-    [reference, shards, default_chrX_sex, retain_ld_r] = parse_args_(varargin{:});
+    [shards, default_chrX_sex, retain_ld_r] = parse_args_(varargin{:});
     statgen.LDPanel.validate_chrx_sex_(default_chrX_sex, 'default_chrX_sex');
     if ~islogical(retain_ld_r) && ~(isnumeric(retain_ld_r) && isscalar(retain_ld_r))
         error('statgen:ld', 'retain_ld_r must be a scalar logical value');
@@ -39,43 +37,39 @@ function panel = load_ld(path, varargin)
 
     manifest = statgen.internal.ld_read_manifest(fullfile(path, 'ld_manifest.json'), ...
         'matlab_mat_sparse_double');
-    if isempty(reference)
-        reference = load_bundled_reference_(path, manifest, shards);
-    elseif ~isempty(shards)
-        reference = reference.select_shards(shards);
-    end
+    reference = statgen.load_reference_cache(fullfile(path, manifest.reference_cache), shards);
     groups = load_panel_root_(path, manifest, reference.shards, retain_ld_r);
     panel = statgen.LDPanel(groups, default_chrX_sex, reference);
 end
 
-function [reference, shards, default_chrX_sex, retain_ld_r] = parse_args_(varargin)
-    reference = [];
+function [shards, default_chrX_sex, retain_ld_r] = parse_args_(varargin)
     shards = [];
     default_chrX_sex = 'female';
     retain_ld_r = true;
 
     if numel(varargin) >= 1
-        reference = varargin{1};
-    end
-    if numel(varargin) >= 2
-        third = varargin{2};
-        if is_chrx_sex_(third)
-            default_chrX_sex = char(third);
-            if numel(varargin) >= 3 && ~isempty(varargin{3})
-                retain_ld_r = varargin{3};
-            end
+        if is_chrx_sex_(varargin{1})
+            default_chrX_sex = char(varargin{1});
         else
-            shards = third;
-            if numel(varargin) >= 3 && ~isempty(varargin{3})
-                default_chrX_sex = varargin{3};
-            end
-            if numel(varargin) >= 4 && ~isempty(varargin{4})
-                retain_ld_r = varargin{4};
-            end
+            shards = varargin{1};
         end
     end
-    if numel(varargin) > 4
-        error('statgen:ld', 'load_ld accepts at most five arguments');
+    if numel(varargin) >= 2
+        if is_chrx_sex_(varargin{1})
+            retain_ld_r = varargin{2};
+        else
+            default_chrX_sex = varargin{2};
+        end
+    end
+    if numel(varargin) >= 3
+        if is_chrx_sex_(varargin{1})
+            error('statgen:ld', 'load_ld accepts at most path, chrX_sex, and retain_ld_r');
+        else
+            retain_ld_r = varargin{3};
+        end
+    end
+    if numel(varargin) > 3
+        error('statgen:ld', 'load_ld accepts at most four arguments');
     end
     if isempty(default_chrX_sex)
         default_chrX_sex = 'female';
@@ -139,57 +133,6 @@ function groups = load_panel_root_(root, manifest, ref_shards, retain_ld_r)
             group{k} = shard;
         end
         groups{i} = group;
-    end
-end
-
-function reference = load_bundled_reference_(root, manifest, shards)
-    available = manifest_chr_labels_(manifest);
-    selected = statgen.internal.validate_requested_shards(shards, available, 'load_ld');
-    ref_shards = cell(numel(selected), 1);
-    for i = 1:numel(selected)
-        label = selected{i};
-        entries = entries_for_chr_(manifest.shards, label);
-        reference_path = fullfile(root, entries(1).reference_bim);
-        panel = statgen.load_reference(reference_path);
-        if numel(panel.shards) ~= 1
-            error('statgen:ld', '%s: bundled reference_bim must contain exactly one shard', reference_path);
-        end
-        ref = panel.shards{1};
-        for j = 1:numel(entries)
-            validate_bundled_reference_entry_(ref, entries(j), reference_path);
-        end
-        ref_shards{i} = ref;
-    end
-    reference = statgen.ReferencePanel(ref_shards);
-end
-
-function labels = manifest_chr_labels_(manifest)
-    labels = {};
-    for i = 1:numel(manifest.shards)
-        label = char(manifest.shards(i).chr);
-        if ~any(strcmp(labels, label))
-            labels{end+1} = label; %#ok<AGROW>
-        end
-    end
-end
-
-function entries = entries_for_chr_(entries_in, label)
-    keep = false(numel(entries_in), 1);
-    for i = 1:numel(entries_in)
-        keep(i) = strcmp(entries_in(i).chr, label);
-    end
-    entries = entries_in(keep);
-end
-
-function validate_bundled_reference_entry_(ref, entry, path)
-    if ~strcmp(ref.label, entry.chr)
-        error('statgen:ld', '%s: bundled reference_bim chr does not match manifest', path);
-    end
-    if ref.num_snp ~= double(entry.num_snp)
-        error('statgen:ld', '%s: bundled reference_bim num_snp does not match manifest', path);
-    end
-    if ~strcmp(ref.checksum, entry.reference_checksum)
-        error('statgen:ld', '%s: bundled reference_bim reference_checksum does not match manifest', path);
     end
 end
 

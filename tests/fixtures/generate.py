@@ -28,6 +28,8 @@ if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
 from statgen._ld_schema import md5_file
+from statgen._utils import allele_hash64
+from statgen.reference import load_reference, save_reference_cache
 
 
 # ---------------------------------------------------------------------------
@@ -226,11 +228,18 @@ def write_ld_mat_shard(
     return meta
 
 
-def write_ld_manifest(directory: Path, runtime_format: str, shard_records: list[dict]) -> None:
+def write_ld_manifest(
+    directory: Path,
+    runtime_format: str,
+    shard_records: list[dict],
+    reference_cache: str,
+) -> None:
     manifest = {
         "object_type": "ld_panel_manifest",
         "schema_version": "1.0",
         "runtime_format": runtime_format,
+        "reference_cache": reference_cache,
+        "reference_cache_md5": md5_file(directory / reference_cache),
         "shards": shard_records,
     }
     with open(directory / "ld_manifest.json", "w") as f:
@@ -246,6 +255,13 @@ def write_ld_distribution(directory: Path, runtime_format: str, extension: str, 
     }
     write_bim(directory / reference_bims["1"], CHR1_BIM)
     write_bim(directory / reference_bims["X"], CHRX_BIM)
+    if extension == "npz":
+        reference_cache = "reference_cache.npz"
+        reference = load_reference(str(directory / "reference_chr@.bim"))
+        save_reference_cache(reference, directory / reference_cache)
+    else:
+        reference_cache = "reference_cache.mat"
+        write_mat_reference_cache(directory / reference_cache, [("1", CHR1_BIM), ("X", CHRX_BIM)])
     shard_specs = [
         ("1", None, f"ld_chr1.{extension}", CHR1_BIM, CHR1_LD, None),
         ("X", "female", f"ld_chrX_female.{extension}", CHRX_BIM, CHRX_LD["female"], None),
@@ -285,7 +301,62 @@ def write_ld_distribution(directory: Path, runtime_format: str, extension: str, 
             "reference_checksum": meta["reference_checksum"],
             "reference_bim": reference_bims[chr_label],
         })
-    write_ld_manifest(directory, runtime_format, records)
+    write_ld_manifest(directory, runtime_format, records, reference_cache)
+
+
+def write_mat_reference_cache(path: Path, shards: list[tuple[str, list[tuple]]]) -> None:
+    labels = [label for label, _rows in shards]
+    checksums = [bim_checksum(rows) for _label, rows in shards]
+    start0 = []
+    stop0 = []
+    pos = 0
+    bp = []
+    a1 = []
+    a2 = []
+    snp_text = []
+    a1_text = []
+    a2_text = []
+    for _label, rows in shards:
+        start0.append(pos)
+        pos += len(rows)
+        stop0.append(pos)
+        bp.extend(int(r[3]) for r in rows)
+        a1_values = [str(r[4]) for r in rows]
+        a2_values = [str(r[5]) for r in rows]
+        a1.extend(a1_values)
+        a2.extend(a2_values)
+        snp_text.append("\n".join(str(r[1]) for r in rows))
+        a1_text.append("\n".join(a1_values))
+        a2_text.append("\n".join(a2_values))
+
+    metadata = {
+        "schema": "reference_cache/0.1",
+        "n_shards": len(shards),
+        "shard_labels": np.array(labels, dtype=object).reshape(-1, 1),
+        "shard_checksums": np.array(checksums, dtype=object).reshape(-1, 1),
+        "shard_start0": np.array(start0, dtype=np.float64).reshape(-1, 1),
+        "shard_stop0": np.array(stop0, dtype=np.float64).reshape(-1, 1),
+    }
+    savemat(
+        path,
+        {
+            "metadata": metadata,
+            "bp": np.array(bp, dtype=np.int64).reshape(-1, 1),
+            "snp_text_by_shard": np.array(snp_text, dtype=object).reshape(-1, 1),
+            "a1_text_by_shard": np.array(a1_text, dtype=object).reshape(-1, 1),
+            "a2_text_by_shard": np.array(a2_text, dtype=object).reshape(-1, 1),
+            "a1_hash64": allele_hash64(np.array(a1, dtype=object)).reshape(-1, 1),
+            "a2_hash64": allele_hash64(np.array(a2, dtype=object)).reshape(-1, 1),
+        },
+        appendmat=False,
+        do_compression=False,
+        long_field_names=True,
+    )
+    deterministic_header = (
+        "MATLAB 5.0 MAT-file, Platform: statgen, Created by tests/fixtures/generate.py"
+    )
+    with open(path, "r+b") as f:
+        f.write(deterministic_header.encode("ascii")[:116].ljust(116, b" "))
 
 
 # ---------------------------------------------------------------------------

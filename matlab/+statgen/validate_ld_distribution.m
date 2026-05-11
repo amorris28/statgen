@@ -4,9 +4,9 @@ function report = validate_ld_distribution(path, check_payload_structure)
 %   report = statgen.validate_ld_distribution(path)
 %   report = statgen.validate_ld_distribution(path, check_payload_structure)
 %
-% Checks the MATLAB LD manifest, shard files, checksums, and bundled reference
-% BIM files. Set check_payload_structure to true for deeper sparse-matrix
-% payload checks.
+% Checks the MATLAB LD manifest, shard files, checksums, manifest-declared
+% reference cache, and bundled reference BIM files. Set check_payload_structure
+% to true for deeper sparse-matrix payload checks.
 % Metadata checks include num_monomorphic_snps; for forced monomorphic SNPs,
 % undefined off-diagonal LD is represented by omitted sparse entries.
 %
@@ -23,6 +23,14 @@ function report = validate_ld_distribution(path, check_payload_structure)
 
     manifest = statgen.internal.ld_read_manifest(fullfile(path, 'ld_manifest.json'), ...
         'matlab_mat_sparse_double');
+    reference_cache_path = fullfile(path, manifest.reference_cache);
+    if exist(reference_cache_path, 'file') ~= 2
+        error('statgen:io', 'LD file not found: %s', reference_cache_path);
+    end
+    if ~strcmp(statgen.internal.ld_md5_file(reference_cache_path), manifest.reference_cache_md5)
+        error('statgen:ld', '%s: reference_cache_md5 does not match manifest', reference_cache_path);
+    end
+    reference = statgen.load_reference_cache(reference_cache_path);
     seen_reference_bim = {};
     for i = 1:numel(manifest.shards)
         entry = manifest.shards(i);
@@ -38,6 +46,7 @@ function report = validate_ld_distribution(path, check_payload_structure)
         end
         [~, meta] = statgen.internal.ld_read_mat_shard(shard_path, check_payload_structure);
         statgen.internal.ld_validate_manifest_entry_agreement(entry, meta, shard_path);
+        validate_reference_cache_entry_(reference, entry, reference_cache_path);
         reference_key = sprintf('%s|%s|%d|%s', ...
             char(entry.reference_bim), char(entry.chr), double(entry.num_snp), char(entry.reference_checksum));
         if ~any(strcmp(seen_reference_bim, reference_key))
@@ -51,6 +60,25 @@ function report = validate_ld_distribution(path, check_payload_structure)
         warning('statgen:ld:v5mat', '%s', warnings_list{i});
     end
     report = struct('ok', true, 'warnings', {warnings_list(:)});
+end
+
+function validate_reference_cache_entry_(reference, entry, path)
+    ref = [];
+    for i = 1:numel(reference.shards)
+        if strcmp(reference.shards{i}.label, entry.chr)
+            ref = reference.shards{i};
+            break
+        end
+    end
+    if isempty(ref)
+        error('statgen:ld', '%s: reference cache missing shard %s', path, char(entry.chr));
+    end
+    if ref.num_snp ~= double(entry.num_snp)
+        error('statgen:ld', '%s: reference cache num_snp does not match manifest', path);
+    end
+    if ~strcmp(ref.checksum, entry.reference_checksum)
+        error('statgen:ld', '%s: reference cache reference_checksum does not match manifest', path);
+    end
 end
 
 function validate_bundled_reference_(root, entry)

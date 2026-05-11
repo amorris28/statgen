@@ -185,7 +185,8 @@ Tests should also cover:
 
 - reference checksum computation and `ReferencePanel.is_object_compatible`
   mismatch reports;
-- cache invalidation when a supplied reference has different shard checksums;
+- LD load/validation failures when the manifest-declared reference cache has
+  shard checksums incompatible with LD shard metadata;
 - LD manifest/per-file metadata agreement and sparse payload validation;
 - chrX LD shard files, including sex-specific default selection;
 - sharded (`@` template) versus single-file loading behavior;

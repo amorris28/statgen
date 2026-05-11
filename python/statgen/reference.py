@@ -1,7 +1,9 @@
 import hashlib
+import io
 import json
 import logging
 from pathlib import Path
+import zipfile
 
 import numpy as np
 import pandas as pd
@@ -339,8 +341,8 @@ class ReferencePanel:
                 ok = False
         return ok
 
-    def save_cache(self, path, mode: str = "full", format=None) -> None:
-        save_reference_cache(self, path, mode=mode, format=format)
+    def save_cache(self, path, format=None) -> None:
+        save_reference_cache(self, path, format=format)
 
 
 def load_reference(path, shards=None) -> ReferencePanel:
@@ -401,18 +403,12 @@ def load_reference(path, shards=None) -> ReferencePanel:
     return ReferencePanel(out_shards)
 
 
-def save_reference_cache(panel: ReferencePanel, path, mode: str = "full", format=None) -> None:
-    mode = str(mode).lower()
-    if mode not in {"full", "thin"}:
-        raise ValueError("save_reference_cache mode must be 'full' or 'thin'")
-
+def save_reference_cache(panel: ReferencePanel, path, format=None) -> None:
     # Metadata (schema, labels, checksums) as a compact JSON blob stored in the npz.
     # SNP-axis numeric vectors (bp) and string arrays are stored as native
     # binary numpy arrays — not JSON — per the performance contract.
-    # Python keeps reference caches full even when mode='thin' is requested.
     meta = {
         "schema": _CACHE_SCHEMA,
-        "mode": "full",
         "shard_labels": [s.label for s in panel.shards],
         "shard_checksums": [s.checksum for s in panel.shards],
     }
@@ -428,7 +424,7 @@ def save_reference_cache(panel: ReferencePanel, path, mode: str = "full", format
         arrays[p + "a2"]  = np.asarray(s.a2, dtype=str)
         arrays[p + "a1_hash64"] = s.a1_hash64
         arrays[p + "a2_hash64"] = s.a2_hash64
-    np.savez_compressed(path, **arrays)
+    _write_deterministic_npz(Path(path), arrays)
 
 
 def load_reference_cache(path, shards=None) -> ReferencePanel:
@@ -437,11 +433,6 @@ def load_reference_cache(path, shards=None) -> ReferencePanel:
         schema = meta.get("schema")
         if schema != _CACHE_SCHEMA:
             raise ValueError(f"Unsupported reference cache schema: {schema!r}")
-        mode = meta.get("mode")
-        if mode is None:
-            raise ValueError("reference cache missing mode; delete and rebuild old cache")
-        if mode != "full":
-            raise ValueError(f"Unsupported Python reference cache mode: {mode!r}")
 
         labels = list(meta.get("shard_labels", []))
         checksums = list(meta.get("shard_checksums", []))
@@ -470,3 +461,15 @@ def load_reference_cache(path, shards=None) -> ReferencePanel:
                 )
             )
     return ReferencePanel(shard_objs)
+
+
+def _write_deterministic_npz(path: Path, arrays: dict[str, np.ndarray]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, array in arrays.items():
+            buf = io.BytesIO()
+            np.save(buf, array, allow_pickle=False)
+            info = zipfile.ZipInfo(f"{name}.npy", date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            zf.writestr(info, buf.getvalue())

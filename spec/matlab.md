@@ -104,6 +104,14 @@ Cache format requirements are defined normatively in
 caches must be `.mat` files with SNP-axis vectors/matrices stored as native
 numeric/logical/sparse arrays.
 
+String-typed SNP-axis cache fields may use object-specific `.mat` encodings
+when native MATLAB/Octave cell-string arrays are too expensive to load. The
+standard pattern for reference string fields is one per-shard character vector
+containing newline-delimited values with no trailing newline, as defined in
+[reference.md](reference.md). Cache-loaded objects should keep such payloads
+encoded and decode them lazily only when the corresponding string accessor is
+used.
+
 ## Shard representation
 
 Panels hold an ordered cell array or struct array of shard objects. Genome-wide
@@ -124,8 +132,7 @@ concatenations from shard payloads:
 
 Panel and shard classes may define `display(obj)`/`disp(obj)` for interactive
 summaries. Display output should be metadata-only and must not materialize
-large genome-wide dependent accessors or fields unavailable in thin/cache-light
-objects.
+large genome-wide dependent accessors or lazily decoded cache string payloads.
 
 This keeps MATLAB/Octave behavior aligned with the memory model in the object
 specs and with Python panel-accessor semantics.

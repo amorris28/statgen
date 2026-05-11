@@ -28,6 +28,13 @@ def read_manifest(path: Path, expected_runtime: str | None) -> dict:
         raise ValueError(f"{path}: unsupported LD runtime_format {runtime!r}")
     if expected_runtime is not None and runtime != expected_runtime:
         raise ValueError(f"{path}: expected runtime_format {expected_runtime!r}, got {runtime!r}")
+    validate_plain_relative_filename(
+        manifest.get("reference_cache"),
+        f"{path}: reference_cache",
+    )
+    reference_cache_md5 = manifest.get("reference_cache_md5")
+    if not isinstance(reference_cache_md5, str) or len(reference_cache_md5) != 32:
+        raise ValueError(f"{path}: reference_cache_md5 must be a lowercase MD5 hex string")
     shards = manifest.get("shards")
     if not isinstance(shards, list) or not shards:
         raise ValueError(f"{path}: shards must be a non-empty list")
@@ -71,7 +78,7 @@ def validate_manifest_entry(entry: dict, where: str) -> None:
         raise ValueError(f"{where}: reference_checksum must be a non-empty string")
     if not isinstance(entry["file_md5"], str) or len(entry["file_md5"]) != 32:
         raise ValueError(f"{where}: file_md5 must be a lowercase MD5 hex string")
-    validate_reference_bim_filename(entry["reference_bim"], f"{where}: reference_bim")
+    validate_plain_relative_filename(entry["reference_bim"], f"{where}: reference_bim")
 
 
 def validate_shard_metadata(meta: dict, path: Path, expected_format: str) -> None:
@@ -118,7 +125,7 @@ def validate_shard_metadata(meta: dict, path: Path, expected_format: str) -> Non
         raise ValueError(f"{path}: metadata value must be 'r'")
     if not isinstance(meta["reference_checksum"], str) or meta["reference_checksum"] == "":
         raise ValueError(f"{path}: metadata reference_checksum must be a non-empty string")
-    validate_reference_bim_filename(meta["reference_bim"], f"{path}: metadata reference_bim")
+    validate_plain_relative_filename(meta["reference_bim"], f"{path}: metadata reference_bim")
     if expected_format == NPZ_FORMAT:
         if meta.get("sparse_layout") != "csc":
             raise ValueError(f"{path}: metadata sparse_layout must be 'csc'")
@@ -154,13 +161,16 @@ def default_reference_bim_filename(chr_label: str) -> str:
     return f"reference_chr{chr_label}.bim"
 
 
-def validate_reference_bim_filename(value, where: str) -> str:
+def validate_plain_relative_filename(value, where: str) -> str:
     if not isinstance(value, str) or value == "":
         raise ValueError(f"{where} must be a non-empty filename")
     path = Path(value)
     if path.is_absolute() or len(path.parts) != 1 or value in {".", ".."} or ".." in value:
         raise ValueError(f"{where} must be a plain relative filename")
     return value
+
+
+validate_reference_bim_filename = validate_plain_relative_filename
 
 
 def runtime_from_suffix(path: Path) -> str:

@@ -23,7 +23,14 @@ def validate_npz_distribution(path, check_payload_structure=False) -> dict:
         raise ValueError("validate_npz_distribution: path must identify a panel root directory")
 
     manifest = read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
-    runtime = manifest["runtime_format"]
+    reference_cache_path = path / manifest["reference_cache"]
+    require_file(reference_cache_path)
+    if md5_file(reference_cache_path) != manifest["reference_cache_md5"]:
+        raise ValueError(f"{reference_cache_path}: reference_cache_md5 does not match manifest")
+    from .reference import load_reference_cache
+
+    reference = load_reference_cache(reference_cache_path)
+    ref_by_label = {s.label: s for s in reference.shards}
     seen_reference_bim = set()
     for entry in manifest["shards"]:
         shard_path = path / entry["file"]
@@ -36,6 +43,10 @@ def validate_npz_distribution(path, check_payload_structure=False) -> dict:
             check_payload_structure=check_payload_structure,
         )
         validate_manifest_entry_agreement(entry, meta, shard_path)
+        ref_shard = ref_by_label.get(entry["chr"])
+        if ref_shard is None:
+            raise ValueError(f"{reference_cache_path}: reference cache missing shard {entry['chr']}")
+        _validate_reference_cache_entry(ref_shard, entry, reference_cache_path)
         reference_key = (
             entry["reference_bim"],
             entry["chr"],
@@ -62,6 +73,13 @@ def _validate_bundled_reference(*, root: Path, entry: dict) -> None:
     from ._ld_reference import validate_bundled_reference_bim
 
     validate_bundled_reference_bim(root / entry["reference_bim"], entry, target="manifest")
+
+
+def _validate_reference_cache_entry(ref_shard, entry: dict, path: Path) -> None:
+    if ref_shard.num_snp != int(entry["num_snp"]):
+        raise ValueError(f"{path}: reference cache num_snp does not match manifest")
+    if ref_shard.checksum != entry["reference_checksum"]:
+        raise ValueError(f"{path}: reference cache reference_checksum does not match manifest")
 
 
 def read_npz_shard(path: Path, check_payload_structure: bool):

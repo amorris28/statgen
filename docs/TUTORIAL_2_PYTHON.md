@@ -68,7 +68,6 @@ reference = load_reference_cache(cache_root / "reference.npz")
 
 ld = load_ld(
     ld_npz_dir,
-    reference,
     default_chrX_sex="female",
 )
 
@@ -140,7 +139,7 @@ then load or select compatible objects against that subset.
 
 ```python
 ref_chr21 = reference.select_shards(["21"])
-ld_chr21 = load_ld(ld_npz_dir, ref_chr21)
+ld_chr21 = load_ld(ld_npz_dir, shards=["21"])
 trait_a_chr21 = trait_a.select_shards(["21"])
 ann_chr21 = annotations.select_shards(["21"])
 genotype_chr21 = genotype.select_shards(["21"])

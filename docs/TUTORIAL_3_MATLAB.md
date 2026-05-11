@@ -57,7 +57,7 @@ ld_mat_dir = 'derived/ld_mat';
 reference = statgen.load_reference_cache( ...
     fullfile(mat_cache, 'reference.mat'));
 
-ld = statgen.load_ld(ld_mat_dir, reference, 'female');
+ld = statgen.load_ld(ld_mat_dir, 'female');
 
 trait_a = statgen.load_sumstats_cache( ...
     fullfile(mat_cache, 'trait_a.sumstats.mat'));
@@ -69,7 +69,7 @@ genotype = statgen.load_genotype_cache( ...
     fullfile(mat_cache, 'genotype.mat'));
 ```
 
-Use `'male'` as the third `load_ld` argument when an analysis should use the
+Use `'male'` as the second `load_ld` argument when an analysis should use the
 male chrX LD shard by default.
 
 ## Check Compatibility
@@ -131,7 +131,7 @@ then load or select compatible objects against that subset.
 
 ```matlab
 ref_chr21 = reference.select_shards({'21'});
-ld_chr21 = statgen.load_ld(ld_mat_dir, ref_chr21);
+ld_chr21 = statgen.load_ld(ld_mat_dir, {'21'});
 trait_a_chr21 = trait_a.select_shards({'21'});
 ann_chr21 = annotations.select_shards({'21'});
 genotype_chr21 = genotype.select_shards({'21'});

@@ -48,8 +48,7 @@ def _float_line(line):
 
 
 def test_ld_panel_a1freq_chrx_selection_and_select_shards():
-    reference = load_reference(SHARDED_REF)
-    ld = load_ld(LD_PY, reference, default_chrX_sex="male")
+    ld = load_ld(LD_PY, default_chrX_sex="male")
 
     np.testing.assert_allclose(
         ld.a1freq("female"),
@@ -77,7 +76,7 @@ def test_ld_panel_a1freq_chrx_selection_and_select_shards():
 
 def test_ld_panel_multiply_r2_vector_matrix_sparse_and_dtype():
     reference = load_reference(SHARDED_REF)
-    ld = load_ld(LD_PY, reference)
+    ld = load_ld(LD_PY)
     vec = np.arange(1, reference.num_snp + 1, dtype=np.float64)
 
     np.testing.assert_allclose(ld.multiply_r2(vec), _expected_multiply(ld, vec), rtol=1e-7)
@@ -118,7 +117,7 @@ def test_ld_panel_multiply_r2_vector_matrix_sparse_and_dtype():
 
 def test_fast_prune_stable_order_and_chrx_override():
     reference = load_reference(SHARDED_REF)
-    ld = load_ld(LD_PY, reference)
+    ld = load_ld(LD_PY)
     logp = np.array([9, 9, 7, 1, 2, 6, 5, 4], dtype=np.float64)
 
     np.testing.assert_allclose(
@@ -160,7 +159,7 @@ def test_phase5a_generated_artifacts_support_phase4b_operations(tmp_path):
     reference = load_reference(SHARDED_REF)
     root = tmp_path / "ld_python"
     _write_ld_npz_distribution(root, _synthetic_specs(reference))
-    ld = load_ld(root, reference)
+    ld = load_ld(root)
 
     np.testing.assert_allclose(ld.a1freq(), [0.10, 0.20, 0.30, 0.40, 0.50, 0.22, 0.33, 0.44])
     vec = np.arange(1, reference.num_snp + 1, dtype=np.float64)
@@ -176,9 +175,8 @@ def test_phase5a_generated_artifacts_support_phase4b_operations(tmp_path):
 @skipif_no_octave
 def test_octave_ld_panel_operations_match_fixture_values():
     script = (
-        f"ref = statgen.load_reference('{SHARDED_REF}'); "
-        f"ld = statgen.load_ld('{FIXTURES_DIR / 'ld/matlab'}', ref); "
-        "M = (1:ref.num_snp)'; "
+        f"ld = statgen.load_ld('{FIXTURES_DIR / 'ld/matlab'}'); "
+        "M = (1:ld.num_snp)'; "
         "R = ld.multiply_r2(M); "
         "Rm = ld.multiply_r2(M, 'male'); "
         "P = statgen.fast_prune([9;9;7;1;2;6;5;4], ld, 0.35); "
@@ -227,9 +225,8 @@ def test_octave_ld_panel_operations_match_fixture_values():
 @skipif_no_octave
 def test_octave_load_ld_can_drop_raw_ld_r_but_keep_operations():
     script = (
-        f"ref = statgen.load_reference('{SHARDED_REF}'); "
-        f"ld = statgen.load_ld('{FIXTURES_DIR / 'ld/matlab'}', ref, 'female', false); "
-        "M = (1:ref.num_snp)'; "
+        f"ld = statgen.load_ld('{FIXTURES_DIR / 'ld/matlab'}', 'female', false); "
+        "M = (1:ld.num_snp)'; "
         "R = ld.multiply_r2(M); "
         "P = statgen.fast_prune([9;9;7;1;2;6;5;4], ld, 0.35); "
         "fprintf('%d,%d\\n', isempty(ld.shard_groups{1}{1}.ld_r), isempty(ld.shard_groups{1}{1}.ld_r2)); "

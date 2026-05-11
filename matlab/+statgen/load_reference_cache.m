@@ -6,10 +6,8 @@ function panel = load_reference_cache(path, varargin)
 %
 % Loads one MATLAB .mat reference cache file produced by
 % statgen.save_reference_cache. Optional shards return a logical subset of the
-% cached shard labels. The loaded ReferencePanel state is read from cache
-% metadata: full references expose snp, a1, and a2; thin references support
-% alignment checks and summary-statistics matching but do not expose those full
-% reference fields.
+% cached shard labels. String fields are stored as per-shard text payloads and
+% decoded lazily when snp, a1, or a2 is accessed.
 %
 % See also statgen.ReferencePanel, statgen.load_reference,
 % statgen.save_reference_cache.
@@ -19,14 +17,14 @@ function panel = load_reference_cache(path, varargin)
     meta_loaded = load(path, 'metadata');
     require_field_(meta_loaded, 'metadata');
     meta = meta_loaded.metadata;
-    mode = validate_cache_mode_(meta);
-    if strcmp(mode, 'full')
-        loaded = load(path, 'chr', 'snp', 'bp', 'a1', 'a2', 'a1_hash64', 'a2_hash64');
-    else
-        loaded = load(path, 'bp', 'a1_hash64', 'a2_hash64');
-    end
+    validate_cache_metadata_schema_(meta);
+    loaded = load(path, 'bp', 'snp_text_by_shard', 'a1_text_by_shard', ...
+        'a2_text_by_shard', 'a1_hash64', 'a2_hash64');
 
     require_field_(loaded, 'bp');
+    require_field_(loaded, 'snp_text_by_shard');
+    require_field_(loaded, 'a1_text_by_shard');
+    require_field_(loaded, 'a2_text_by_shard');
     require_field_(loaded, 'a1_hash64');
     require_field_(loaded, 'a2_hash64');
     bp = loaded.bp(:);
@@ -38,21 +36,10 @@ function panel = load_reference_cache(path, varargin)
         error('statgen:cache', 'Invalid reference cache: allele hash vector lengths mismatch');
     end
 
-    if strcmp(mode, 'full')
-        require_field_(loaded, 'chr');
-        require_field_(loaded, 'snp');
-        require_field_(loaded, 'a1');
-        require_field_(loaded, 'a2');
-        chr = statgen.internal.ensure_cell_col(loaded.chr);
-        snp = statgen.internal.ensure_cell_col(loaded.snp);
-        a1 = statgen.internal.ensure_cell_col(loaded.a1);
-        a2 = statgen.internal.ensure_cell_col(loaded.a2);
-        if numel(chr) ~= n || numel(snp) ~= n || numel(a1) ~= n || numel(a2) ~= n
-            error('statgen:cache', 'Invalid reference cache: panel-wide vector lengths mismatch');
-        end
-    end
-
     [labels, checksums, start0, stop0] = validate_metadata_(meta, n);
+    snp_text_by_shard = validate_text_payloads_(loaded.snp_text_by_shard, numel(labels), 'snp_text_by_shard');
+    a1_text_by_shard = validate_text_payloads_(loaded.a1_text_by_shard, numel(labels), 'a1_text_by_shard');
+    a2_text_by_shard = validate_text_payloads_(loaded.a2_text_by_shard, numel(labels), 'a2_text_by_shard');
     selected = statgen.internal.validate_requested_shards(shards, labels, 'load_reference_cache');
     shard_objs = cell(numel(selected), 1);
     for i = 1:numel(selected)
@@ -60,15 +47,10 @@ function panel = load_reference_cache(path, varargin)
         idx = find(strcmp(labels, label), 1, 'first');
         ix = (start0(idx) + 1):stop0(idx);
 
-        if strcmp(mode, 'full')
-            shard_obj = statgen.ReferenceShard( ...
-                labels{idx}, chr(ix), snp(ix), bp(ix), a1(ix), a2(ix), ...
-                checksums{idx});
-        else
-            shard_obj = statgen.ReferenceShard.from_thin( ...
-                labels{idx}, numel(ix), bp(ix), a1_hash64(ix), a2_hash64(ix), ...
-                checksums{idx});
-        end
+        shard_obj = statgen.ReferenceShard.from_cache_text( ...
+            labels{idx}, numel(ix), bp(ix), a1_hash64(ix), a2_hash64(ix), ...
+            checksums{idx}, snp_text_by_shard{idx}, a1_text_by_shard{idx}, ...
+            a2_text_by_shard{idx});
         shard_objs{i} = shard_obj;
     end
 
@@ -78,18 +60,11 @@ end
 function shards = parse_args_(varargin)
     shards = [];
     if numel(varargin) > 1
-        error('statgen:arg', 'load_reference_cache accepts path and optional shards; cache mode is saved in metadata');
+        error('statgen:arg', 'load_reference_cache accepts path and optional shards');
     end
     if ~isempty(varargin)
-        if is_name_(varargin{1}, 'full') || is_name_(varargin{1}, 'mode')
-            error('statgen:arg', 'load_reference_cache no longer accepts full/mode options; save full or thin cache mode with save_reference_cache');
-        end
         shards = varargin{1};
     end
-end
-
-function tf = is_name_(x, name)
-    tf = (ischar(x) || isstring(x)) && strcmpi(char(x), name);
 end
 
 function require_field_(loaded, name)
@@ -101,19 +76,12 @@ function require_field_(loaded, name)
     end
 end
 
-function mode = validate_cache_mode_(meta)
+function validate_cache_metadata_schema_(meta)
     if ~isfield(meta, 'schema') || ~strcmp(meta.schema, 'reference_cache/0.1')
         if isfield(meta, 'schema')
             error('statgen:cache', 'Unsupported reference cache schema: %s', meta.schema);
         end
         error('statgen:cache', 'Unsupported reference cache schema');
-    end
-    if ~isfield(meta, 'mode')
-        error('statgen:cache', 'reference cache missing mode; delete and rebuild old cache');
-    end
-    mode = lower(char(meta.mode));
-    if ~any(strcmp(mode, {'full', 'thin'}))
-        error('statgen:cache', 'Invalid reference cache mode: %s', mode);
     end
 end
 
@@ -134,6 +102,19 @@ function [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp)
         error('statgen:cache', 'Invalid reference cache: shard metadata length mismatch');
     end
     validate_offsets_(start0, stop0, num_snp, 'reference');
+end
+
+function out = validate_text_payloads_(value, n_shards, name)
+    out = statgen.internal.ensure_cell_col(value);
+    if numel(out) ~= n_shards
+        error('statgen:cache', 'Invalid reference cache: %s length mismatch', name);
+    end
+    for i = 1:n_shards
+        if ~(ischar(out{i}) || isstring(out{i}))
+            error('statgen:cache', 'Invalid reference cache: %s{%d} must be text', name, i);
+        end
+        out{i} = char(out{i});
+    end
 end
 
 function validate_offsets_(start0, stop0, num_snp, label)

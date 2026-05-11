@@ -51,10 +51,9 @@ Sharded paths use `@` as the shard-label placeholder.
   matching bfile shard; users who want a shard subset should first subset the
   reference and load genotype against that smaller reference.
 - **LD loaders**: always resolve shard files through `ld_manifest.json`.
-  When `reference` is supplied to `load_ld`, expected files are derived from
-  it; when omitted, the manifest is consulted directly. In both cases the
-  optional `shards` parameter further subsets which shards are loaded;
-  requesting a shard absent from the reference or LD panel is an error.
+  `load_ld` loads the manifest-declared reference cache. The optional `shards`
+  parameter further subsets which shards are loaded; requesting a shard absent
+  from the reference cache or LD panel is an error.
 
 Non-sharded single-file inputs are split by the `chr` column into
 per-chromosome shards in canonical order. For source loaders with an explicit
@@ -73,9 +72,9 @@ Source loaders with an explicit `reference` argument
 reference shard structure; subsetting is done via `select_shards` on the
 reference before passing it in. Such loaders do not accept an additional
 `shards` parameter.
-`load_ld` bridges both patterns: `reference` is optional because the LD
-distribution bundles its own `.bim` files; `shards` is always honored as a
-further subset regardless of whether `reference` is supplied.
+`load_ld` follows the cache-loader pattern because the LD distribution includes
+its own manifest-declared reference cache. The `shards` argument is honored as
+a subset of both that reference cache and the LD panel.
 The rules are uniform:
 
 - Omitting `shards` loads or returns all available shards present in the input

@@ -39,6 +39,13 @@ Cache round-trips MUST preserve array shape, numeric/logical dtype/class, and
 sparse-vs-dense representation unless an object spec explicitly documents a
 different normalization.
 
+The native-array requirement applies to numeric, logical, and sparse SNP-axis
+payloads. Python string-typed cache fields should use Python-native array
+storage when present. MATLAB/Octave object specs may define cache-specific
+encodings for string-typed fields when that improves load performance while
+preserving the logical object contract; for example, MATLAB/Octave reference
+caches store per-shard string vectors as newline-delimited character payloads.
+
 For panel-like objects, shard subsetting (`select_shards`) SHOULD avoid deep
 copying shard payload arrays by default. Implementations should construct subset
 panels from existing shard payloads whenever possible, while preserving object
@@ -120,10 +127,13 @@ MATLAB/Octave cache writers accept an optional `format` setting using the same
 language-specific syntax as other `.mat` producers. Supported values are `v7`
 (the cache default), `v7.3`, and `v5`.
 
-For SNP-axis vectors and matrices, caches MUST store data as native numeric,
-logical, or sparse arrays in `.mat` variables. Implementations MUST NOT encode
-these arrays as JSON blobs, string payloads, or other text-serialized
-representations inside cache files.
+For SNP-axis vectors and matrices, caches MUST store numeric, logical, and
+sparse data as native arrays in `.mat` variables. Implementations MUST NOT
+encode numeric, logical, or sparse arrays as JSON blobs, string payloads, or
+other text-serialized representations inside cache files. This prohibition does
+not apply to string-typed SNP-axis fields; those fields follow the
+object-specific MATLAB/Octave cache encoding, such as the per-shard
+newline-delimited character payloads defined for reference caches.
 
 Small metadata fields (for example schema/version strings, shard labels, and
 checksums) MAY use native MATLAB structs/cells/chars/strings, but numeric array

@@ -9,11 +9,8 @@ classdef ReferencePanel
 % positions, and alleles used by other statgen objects. SNP-axis properties are
 % returned as num_snp-by-1 vectors in panel order.
 %
-% A ReferencePanel may be full or thin. Full references expose SNP identifiers
-% and alleles for inspection and export. Thin references retain only chromosome
-% labels, base-pair positions, and allele hashes needed for alignment checks
-% and summary-statistics matching; accessing snp, a1, or a2 on a thin reference
-% raises an error.
+% Cache-loaded ReferencePanel objects may keep SNP identifiers and alleles in
+% encoded shard-local text payloads and decode them lazily when accessed.
 %
 % Common properties:
 %   num_snp    Number of SNPs in the panel.
@@ -210,8 +207,8 @@ classdef ReferencePanel
         %   ok = reference.validate_checksums()
         %
         % Returns true when the loaded reference fields match their stored
-        % per-shard checksums. This requires a full ReferencePanel; thin
-        % references do not expose the allele fields needed for recomputation.
+        % per-shard checksums. Cache-loaded references decode allele fields on
+        % demand for this explicit validation path.
             for i = 1:numel(obj.shards)
                 s = obj.shards{i};
                 validate_reference_checksum_(s);
@@ -306,7 +303,6 @@ classdef ReferencePanel
         %SAVE_CACHE Save the reference to a MATLAB .mat cache.
         %
         %   reference.save_cache(path)
-        %   reference.save_cache(path, 'mode', mode)
         %   reference.save_cache(path, 'format', format)
         %
         % Saves the reference in the same format as statgen.save_reference_cache.
@@ -332,7 +328,7 @@ function validate_reference_checksum_(shard)
         computed = statgen.internal.md5_hex(text_payload);
     catch ME
         error('statgen:cache', ...
-            'Reference checksum validation requires full reference fields; load a full reference cache (%s)', ...
+            'Reference checksum validation failed while materializing reference fields (%s)', ...
             ME.message);
     end
     if ~strcmp(computed, shard.checksum)

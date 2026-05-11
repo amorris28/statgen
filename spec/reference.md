@@ -130,8 +130,7 @@ matrices through read-only panel-level accessors that concatenate across shards
 transparently.
 
 Reference panels expose two derived logical variant masks computed from
-`a1_hash64` and `a2_hash64` so they are available for both full and thin
-references:
+`a1_hash64` and `a2_hash64`:
 
 - `is_single_nucleotide_variant`: true when both alleles are single
   nucleotides (`A`, `C`, `G`, or `T`);
@@ -150,20 +149,21 @@ panel-wide variables at top level:
 
 ```text
 metadata
-chr
-snp
 bp
-a1
-a2
+snp_text_by_shard
+a1_text_by_shard
+a2_text_by_shard
 a1_hash64
 a2_hash64
 ```
+
+`chr` is not stored as a cache variable; cache-loaded references synthesize it
+from `metadata.shard_labels` and shard row counts.
 
 `metadata` is a struct with:
 
 ```text
 schema = "reference_cache/0.1"
-mode = "full" | "thin"
 n_shards
 shard_labels
 shard_checksums
@@ -171,53 +171,45 @@ shard_start0
 shard_stop0
 ```
 
-`mode` is a cache-file property selected when the cache is saved. In `full`
-mode, `chr`, `snp`, `a1`, and `a2` are panel-wide cell arrays of strings. In
-`thin` mode, those string variables are omitted from the cache file. `bp` is a
-panel-wide numeric vector. `a1_hash64` and `a2_hash64` are panel-wide `uint64`
-vectors. The BIM `cm` field is not cached. Shard offsets are zero-based
-half-open intervals into the panel-wide variables and are sufficient to
-reconstruct `ReferenceShard` objects. Cache metadata validation should be cheap,
-depending on shard count and array dimensions rather than scanning all SNP
-values. Cache loaders must reject caches without `metadata.mode`; users must
-delete and rebuild old caches after this format change. `load_reference_cache`
-trusts stored shard checksums, matching the cache behavior of reference-aligned
-objects that cannot recompute those checksums themselves. Callers who want to
-verify reference cache integrity may explicitly call
-`ReferencePanel.validate_checksums()`.
+`bp` is a panel-wide numeric vector. `a1_hash64` and `a2_hash64` are
+panel-wide `uint64` vectors. The BIM `cm` field is not cached. Shard offsets
+are zero-based half-open intervals into the panel-wide variables and are
+sufficient to reconstruct `ReferenceShard` objects.
 
-## Full and thin reference caches
+`snp_text_by_shard`, `a1_text_by_shard`, and `a2_text_by_shard` are cell arrays
+with one character vector per shard in panel order. Each character vector
+encodes the corresponding shard-local string vector as `strjoin(values, "\n")`
+with no trailing newline. This payload encoding is independent of the reference
+checksum byte stream, which continues to serialize each checksum record with a
+trailing newline as defined above. Because BIM fields must not contain embedded
+whitespace and alleles are non-empty, newline is not a legal field value and is
+safe as the cache separator. Decoders must reject decoded string-vector lengths
+that do not equal the shard `num_snp` implied by `shard_start0`/`shard_stop0`.
+
+MATLAB/Octave implementations should keep these per-shard string payloads in
+their encoded form after cache load and instantiate cell arrays lazily when
+`snp`, `a1`, or `a2` is accessed. `ReferencePanel.chr` is synthesized lazily by
+repeating each shard label `num_snp` times and concatenating shard vectors in
+panel order; it is not stored in the cache. `bp`, `a1_hash64`, and `a2_hash64`
+are available without decoding string payloads.
 
 The `a1_hash64`/`a2_hash64` cache fields and sumstats matching semantics are
-cross-runtime object contracts. Thin reference caches are motivated by the high
-cost of deserializing large `.mat` cell arrays of strings in MATLAB/Octave.
-Users who need both fast matching and full inspection/export workflows should
-save both versions from the same source reference:
+cross-runtime object contracts. Cache metadata validation should be cheap,
+depending on shard count and array dimensions rather than scanning all SNP
+values or decoding all string payloads on the default load path.
+`load_reference_cache` trusts stored shard checksums, matching the cache
+behavior of reference-aligned objects that cannot recompute those checksums
+themselves. Callers who want to verify reference cache integrity may explicitly
+call `ReferencePanel.validate_checksums()`, which forces string payload
+materialization.
 
-```text
-save_reference_cache(reference, "reference.full.mat", mode="full")
-save_reference_cache(reference, "reference.thin.mat", mode="thin")
-```
-
-`full` is the default `save_reference_cache` mode. `load_reference_cache` does
-not accept a full/thin preference; it loads the mode declared by cache metadata.
-Thin references synthesize `ReferencePanel.chr` lazily on access, without
-caching the synthesized vector. For each internal shard, synthesis repeats that
-shard's label `num_snp` times; the panel accessor concatenates those shard-level
-vectors in panel order. Thin-reference `snp`, `a1`, and `a2` accessors must fail
-clearly and instruct the caller to load a full reference cache. `bp`,
-`a1_hash64`, and `a2_hash64` are available in both thin and full caches. Full
-cache loads may validate that saved `chr` agrees with shard labels.
-
-Python implementations may accept the `mode` save option but always emit full
-reference caches. In that case the saved metadata must still declare
-`mode = "full"`.
+There is one reference cache representation.
 
 ## API
 
 ```text
 load_reference(path, optional shards) -> ReferencePanel
-save_reference_cache(panel, path, optional mode="full", optional format) -> void
+save_reference_cache(panel, path, optional format) -> void
 load_reference_cache(path, optional shards) -> ReferencePanel
 
 ReferencePanel.num_snp -> int
@@ -234,7 +226,7 @@ ReferencePanel.shard_offsets -> table with shard_label, start0, stop0
 ReferencePanel.select_shards(shards) -> ReferencePanel
 ReferencePanel.is_object_compatible(object) -> bool
 ReferencePanel.validate_checksums() -> bool
-ReferencePanel.save_cache(path, optional mode="full", optional format) -> void
+ReferencePanel.save_cache(path, optional format) -> void
 ```
 
 Expected behavior:
@@ -258,14 +250,11 @@ Expected behavior:
   `a1_hash64` and `a2_hash64` value.
 - Accessors are read-only, concatenate shard columns in reference panel order,
   and return plain language-native vectors or tables.
-- Thin cache references omit `snp`, `a1`, and `a2` payloads; those accessors
-  must fail clearly unless a full reference cache was loaded. Thin `chr` is
-  synthesized lazily by repeating each shard label `num_snp` times and
-  concatenating shard vectors in panel order, without caching. Thin `bp`,
-  `a1_hash64`, `a2_hash64`, `is_single_nucleotide_variant`, and
-  `is_strand_ambiguous` are available. Other runtimes may accept the thin save
-  option while still writing full caches, as long as the metadata accurately
-  records `mode = "full"`.
+- Cache-loaded references expose `snp`, `a1`, and `a2`; MATLAB/Octave may
+  materialize those vectors lazily from the per-shard newline-delimited cache
+  payloads. `chr` is synthesized lazily by repeating each shard label
+  `num_snp` times and concatenating shard vectors in panel order, without
+  caching.
 - `shard_offsets` uses zero-based half-open intervals into genome-wide arrays.
 - `shard_offsets.start0`/`stop0` are cross-language coordinate metadata, not
   direct language indices. MATLAB/Octave callers convert at use-site
@@ -273,17 +262,21 @@ Expected behavior:
 - `load_reference_cache` skips source-style row validation; `shards` subsetting
   applies against cached shard labels per
   [contigs-and-shards.md](contigs-and-shards.md).
-- `load_reference_cache` validates cache mode, shard-offset metadata, and
-  panel-wide vector lengths cheaply before reconstructing shard objects. A thin
-  cache load validates only the loaded panel-wide payloads (`bp`, `a1_hash64`,
-  and `a2_hash64`) plus metadata. A full cache load also validates full-field
-  vector lengths. Cache loaders trust stored shard checksums and do not
-  recompute them.
+- `ReferencePanel.select_shards(shards)` preserves cache-loaded shard payloads
+  without forcing string materialization. When a cache-loaded panel is subset in
+  memory, selected shards retain their encoded per-shard `snp`, `a1`, and `a2`
+  payloads until the corresponding string accessors are used.
+- `load_reference_cache` validates shard-offset metadata and panel-wide vector
+  lengths cheaply before reconstructing shard objects. It validates that
+  per-shard string payload containers match `n_shards`; decoded string-vector
+  lengths may be validated lazily when those payloads are materialized. Cache
+  loaders trust stored shard checksums and do not recompute them.
 - `ReferencePanel.validate_checksums()` recomputes each shard checksum from the
   current `chr`, `bp`, `a1`, and `a2` values, compares it to the stored
   `ReferenceShard.checksum`, fails on mismatch with the shard label, and
-  returns `true` on success. It requires full `a1` and `a2` fields and, in
-  runtimes with thin loading, must fail clearly on thin-loaded references.
+  returns `true` on success. For cache-loaded references, this explicit
+  validation path forces materialization of the per-shard `a1` and `a2` string
+  payloads needed to recompute the checksum.
 - `ReferencePanel.save_cache(...)` is a thin convenience method equivalent to
   `save_reference_cache(panel, ...)`.
 - `is_object_compatible` checks whether a loaded statgen object is aligned to

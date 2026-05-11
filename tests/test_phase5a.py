@@ -147,7 +147,7 @@ def test_write_ld_npz_distribution_with_all_chrx_sexes_metadata_and_numpy_pairs(
     combined_meta = _metadata(root / "ld_chrX_combined.npz")
     assert combined_meta["chrX_combined_rationale"] == "synthetic phase5a coverage"
 
-    ld = load_ld(root, reference)
+    ld = load_ld(root)
     by_sex = {shard.sex: shard for shard in ld.shard_groups[1]}
     assert set(by_sex) == {"female", "male", "combined"}
     assert by_sex["male"].ld_r[0, 1] == pytest.approx(0.55)
@@ -165,7 +165,7 @@ def test_load_ld_warns_for_monomorphic_snp_metadata(tmp_path):
     assert _metadata(root / "ld_chr1.npz")["num_monomorphic_snps"] == 1
 
     with pytest.warns(RuntimeWarning, match="contains 1 monomorphic SNPs"):
-        load_ld(root, reference.select_shards(["1"]))
+        load_ld(root, shards=["1"])
 
 
 def test_ld_npz_writer_rejects_malformed_synthetic_tables(tmp_path):
@@ -239,12 +239,11 @@ def test_octave_npz_to_mat_conversion_validates_and_matches_generated_npz(tmp_pa
 
     script = (
         "warning('off', 'statgen:ld:v5mat'); "
-        f"ref = statgen.load_reference('{SHARDED_REF}'); "
         f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', '1', 'format', 'v5'); "
         f"statgen.convert_ld_npz_to_mat('{py_root}', '{mat_root}', 'X', 'format', 'v5'); "
         f"manifest = statgen.create_ld_mat_manifest('{py_root}', '{mat_root}', {{'1', 'X'}}); "
         f"report = statgen.validate_ld_distribution('{mat_root}', true); "
-        f"ld = statgen.load_ld('{mat_root}', ref); "
+        f"ld = statgen.load_ld('{mat_root}'); "
         f"chr1_payload = load('{mat_root / 'ld_chr1.mat'}'); "
         f"x_payload = load('{mat_root / 'ld_chrX_female.mat'}'); "
         "fprintf('%d\\n', report.ok); "

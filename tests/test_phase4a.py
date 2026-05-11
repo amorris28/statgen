@@ -55,7 +55,7 @@ def _octave_script(expr: str) -> str:
 
 def test_load_ld_panel_matches_fixture_sparse_payloads():
     reference = load_reference(SHARDED_REF)
-    ld = load_ld(LD_PY, reference)
+    ld = load_ld(LD_PY)
 
     assert ld.default_chrX_sex == "female"
     assert ld.reference.num_snp == reference.num_snp
@@ -81,7 +81,7 @@ def test_load_ld_panel_matches_fixture_sparse_payloads():
     assert x_by_sex["combined"].ld_r[1, 2] == pytest.approx(-0.40)
 
 
-def test_load_ld_uses_bundled_reference_when_reference_is_omitted():
+def test_load_ld_uses_manifest_reference_cache():
     ld = load_ld(LD_PY)
 
     assert [s.label for s in ld.reference.shards] == ["1", "X"]
@@ -89,9 +89,8 @@ def test_load_ld_uses_bundled_reference_when_reference_is_omitted():
     assert ld.reference.is_object_compatible(ld) is True
 
 
-def test_load_ld_shards_filters_supplied_or_bundled_reference():
-    reference = load_reference(SHARDED_REF)
-    ld = load_ld(LD_PY, reference, shards=["1"])
+def test_load_ld_shards_filters_manifest_reference_cache():
+    ld = load_ld(LD_PY, shards=["1"])
     assert [s.label for s in ld.reference.shards] == ["1"]
     assert [s.label for s in ld.shards] == ["1"]
 
@@ -99,18 +98,14 @@ def test_load_ld_shards_filters_supplied_or_bundled_reference():
     assert [s.label for s in ld.reference.shards] == ["X"]
     assert [s.label for s in ld.shards] == ["X"]
 
-    with pytest.raises(ValueError, match="requested shard 'X' is not present"):
-        load_ld(LD_PY, reference.select_shards(["1"]), shards=["X"])
-
 
 def test_load_ld_default_chrx_sex_validation():
-    reference = load_reference(SHARDED_REF)
-    ld = load_ld(LD_PY, reference, default_chrX_sex="male")
+    ld = load_ld(LD_PY, default_chrX_sex="male")
     assert ld.default_chrX_sex == "male"
     assert ld.shards[1].sex == "male"
 
     with pytest.raises(ValueError, match="chrX sex"):
-        load_ld(LD_PY, reference, default_chrX_sex="unknown")
+        load_ld(LD_PY, default_chrX_sex="unknown")
 
 
 def test_validate_ld_distribution_checks_manifest_md5_and_payload_structure(tmp_path):
@@ -132,13 +127,32 @@ def test_validate_ld_distribution_checks_manifest_md5_and_payload_structure(tmp_
         validate_ld_distribution(root, check_payload_structure=True)
 
 
+def test_validate_ld_distribution_checks_reference_cache_md5(tmp_path):
+    root = _copy_ld_distribution(tmp_path)
+    manifest = _read_manifest(root)
+    cache_path = root / manifest["reference_cache"]
+    with open(cache_path, "ab") as f:
+        f.write(b"tamper")
+
+    with pytest.raises(ValueError, match="reference_cache_md5"):
+        validate_ld_distribution(root)
+
+
 def test_load_ld_missing_manifest_shard_file_fails(tmp_path):
-    reference = load_reference(SHARDED_REF)
     root = _copy_ld_distribution(tmp_path)
     (root / "ld_chr1.npz").unlink()
 
     with pytest.raises(FileNotFoundError, match="LD file not found"):
-        load_ld(root, reference)
+        load_ld(root)
+
+
+def test_load_ld_missing_manifest_reference_cache_fails(tmp_path):
+    root = _copy_ld_distribution(tmp_path)
+    manifest = _read_manifest(root)
+    (root / manifest["reference_cache"]).unlink()
+
+    with pytest.raises(FileNotFoundError, match="LD file not found"):
+        load_ld(root)
 
 
 def test_load_ld_rejects_single_shard_file_path():
@@ -147,14 +161,12 @@ def test_load_ld_rejects_single_shard_file_path():
 
 
 def test_invalid_ld_manifest_fails_clearly(tmp_path):
-    reference = load_reference(SHARDED_REF)
-
     bad_object = _copy_ld_distribution(tmp_path / "bad_object")
     manifest = _read_manifest(bad_object)
     manifest["object_type"] = "not_ld_panel_manifest"
     _write_manifest(bad_object, manifest)
     with pytest.raises(ValueError, match="object_type"):
-        load_ld(bad_object, reference)
+        load_ld(bad_object)
 
     bad_schema = _copy_ld_distribution(tmp_path / "bad_schema")
     manifest = _read_manifest(bad_schema)
@@ -166,18 +178,17 @@ def test_invalid_ld_manifest_fails_clearly(tmp_path):
     malformed = _copy_ld_distribution(tmp_path / "malformed")
     (malformed / "ld_manifest.json").write_text("{not json\n")
     with pytest.raises(json.JSONDecodeError):
-        load_ld(malformed, reference)
+        load_ld(malformed)
 
 
 def test_load_ld_rejects_manifest_metadata_and_reference_mismatches(tmp_path):
-    reference = load_reference(SHARDED_REF)
     root = _copy_ld_distribution(tmp_path)
 
     manifest = _read_manifest(root)
     manifest["shards"][0]["num_snp"] = 99
     _write_manifest(root, manifest)
     with pytest.raises(ValueError, match="manifest/per-file metadata mismatch"):
-        load_ld(root, reference)
+        load_ld(root)
 
     root = _copy_ld_distribution(tmp_path / "checksum")
     _replace_npz_metadata(root / "ld_chr1.npz", {"reference_checksum": "deadbeef" * 4})
@@ -185,7 +196,7 @@ def test_load_ld_rejects_manifest_metadata_and_reference_mismatches(tmp_path):
     manifest["shards"][0]["reference_checksum"] = "deadbeef" * 4
     _write_manifest(root, manifest)
     with pytest.raises(ValueError, match="reference_checksum"):
-        load_ld(root, reference)
+        load_ld(root)
 
 
 def test_validate_ld_distribution_checks_bundled_reference_bim(tmp_path):
@@ -234,7 +245,6 @@ def test_manifest_rejects_inconsistent_reference_bim_for_same_chr(tmp_path):
 
 
 def test_load_ld_rejects_unknown_chrx_sex_label(tmp_path):
-    reference = load_reference(SHARDED_REF)
     root = _copy_ld_distribution(tmp_path)
     _replace_npz_metadata(root / "ld_chrX_female.npz", {"sex": "unknown"})
     manifest = _read_manifest(root)
@@ -242,7 +252,7 @@ def test_load_ld_rejects_unknown_chrx_sex_label(tmp_path):
     _write_manifest(root, manifest)
 
     with pytest.raises(ValueError, match="chrX sex"):
-        load_ld(root, reference)
+        load_ld(root)
 
 
 def test_payload_structure_detects_malformed_sparse_indices(tmp_path):
@@ -296,11 +306,10 @@ def test_npz_archives_are_not_pickle_payloads():
 @skipif_no_octave
 def test_octave_load_ld_mat_fixture_sparse_payloads():
     script = _octave_script(
-        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
-        "ld = statgen.load_ld([fixture_dir '/ld/matlab'], ref); "
+        "ld = statgen.load_ld([fixture_dir '/ld/matlab']); "
         "fprintf('%s\\n', ld.default_chrX_sex); "
         "fprintf('%d,%d\\n', numel(ld.shard_groups{1}), numel(ld.shard_groups{2})); "
-        "fprintf('%d\\n', ref.is_object_compatible(ld)); "
+        "fprintf('%d\\n', ld.reference.is_object_compatible(ld)); "
         "chr1 = ld.shard_groups{1}{1}; "
         "fprintf('%.2f,%.2f\\n', full(chr1.ld_r(1,2)), full(chr1.ld_r(2,4))); "
         "fprintf('%.2f\\n', chr1.a1freq(1)); "
@@ -320,9 +329,9 @@ def test_octave_load_ld_mat_fixture_sparse_payloads():
 
 @pytest.mark.octave
 @skipif_no_octave
-def test_octave_load_ld_uses_bundled_reference_and_shard_subset():
+def test_octave_load_ld_uses_reference_cache_and_shard_subset():
     script = _octave_script(
-        "ld = statgen.load_ld([fixture_dir '/ld/matlab'], [], {'1'}); "
+        "ld = statgen.load_ld([fixture_dir '/ld/matlab'], {'1'}); "
         "fprintf('%d\\n', numel(ld.shard_groups)); "
         "fprintf('%d\\n', numel(ld.reference.shards)); "
         "fprintf('%s\\n', ld.shards{1}.label); "
@@ -352,7 +361,7 @@ def test_octave_validate_ld_distribution_and_bad_chrx_sex(tmp_path):
         "warning('off', 'statgen:ld:v5mat'); "
         "report = statgen.validate_ld_distribution([fixture_dir '/ld/matlab'], true); "
         "fprintf('%d\\n', report.ok); "
-        f"try; ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); statgen.load_ld('{bad_root}', ref); fprintf('NOFAIL\\n'); catch; fprintf('FAIL\\n'); end"
+        f"try; statgen.load_ld('{bad_root}'); fprintf('NOFAIL\\n'); catch; fprintf('FAIL\\n'); end"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr

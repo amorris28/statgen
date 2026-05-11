@@ -454,7 +454,7 @@ def test_statgen_build_ld_end_to_end_with_real_plink2(tmp_path):
 
     validate_ld_distribution(out, check_payload_structure=True)
     reference = load_reference(str(prefix) + ".bim")
-    ld = load_ld(out, reference)
+    ld = load_ld(out)
     manifest = json.loads((out / "ld_manifest.json").read_text())
     assert [(s["chr"], s["sex"]) for s in manifest["shards"]] == [
         ("1", None),
@@ -503,8 +503,7 @@ def test_statgen_build_ld_real_plink2_combined_chrx(tmp_path):
     ]
     x_meta = _metadata(out / "ld_chrX_combined.npz")
     assert "chrX_combined_rationale" not in x_meta
-    reference = load_reference(str(prefix) + ".bim")
-    ld = load_ld(out, reference, default_chrX_sex="combined")
+    ld = load_ld(out, default_chrX_sex="combined")
     assert ld.shards[1].sex == "combined"
 
 
@@ -543,8 +542,7 @@ def test_statgen_build_ld_real_plink2_sharded_input(tmp_path):
         ("X", "female"),
         ("X", "male"),
     ]
-    reference = load_reference(str(tmp_path / "chr@.bim"))
-    ld = load_ld(out, reference)
+    ld = load_ld(out)
     assert [s.label for s in ld.shards] == ["1", "X"]
 
 
@@ -586,7 +584,7 @@ def test_statgen_build_ld_nonsharded_bfile_combined_chrx(tmp_path):
     assert x_meta["ld_r2_threshold"] == 0.2
 
     reference = load_reference(FIXTURES_DIR / "reference/nonsharded/all.bim")
-    ld = load_ld(out, reference, default_chrX_sex="combined")
+    ld = load_ld(out, default_chrX_sex="combined")
     assert ld.shards[1].sex == "combined"
     np.testing.assert_allclose(ld.multiply_r2(np.ones(reference.num_snp))[:2], [1.0625, 1.2225])
 

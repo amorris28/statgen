@@ -22,8 +22,11 @@ from ._ld_schema import (
     validate_shard_metadata,
 )
 from ._ld_reference import validate_bundled_reference_bim
+from .reference import ReferencePanel, load_reference, save_reference_cache
 from ._utils import CHR_RANK
 
+
+REFERENCE_CACHE_FILENAME = "reference_cache.npz"
 
 LD_BUILD_METADATA_DEFAULTS = {
     "build_tool": "statgen",
@@ -101,10 +104,13 @@ def write_ld_npz_manifest(root, records, *, validate=True) -> dict:
     records = list(records)
     if not records:
         raise ValueError("LD manifest must contain at least one shard")
+    reference_cache = _write_reference_cache(root, records, REFERENCE_CACHE_FILENAME)
     manifest = {
         "object_type": "ld_panel_manifest",
         "schema_version": MANIFEST_SCHEMA,
         "runtime_format": PY_RUNTIME_FORMAT,
+        "reference_cache": reference_cache.name,
+        "reference_cache_md5": md5_file(reference_cache),
         "shards": records,
     }
     _write_json(root / "ld_manifest.json", manifest)
@@ -117,7 +123,11 @@ def create_ld_npz_manifest(root, *, validate=True) -> dict:
     root = Path(root)
     if not root.is_dir():
         raise FileNotFoundError(f"LD distribution root not found: {root}")
-    records = [_ld_npz_manifest_record(path, root) for path in root.glob("*.npz")]
+    records = [
+        _ld_npz_manifest_record(path, root)
+        for path in root.glob("*.npz")
+        if path.name != REFERENCE_CACHE_FILENAME
+    ]
     records.sort(key=_ld_manifest_sort_key)
     return write_ld_npz_manifest(root, records, validate=validate)
 
@@ -445,6 +455,25 @@ def _require_reference_bim(root: Path, meta: dict) -> str:
     reference_bim = meta["reference_bim"]
     _validate_existing_reference_bim(root / reference_bim, meta)
     return reference_bim
+
+
+def _write_reference_cache(root: Path, records: list[dict], file_name: str) -> Path:
+    ref_shards = []
+    seen = set()
+    for record in records:
+        label = record["chr"]
+        if label in seen:
+            continue
+        seen.add(label)
+        panel = load_reference(root / record["reference_bim"])
+        if len(panel.shards) != 1:
+            raise ValueError(f"{root / record['reference_bim']}: bundled reference_bim must contain exactly one shard")
+        ref = panel.shards[0]
+        validate_bundled_reference_bim(root / record["reference_bim"], record, target="manifest")
+        ref_shards.append(ref)
+    cache_path = root / file_name
+    save_reference_cache(ReferencePanel(ref_shards), cache_path)
+    return cache_path
 
 
 def _write_deterministic_npz(path: Path, arrays: dict[str, np.ndarray]) -> None:

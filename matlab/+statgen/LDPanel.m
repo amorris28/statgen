@@ -2,7 +2,7 @@ classdef LDPanel
 %STATGEN.LDPANEL Sparse LD matrices aligned to a ReferencePanel.
 %
 %   ld = statgen.load_ld(path)
-%   ld = statgen.load_ld(path, reference)
+%   ld = statgen.load_ld(path, shards)
 %
 % An LDPanel stores per-shard sparse LD matrices in reference-panel order.
 % Use multiply_r2 to multiply by LD r-squared and statgen.fast_prune to prune

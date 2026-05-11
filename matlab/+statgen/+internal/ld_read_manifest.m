@@ -18,6 +18,13 @@ function manifest = ld_read_manifest(path, expected_runtime_format)
     if ~isempty(expected_runtime_format) && ~strcmp(manifest.runtime_format, expected_runtime_format)
         error('statgen:ld', 'Expected MATLAB/Octave LD manifest runtime_format');
     end
+    if ~isfield(manifest, 'reference_cache')
+        error('statgen:ld', '%s: missing reference_cache', path);
+    end
+    validate_plain_filename_(manifest.reference_cache, sprintf('%s: reference_cache', path));
+    if ~isfield(manifest, 'reference_cache_md5') || numel(char(manifest.reference_cache_md5)) ~= 32
+        error('statgen:ld', '%s: reference_cache_md5 must be a lowercase MD5 hex string', path);
+    end
     if ~isfield(manifest, 'shards') || isempty(manifest.shards)
         error('statgen:ld', '%s: shards must be a non-empty list', path);
     end
@@ -47,18 +54,18 @@ function validate_manifest_entry_(entry, where)
     if isempty(entry.file)
         error('statgen:ld', '%s: file must be non-empty', where);
     end
-    validate_reference_bim_(entry.reference_bim, where);
+    validate_plain_filename_(entry.reference_bim, [where ': reference_bim']);
 end
 
-function validate_reference_bim_(value, where)
+function validate_plain_filename_(value, where)
     if isempty(value) || ~(ischar(value) || isstring(value))
-        error('statgen:ld', '%s: reference_bim must be a non-empty filename', where);
+        error('statgen:ld', '%s must be a non-empty filename', where);
     end
     value = char(value);
     if any(value == '/') || any(value == '\') || strcmp(value, '.') || ~isempty(strfind(value, '..'))
-        error('statgen:ld', '%s: reference_bim must be a plain relative filename', where);
+        error('statgen:ld', '%s must be a plain relative filename', where);
     end
     if ~isempty(regexp(value, '^[A-Za-z]:', 'once'))
-        error('statgen:ld', '%s: reference_bim must be a plain relative filename', where);
+        error('statgen:ld', '%s must be a plain relative filename', where);
     end
 end

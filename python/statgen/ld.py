@@ -245,7 +245,7 @@ class LDPanel:
         return sparse.vstack(parts, format=M.getformat()).astype(out_dtype)
 
 
-def load_ld(path, reference=None, shards=None, default_chrX_sex=None) -> LDPanel:
+def load_ld(path, shards=None, default_chrX_sex=None) -> LDPanel:
     default_chrX_sex = validate_chrx_sex(
         "female" if default_chrX_sex is None else default_chrX_sex,
         "default_chrX_sex",
@@ -255,10 +255,11 @@ def load_ld(path, reference=None, shards=None, default_chrX_sex=None) -> LDPanel
         raise ValueError("load_ld: path must identify a panel root directory")
 
     manifest = read_manifest(path / "ld_manifest.json", expected_runtime=PY_RUNTIME_FORMAT)
-    if reference is None:
-        reference = _load_bundled_reference(path, manifest, shards)
-    elif shards is not None:
-        reference = reference.select_shards(shards)
+    from .reference import load_reference_cache
+
+    reference_cache_path = path / manifest["reference_cache"]
+    require_file(reference_cache_path)
+    reference = load_reference_cache(reference_cache_path, shards=shards)
 
     ref_shards = list(reference.shards)
     if not ref_shards:
@@ -347,12 +348,6 @@ def _write_ld_npz_distribution(*args, **kwargs):
     from ._ld_writer import write_ld_npz_distribution
 
     return write_ld_npz_distribution(*args, **kwargs)
-
-
-def _load_bundled_reference(root: Path, manifest: dict, shards):
-    from ._ld_reference import load_bundled_reference_panel
-
-    return load_bundled_reference_panel(root, manifest, shards, where="load_ld")
 
 
 def _load_panel_root(root: Path, manifest: dict, ref_shards: list) -> list[list[LDShard]]:
