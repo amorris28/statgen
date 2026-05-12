@@ -141,11 +141,17 @@ return scalar logical values. They do not throw.
 
 ## CRAN-facing tests
 
-CRAN tests live under `R-package/tests/testthat/`, use only tiny committed
-fixtures in `R-package/inst/extdata/`, and cover ordinary R package behavior:
-package load, exported API availability, tiny source loading, non-LD cache
-round-trips, tiny R-native LD loading and operations, and tiny `.npz` to `.rds`
-LD conversion.
+CRAN tests live under `R-package/tests/testthat/`, use only tiny fixtures
+included in the built package under `R-package/inst/extdata/`, and cover
+ordinary R package behavior: package load, exported API availability, tiny
+source loading, non-LD cache round-trips, tiny R-native LD loading and
+operations, and tiny `.npz` to `.rds` LD conversion.
+
+Portable-format R extdata fixtures that duplicate canonical repository
+fixtures under `tests/fixtures/` should be prepared by repository tooling
+before `R CMD build`, not maintained as second committed source copies under
+`R-package/inst/extdata/`. R-native fixtures with no portable counterpart may
+be committed directly under `inst/extdata/`.
 
 CRAN tests must not invoke Python, MATLAB/Octave, PLINK, shell scripts, or
 internet access. Broader checks belong outside CRAN-facing tests.

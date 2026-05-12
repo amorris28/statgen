@@ -26,8 +26,16 @@ venv/
 *.asv
 octave-workspace
 
+# Generated R package extdata copied from canonical tests/fixtures sources
+/R-package/inst/extdata/*.bim
+/R-package/inst/extdata/*.bed
+/R-package/inst/extdata/*.tsv.gz
+
 # Claude Code
 .claude/
 
 # Codex
 .codex
+
+# Manual testing
+testing/*

@@ -27,6 +27,12 @@ To regenerate fixtures after a format change, run:
 python tests/fixtures/generate.py
 ```
 
+R package `inst/extdata/` fixtures that are exact portable-format duplicates of
+canonical files under `tests/fixtures/` are derived copies, not independent
+fixture sources. Repository R package test/build targets must prepare those
+copies before invoking R package tests or `R CMD build`, and repository pytest
+should verify that the prepared copies match their canonical sources.
+
 Binary arrays in fixtures must use explicitly documented dtypes and byte-order
 where the object format exposes them. For LD `.npz` fixtures this means the
 CSC component dtypes from [ld.md](ld.md).

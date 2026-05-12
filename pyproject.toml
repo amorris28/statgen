@@ -2,4 +2,5 @@
 pythonpath = [".", "python"]
 markers = [
     "octave: tests that require Octave to be installed",
+    "r: tests that require Rscript to be installed",
 ]

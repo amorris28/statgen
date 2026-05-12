@@ -59,8 +59,14 @@ Implementation tasks:
   (for example, R 4.3.3 is acceptable), but CI and release-gating checks should
   include the latest R release because current CRAN dependency behavior and
   `R CMD check` expectations follow current R, not only older local runtimes.
-- Establish fixture copying or generation policy for tiny committed R fixtures
-  under `R-package/inst/extdata/`.
+- Establish fixture copying or generation policy for tiny R package fixtures
+  under `R-package/inst/extdata/`: portable-format duplicates of canonical
+  repository fixtures are gitignored generated copies prepared by
+  `make prepare-r-fixtures`, while R-native fixtures with no portable
+  counterpart may be committed directly.
+- Ensure repository R entry points that run package tests or `R CMD build`
+  depend on prepared R fixtures, and add pytest coverage that prepared
+  duplicate fixtures match their canonical sources.
 - Add repository-level pytest helpers that can call `Rscript` when R is
   available and skip cleanly otherwise.
 

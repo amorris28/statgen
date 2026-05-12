@@ -1,0 +1,7 @@
+export(get_verbosity)
+export(set_verbosity)
+export(version)
+importFrom(Matrix,Matrix)
+importFrom(bit64,integer64)
+importFrom(digest,digest)
+importFrom(jsonlite,fromJSON)

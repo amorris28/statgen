@@ -1,0 +1,22 @@
+Package: statgen
+Type: Package
+Title: Statistical Genetics Data Objects and Loaders
+Version: 0.2.6
+Authors@R: person("Oleksandr", "Frei", role = c("aut", "cre"),
+    email = "oleksandr.frei@gmail.com")
+Author: Oleksandr Frei [aut, cre]
+Maintainer: Oleksandr Frei <oleksandr.frei@gmail.com>
+Description: CRAN-compatible R runtime for statgen statistical genetics
+    reference, genotype, LD, annotation, and summary-statistic objects.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends:
+    R (>= 4.1)
+Imports:
+    Matrix,
+    jsonlite,
+    digest,
+    bit64
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

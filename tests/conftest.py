@@ -9,11 +9,13 @@ import pytest
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).parent.parent
 MATLAB_DIR = REPO_ROOT / "matlab"
+R_PACKAGE_DIR = REPO_ROOT / "R-package"
 
 # Set STATGEN_MATLAB=1 to run octave-marked tests via native MATLAB instead.
 _USE_MATLAB = os.environ.get("STATGEN_MATLAB", "0") == "1"
 _ENGINE = "matlab" if _USE_MATLAB else "octave"
 _ENGINE_AVAILABLE = shutil.which(_ENGINE) is not None
+_RSCRIPT_AVAILABLE = shutil.which("Rscript") is not None
 _MATLAB_ENGINE = None
 _MATLAB_ENGINE_ERROR = None
 
@@ -23,9 +25,19 @@ def octave_available():
     return _ENGINE_AVAILABLE
 
 
+@pytest.fixture(scope="session")
+def rscript_available():
+    return _RSCRIPT_AVAILABLE
+
+
 skipif_no_octave = pytest.mark.skipif(
     not _ENGINE_AVAILABLE,
     reason=f"{_ENGINE} not installed",
+)
+
+skipif_no_rscript = pytest.mark.skipif(
+    not _RSCRIPT_AVAILABLE,
+    reason="Rscript not installed",
 )
 
 skipif_no_matlab = pytest.mark.skipif(
@@ -111,6 +123,12 @@ def run_octave(expr: str, timeout: int = 30) -> subprocess.CompletedProcess:
         cmd = ["octave", "--no-gui", "--quiet", "--eval",
                f"addpath('{MATLAB_DIR}'); {expr}"]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def run_rscript(expr: str, timeout: int = 30, env=None) -> subprocess.CompletedProcess:
+    """Run an expression via Rscript."""
+    cmd = ["Rscript", "-e", expr]
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
 
 
 def matlab_data_lines(stdout: str) -> list[str]:
