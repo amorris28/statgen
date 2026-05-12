@@ -21,10 +21,11 @@ public cache save/load APIs.
 - A cache hit MUST be observationally equivalent to loading from canonical
   source inputs, up to documented numeric tolerance.
 - Cache formats MAY be language-specific and are not required to be portable
-  across Python and MATLAB/Octave. Cross-language cache sharing is explicitly a
-  non-goal: a cache written by one runtime is not required to be loadable by the
-  other. Workflows that need to share painted annotation data across runtimes
-  should regenerate from canonical BED inputs in each runtime.
+  across Python, MATLAB/Octave, and R. Cross-language cache sharing is
+  explicitly a non-goal: a cache written by one runtime is not required to be
+  loadable by another runtime. Workflows that need to share painted annotation
+  data across runtimes should regenerate from canonical BED inputs in each
+  runtime.
 
 Cache loaders SHOULD assume cache payloads are already valid from cache-build
 time and SHOULD avoid full source-style revalidation on the default load path.
@@ -41,10 +42,11 @@ different normalization.
 
 The native-array requirement applies to numeric, logical, and sparse SNP-axis
 payloads. Python string-typed cache fields should use Python-native array
-storage when present. MATLAB/Octave object specs may define cache-specific
-encodings for string-typed fields when that improves load performance while
-preserving the logical object contract; for example, MATLAB/Octave reference
-caches store per-shard string vectors as newline-delimited character payloads.
+storage when present. MATLAB/Octave and R object specs may define
+cache-specific encodings for string-typed fields when that improves load
+performance while preserving the logical object contract; for example,
+MATLAB/Octave reference caches store per-shard string vectors as
+newline-delimited character payloads.
 
 For panel-like objects, shard subsetting (`select_shards`) SHOULD avoid deep
 copying shard payload arrays by default. Implementations should construct subset
@@ -64,6 +66,8 @@ line-by-line manual parsing.
 - MATLAB/Octave: `textscan` with an explicit schema, as documented in
   [matlab.md](matlab.md), is the required default path.
 - Python: dataframe-style readers are the required default path.
+- R: language-native tabular readers with explicit column schemas, as documented
+  in [R.md](R.md), are the required default path.
 
 Documented exceptions are allowed only when a native table reader cannot
 correctly represent required input semantics for a specific input shape or
@@ -116,6 +120,24 @@ other text-serialized representations inside cache files.
 Small metadata fields (for example schema/version strings, shard labels, and
 checksums) MAY use plain JSON-compatible scalars/maps, but numeric array
 payloads remain native binary arrays.
+
+Metadata-only caches MAY use text-oriented serialization when they contain no
+SNP-axis numeric/logical/sparse vectors or matrices.
+
+## R cache format requirements
+
+R caches MUST use R-native binary storage suitable for direct numeric array
+loading. The default R cache format is RDS unless an object-specific R spec
+defines another R-native format.
+
+For SNP-axis vectors and matrices, caches MUST store data as native R numeric,
+logical, integer64, or sparse matrix objects. Implementations MUST NOT encode
+these arrays as JSON blobs, string payloads, or other text-serialized
+representations inside cache files.
+
+Small metadata fields (for example schema/version strings, shard labels, and
+checksums) MAY use R lists, data frames, and character vectors, but numeric
+array payloads remain native binary objects.
 
 Metadata-only caches MAY use text-oriented serialization when they contain no
 SNP-axis numeric/logical/sparse vectors or matrices.

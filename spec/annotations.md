@@ -101,9 +101,10 @@ Implementations may use language-native containers. The object is tied to one
 reference panel: row order and SNP count correspond to the paired reference,
 and any cache is valid only for that reference.
 Internal representation should use sparse storage. `annomat` is exposed as a
-sparse binary matrix in both runtimes (`scipy.sparse.csr_matrix` in Python;
-MATLAB/Octave sparse matrix). Dense materialization is caller-driven and
-explicit (for example `toarray()`/`full(...)`).
+sparse binary matrix in every runtime (`scipy.sparse.csr_matrix` in Python,
+MATLAB/Octave sparse matrix, and an R `Matrix::lgCMatrix`). Dense
+materialization is caller-driven and explicit (for example
+`toarray()`/`full(...)`).
 
 ## Cache layout
 
@@ -136,6 +137,11 @@ the per-shard reference checksums used to restore
 depending on shard count, matrix dimensions, and annotation name count rather
 than scanning all SNP rows.
 
+R annotation caches are RDS files containing one named list with the same
+logical top-level fields and metadata fields as the MATLAB/Octave cache layout
+above. R `metadata` is a named list, `annomat` is a panel-wide
+`Matrix::lgCMatrix` sparse binary matrix, and `annonames` is a character vector.
+
 ## Panel-level accessors
 
 `AnnotationPanel` is immutable after loading. It exposes read-only genome-wide
@@ -154,7 +160,7 @@ is a sparse binary matrix.
 
 ```text
 load_annotations(bed_paths, reference) -> AnnotationPanel
-save_annotations_cache(panel, path, optional format)
+save_annotations_cache(panel, path)
 load_annotations_cache(path, optional shards) -> AnnotationPanel
 create_annotations(reference, annomat, annonames) -> AnnotationPanel
 create_annotation(reference, annovec, annoname) -> AnnotationPanel
@@ -165,7 +171,7 @@ AnnotationPanel.annonames -> num_annot string vector
 AnnotationPanel.select_shards(shards) -> AnnotationPanel
 AnnotationPanel.select_annotations(names) -> AnnotationPanel
 AnnotationPanel.union_annotations(other, optional mode) -> AnnotationPanel
-AnnotationPanel.save_cache(path, optional format) -> void
+AnnotationPanel.save_cache(path) -> void
 ```
 
 Expected behavior:

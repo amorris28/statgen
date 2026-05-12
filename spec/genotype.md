@@ -277,6 +277,8 @@ Source BIM and FAM parsing is performance-sensitive tabular input:
   dtypes where needed.
 - MATLAB/Octave implementations use `textscan` with explicit schemas, matching
   [matlab.md](matlab.md).
+- R implementations use language-native tabular readers with explicit column
+  schemas.
 
 Genotype hardcall decoding must be vectorized across subjects for each SNP.
 
@@ -342,6 +344,14 @@ validation should be cheap, depending on shard count, vector dimensions, sample
 count, stored physical-source `source_num_snp`, `source_num_sample`, recorded
 `.bed` file sizes, and `source_layout` rather than reparsing BIM/FAM or PLOIDY
 source files.
+
+R genotype caches are RDS files containing one named list with the same logical
+top-level fields and metadata fields as the MATLAB/Octave cache layout above.
+R `metadata` is a named list. `is_present`, `subject_present`, `is_male`, and
+`is_female` are logical vectors or matrices. `ploidy_male` and `ploidy_female`
+are numeric vectors. `source_row0` and `source_subject_row0` are integer vectors
+or matrices with `-1` for absent SNPs or subjects. FAM columns are character
+vectors; `sex` is an integer or numeric vector preserving FAM sex codes.
 
 `load_genotype_cache(path, optional shards)` restores the metadata/accessor
 object from cache. It must not parse source `.bim`, `.fam`, or `.ploidy`
@@ -439,7 +449,7 @@ error.
 
 ```text
 load_genotype(bfile_prefix, reference) -> GenotypePanel
-save_genotype_cache(panel, path, optional format) -> void
+save_genotype_cache(panel, path) -> void
 load_genotype_cache(path, optional shards) -> GenotypePanel
 
 GenotypePanel.num_snp -> int
@@ -461,7 +471,7 @@ GenotypePanel.fetch_genotypes(snp_indices, optional bed_path, optional haploid_m
     -> num_sample × len(snp_indices) double matrix
 GenotypePanel.source_layout -> "non_sharded" | "sharded"
 GenotypePanel.select_shards(shards) -> GenotypePanel
-GenotypePanel.save_cache(path, optional format) -> void
+GenotypePanel.save_cache(path) -> void
 ```
 
 Expected behavior:
@@ -493,10 +503,6 @@ Expected behavior:
   `source_row0`.
 - `GenotypePanel.num_snp` returns the total reference-axis SNP count across all
   loaded shards, equal to the length of `is_present`.
-- `save_genotype_cache` `format` selects the MATLAB `.mat` file format
-  (`'v7'`, `'v7.3'`, or `'v5'`) following the convention in
-  [matlab.md](matlab.md). The parameter has no effect in Python, which always
-  uses NumPy `.npz` format.
 - Accessors are read-only, concatenate shards in reference panel order, and
   return plain language-native vectors or matrices.
 - `GenotypePanel.is_subject_present(shard)` accepts one loaded shard label and

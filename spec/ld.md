@@ -82,13 +82,18 @@ upstream missingness QC or run separate diagnostics before building LD.
 
 - Python reads NumPy/SciPy `.npz` files with CSC sparse components.
 - MATLAB/Octave reads `.mat` files containing native sparse matrices.
+- R reads RDS files containing CSC sparse components and constructs
+  `Matrix::dgCMatrix` matrices in memory; R package layout and CRAN constraints
+  are specified in [R.md](R.md).
 
 The Python `.npz` format is also the documented build handoff format from
-`statgen_build_ld.py` into the MATLAB/Octave converter. MATLAB/Octave user
-loading reads `.mat`, not `.npz`. Runtime validation follows the same boundary:
-Python validates Python `.npz` distributions, and MATLAB/Octave validates
-MATLAB/Octave `.mat` distributions. A runtime validator must reject the other
-runtime's manifest format rather than acting as the authority for it.
+`statgen_build_ld.py` into runtime-native converters for MATLAB/Octave and R.
+MATLAB/Octave user loading reads `.mat`, not `.npz`; R user loading reads
+`.rds`, not `.npz`. Runtime validation follows the same boundary: Python
+validates Python `.npz` distributions, MATLAB/Octave validates MATLAB/Octave
+`.mat` distributions, and R validates R `.rds` distributions. A runtime
+validator must reject the other runtime's manifest format rather than acting as
+the authority for it.
 
 ### Python `.npz` shard format
 
@@ -171,6 +176,18 @@ Storage-layout fields that are specific to `.npz` CSC arrays, such as
 Unavailable optional metadata values, such as an unknown `plink_version`, may
 use the runtime's natural empty value.
 
+### R `.rds` shard format
+
+Each R `.rds` file represents one LD shard. It stores the same logical CSC
+component payload as the Python `.npz` shard format, serialized as an RDS list
+rather than a NumPy archive. R distribution files must not serialize
+`Matrix::dgCMatrix` objects directly; R loaders construct `Matrix::dgCMatrix`
+from the stored CSC payload after loading. R distribution files store only the
+signed `ld_r` CSC payload; they must not store a precomputed `ld_r2` matrix.
+
+The R metadata has the same logical fields as the `.npz` metadata, with
+`format: "statgen_ld_rds_csc32"`.
+
 ## Panel layout and manifest
 
 A panel root is a directory containing one or more LD shard files, one bundled
@@ -197,13 +214,14 @@ ld_chrX_combined.npz
 ```
 
 MATLAB/Octave distributions use the same names with `.mat` for LD shard files
-and `reference_cache.mat` for the reference cache; bundled `.bim` files are
-identical across runtimes. Autosomal LD shards use no sex suffix. chrX LD
-shards always use an explicit sex suffix. Not all chrX sex labels need to be
-present. `female` and `male` are the default sex-specific build outputs;
-`combined` is optional and assumption-dependent. Each chromosome has exactly
-one bundled reference `.bim` regardless of how many chrX sex labels are
-present.
+and `reference_cache.mat` for the reference cache; R distributions use `.rds`
+for LD shard files and `reference_cache.rds` for the reference cache. Bundled
+`.bim` files are identical across runtimes. Autosomal LD shards use no sex
+suffix. chrX LD shards always use an explicit sex suffix. Not all chrX sex
+labels need to be present. `female` and `male` are the default sex-specific
+build outputs; `combined` is optional and assumption-dependent. Each chromosome
+has exactly one bundled reference `.bim` regardless of how many chrX sex labels
+are present.
 
 `ld_manifest.json` is authoritative for file discovery. Loaders must not infer
 panels by globbing arbitrary filenames. Files present in the directory but
@@ -253,11 +271,21 @@ Required manifest fields:
 }
 ```
 
-`runtime_format` is `"python_npz_csc32"` for Python distributions and
-`"matlab_mat_sparse_double"` for MATLAB/Octave distributions.
+`runtime_format` is `"python_npz_csc32"` for Python distributions,
+`"matlab_mat_sparse_double"` for MATLAB/Octave distributions, and
+`"r_rds_csc32"` for R distributions.
+`runtime_format` is a manifest-level distribution identifier: it lets a loader
+reject a panel root that belongs to another runtime before opening shard files.
+The per-shard metadata `format` field is a shard payload identifier and must
+agree with the runtime distribution format. Validators use both fields so a
+manifest cannot silently point to shard files with the wrong internal schema.
 `reference_cache` is a plain relative filename with no path separators, no
 `..` components, and no absolute path prefix. It names the runtime-native
 reference cache loaded by `load_ld`. `reference_cache_md5` is manifest-only.
+Manifest MD5 fields (`reference_cache_md5` and per-shard `file_md5`) must be
+32-character lowercase hexadecimal strings. Producers must write lowercase
+hex, and validators should reject non-lowercase variants rather than accepting
+case-insensitive equivalents.
 Runtime loaders are not required to compute `file_md5` or `reference_cache_md5`
 on the default load path.
 
@@ -281,6 +309,13 @@ other shards may be present in the directory and are ignored.
 globbing are not permitted.
 
 ## Building and conversion
+
+LD construction and runtime conversion follow a hub-and-spoke pattern:
+Python builds the `.npz` handoff distribution, and MATLAB/Octave and R convert
+from that Python distribution into their own runtime-native formats. Direct
+R-to-MATLAB, MATLAB-to-R, or other runtime-to-runtime LD exchange is not a goal.
+
+### Python LD builder
 
 `statgen_build_ld.py` builds the Python `.npz` LD distribution and handoff
 files from a PLINK bfile. It accepts both input layouts:
@@ -371,6 +406,8 @@ explicit user decision because it depends on modeling and encoding
 assumptions. If users suppress sex splitting and write only a single combined
 chrX shard, the manifest records `sex: "combined"`.
 
+### MATLAB/Octave LD conversion
+
 The MATLAB/Octave converter reads `.npz` shard files and writes `.mat` shard
 files for one requested reference shard at a time. The shard argument is
 required so conversion can run as independent parallel jobs without manifest
@@ -415,6 +452,27 @@ named by each shard's `reference_bim` metadata from the `.npz` panel root into
 the `.mat` output directory unchanged and carries `reference_bim` values
 through to the MATLAB/Octave shard metadata.
 
+### R LD conversion
+
+`statgen::convert_ld_npz_to_rds(npz_root, rds_root, shard)` writes RDS files
+containing the R `.rds` shard payload defined above.
+
+R `.npz` support for this converter is a handoff reader, not a general NumPy
+archive API. It must support the documented LD shard payload dtypes
+(`float32`, `int32`, `int64`, `uint8`, and metadata UTF-8 JSON bytes), and
+reject object arrays, pickled payloads, unsupported dtypes, unsupported
+byte-order encodings, malformed shapes, and archives with missing required
+members.
+The R handoff reader must not require Python or external binaries. Signed
+64-bit integer payloads must preserve integer precision and must not be coerced
+through double.
+
+`statgen::create_ld_rds_manifest(npz_root, rds_root, shards)` creates the R
+`ld_manifest.json`. The converter/finalizer preserves the Python shard's
+logical signed-`r` CSC payload, validates metadata consistency, copies bundled
+reference `.bim` files unchanged, writes an R-native reference cache, and writes
+an R manifest. It must not write a precomputed `ld_r2` payload.
+
 ## In-memory objects
 
 An `LDShard` holds one sparse signed-`r` matrix and its aligned `a1freq`. Each
@@ -428,10 +486,12 @@ separate on-disk distribution field, and exists to make repeated
 `multiply_r2` and pruning calls avoid rebuilding the same sparse squared LD
 matrix.
 
-- MATLAB/Octave `load_ld` supports a trailing `retain_ld_r = false` option for
-  memory savings. This drops each shard's raw signed `ld_r` matrix after
-  constructing `ld_r2`. The option must default to retaining `ld_r`, preserving
-  the ordinary LD object contract. When a caller disables raw-LD retention,
+- MATLAB/Octave and R `load_ld` support a
+  `retain_ld_r = false` option for memory savings. Loading first constructs the
+  raw signed `ld_r` matrix from the runtime distribution artifact, then
+  constructs internal `ld_r2`, then drops `ld_r` when `retain_ld_r` is false.
+  The option must default to retaining `ld_r`, preserving the ordinary LD
+  object contract. When a caller disables raw-LD retention,
   `LDPanel.multiply_r2` and `fast_prune` must continue to work from `ld_r2`,
   but direct shard-level `ld_r` inspection is unavailable for that loaded
   object.
@@ -465,9 +525,10 @@ chrX-unrelated operations. For default sex-specific panels built by
   `ReferenceShard`.
 
 Python stores `ld_r` as a SciPy CSC matrix from the `.npz` CSC components.
-MATLAB/Octave stores `ld_r` as native sparse double loaded from `.mat`.
-Python retains `a1freq` as `float32` from the `.npz` payload; MATLAB/Octave
-returns `a1freq` as double.
+MATLAB/Octave stores `ld_r` as native sparse double loaded from `.mat`. R
+stores `ld_r` in memory as `Matrix::dgCMatrix` constructed from the `.rds` CSC
+components. Python retains `a1freq` as `float32` from the `.npz` payload;
+MATLAB/Octave and R return `a1freq` as double.
 
 ## API
 
@@ -508,7 +569,8 @@ default loading. It is self-contained: no external reference is required. It
 validates only the calling runtime's LD distribution format: Python validates
 `.npz` distributions with `runtime_format: "python_npz_csc32"`; MATLAB/Octave
 validates `.mat` distributions with `runtime_format:
-"matlab_mat_sparse_double"`. In addition to manifest file MD5 checksums and
+"matlab_mat_sparse_double"`; R validates RDS distributions with
+`runtime_format: "r_rds_csc32"`. In addition to manifest file MD5 checksums and
 manifest/per-file metadata agreement, the validator must confirm that the two
 bundled reference representations agree with each other and with all LD shard
 metadata: the manifest-declared reference cache must be present, every
@@ -548,14 +610,15 @@ Expected behavior:
   materializes a dense genome-wide LD matrix, accepts both 1-D and 2-D inputs,
   and returns the same shape as `M`.
 - Python should return `float32` for `float32` input and `float64` for
-  `float64` input when multiplying by LD. MATLAB/Octave may return double
-  because the stored MATLAB LD matrix is sparse double. Cross-runtime tests
+  `float64` input when multiplying by LD. MATLAB/Octave and R may return double
+  because their native sparse LD matrices are double. Cross-runtime tests
   compare numerical values with dtype-aware tolerances, not dtype identity.
 - `fast_prune` applies greedy significance-based pruning independently per
   reference shard using the LD selected by `chrX_sex`.
-- `fast_prune` returns a floating vector with the same shape as `logpvec`;
+- `fast_prune` returns a floating vector with the same shape as `logpvec`.
   Python preserves `float32` and `float64` inputs and promotes non-floating
-  inputs to `float64` so pruned values can be represented as `NaN`.
+  inputs to `float64` so pruned values can be represented as `NaN`;
+  MATLAB/Octave and R may return double.
 - Shard-level matrix multiplication is an internal implementation detail, not
   part of the public API.
 

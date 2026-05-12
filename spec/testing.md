@@ -2,7 +2,8 @@
 
 `statgen/tests` should use `pytest`. MATLAB/Octave validation should be done
 with Octave; installed Octave is a prerequisite for tests that exercise MATLAB
-functionality.
+functionality. R validation should be callable from pytest when R is available,
+while CRAN-facing package tests live in the R package.
 
 ## Fixture generation and storage
 
@@ -15,7 +16,7 @@ Canonical source fixtures under `tests/fixtures/` are committed (not generated
 at test time) so that:
 
 - `pytest` runs immediately in CI without a prerequisite step;
-- Python and Octave tests read the exact same on-disk bytes for portable
+- Python, Octave, and R tests read the exact same on-disk bytes for portable
   formats and paired runtime-native files for LD;
 - binary fixture contents (LD distribution files, BIM files) are stable references that
   can be inspected independently of the test suite.
@@ -42,7 +43,7 @@ Tests MUST add or expand checked-in fixtures only when at least one applies:
 
 - the scenario defines or validates a portable format contract (on-disk bytes,
   columns, or metadata);
-- Python and MATLAB/Octave must validate the same exact source bytes;
+- Python, MATLAB/Octave, and R must validate the same exact source bytes;
 - the case is a stable regression anchor for a previously fixed bug.
 
 Tests MUST use on-the-fly temporary inputs for:
@@ -53,12 +54,13 @@ Tests MUST use on-the-fly temporary inputs for:
 - transient perturbations of canonical fixtures (for example truncating one
   binary array to test length validation).
 
-Phase-specific fixture sourcing decisions belong in
-`dev/implementation_plan.md` and must remain consistent with this policy.
+Implementation-plan fixture sourcing decisions belong in the relevant plan under
+`dev/` and must remain consistent with this policy. For R-specific work, use
+`dev/impl_R.md`.
 
 Concrete baseline fixture composition (for example exact chromosome count,
-fixture sizes, and object mix) is implementation-scoped and is defined in
-Phase 0 of `dev/implementation_plan.md`.
+fixture sizes, and object mix) is implementation-scoped and should be defined in
+the relevant implementation plan, not in this spec.
 
 ## Octave test harness
 
@@ -88,10 +90,10 @@ setup and package resolution work end-to-end before any real logic is added.
 
 ## Cross-language consistency
 
-Python and Octave loaders should read the same portable source files where the
-object contract is portable. LD is runtime-native: Python reads `.npz`, and
-Octave reads converted `.mat` files derived from those `.npz` sources. Loaders
-should report matching:
+Python, Octave, and R loaders should read the same portable source files where
+the object contract is portable. LD is runtime-native: Python reads `.npz`,
+Octave reads converted `.mat` files, and R reads converted `.rds` files derived
+from those `.npz` sources. Loaders should report matching:
 
 - dimensions;
 - vector values;
@@ -103,14 +105,14 @@ should report matching:
 
 Cache conversion tests should verify that native cache outputs match portable
 source files, not that caches match each other directly. LD converter tests
-should verify that MATLAB/Octave `.mat` distributions match the Python `.npz`
-handoff files at the logical shard level.
+should verify that MATLAB/Octave `.mat` and R `.rds` distributions match the
+Python `.npz` handoff files at the logical shard level.
 
 ## End-to-end alignment invariants
 
 End-to-end tests MUST include a generated synthetic PLINK2 workflow that
-checks global alignment across reference, genotype, LD, Python, and
-MATLAB/Octave runtimes. The primary invariant is:
+checks global alignment across reference, genotype, LD, Python,
+MATLAB/Octave, and R runtimes. The primary invariant is:
 
 ```text
 LDPanel.a1freq == a1 frequency recomputed from
@@ -206,8 +208,9 @@ genetic-correlation preparation can be expressed using only public loaders,
 accessors, `LDPanel.multiply_r2`, `fast_prune`, and plain arrays. Tests should
 exercise at least loading reference, LD, annotations, and one or two sumstats
 objects; computing an LD-weighted annotation matrix; applying one random
-`fast_prune` mask; and deriving bivariate `z1 * z2` arrays. Python and
-MATLAB/Octave should produce matching fixture outputs for those workflows.
+`fast_prune` mask; and deriving bivariate `z1 * z2` arrays. Python,
+MATLAB/Octave, and R should produce matching fixture outputs for those
+workflows.
 
 ## Test boundaries
 

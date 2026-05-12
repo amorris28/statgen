@@ -146,6 +146,13 @@ passes, cache loaders must perform the warning checks for optional
 `zvec`/`nvec` completeness; those warning checks inspect vector values as
 needed and are not part of the structural compatibility gate.
 
+R sumstats caches are RDS files containing one named list with the same logical
+top-level fields and metadata fields as the MATLAB/Octave cache layout above.
+R `metadata` is a named list. Present vectors are panel-wide numeric vectors;
+absent optional fields are stored as `NULL` and indicated by the corresponding
+`has_*` flag. Optional top-level field names remain present in the RDS list even
+when their value is `NULL`.
+
 ## Panel-level accessors
 
 `Sumstats` exposes read-only genome-wide accessors that concatenate across
@@ -171,7 +178,7 @@ defined in [SPEC.md](SPEC.md).
 
 ```text
 load_sumstats(path, reference) -> Sumstats
-save_sumstats_cache(sumstats, path, optional format)
+save_sumstats_cache(sumstats, path)
 load_sumstats_cache(path, optional shards) -> Sumstats
 create_sumstats(reference, pvec, optional zvec, optional nvec, optional beta_vec,
                 optional se_vec, optional eaf_vec, optional info_vec) -> Sumstats
@@ -185,7 +192,7 @@ Sumstats.beta_vec -> num_snp float vector, or missing optional field sentinel
 Sumstats.se_vec -> num_snp float vector, or missing optional field sentinel
 Sumstats.eaf_vec -> num_snp float vector, or missing optional field sentinel
 Sumstats.info_vec -> num_snp float vector, or missing optional field sentinel
-Sumstats.save_cache(path, optional format) -> void
+Sumstats.save_cache(path) -> void
 Sumstats.select_shards(shards) -> Sumstats
 ```
 
@@ -200,10 +207,7 @@ Expected behavior:
 - sumstats-to-reference matching follows the shared source-to-reference
   matching contract in [reference.md](reference.md). Joins are exact after
   basic field parsing; the loader does not normalize chromosome labels, swap
-  alleles, or perform strand handling. MATLAB/Octave implementations should use
-  a native numeric sort/merge within each shard; equivalent native numeric
-  approaches are allowed, but implementations must not reconstruct string join
-  keys or cast `uint64` allele hashes to `double` for matching.
+  alleles, or perform strand handling.
 - required numeric field `p` must parse as a finite numeric value in the closed
   interval `[0, 1]` for every source row; non-numeric, `NaN`, infinite, missing,
   negative, or greater-than-one values are validation errors and must fail load
@@ -233,7 +237,8 @@ Expected behavior:
   when the source column is present, the accessor returns a full aligned vector
   with `NaN` for missing or unmatched rows; when the source column is absent,
   the accessor returns the language-specific missing optional-field sentinel
-  from [SPEC.md](SPEC.md) (`None` in Python, `[]` in MATLAB/Octave).
+  from [SPEC.md](SPEC.md) (`None` in Python, `[]` in MATLAB/Octave, `NULL` in
+  R).
 - `create_sumstats(...)` validates vector lengths against `reference.num_snp`.
   Unknown shapes fail clearly; required `pvec` values must satisfy the same
   finite numeric range contract as loaded objects, with `p == 0` allowed.

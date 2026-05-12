@@ -1,8 +1,8 @@
 # statgen specification
 
 This directory defines the object-centered design for `statgen`, a shared
-Python and MATLAB/Octave package for statistical genetics data structures and
-the basic operations on them needed for downstream inference.
+Python, MATLAB/Octave, and R package for statistical genetics data structures
+and the basic operations on them needed for downstream inference.
 
 The design is centered on individual objects. A project may have multiple
 genotype panels, LD panels, GWAS summary-statistic objects, annotation panels,
@@ -29,8 +29,9 @@ In separate files:
    performance-oriented storage requirements.
 1. [python.md](python.md): Python package layout and implementation conventions.
 1. [matlab.md](matlab.md): MATLAB/Octave package layout and implementation conventions.
+1. [R.md](R.md): R package layout, CRAN constraints, and implementation conventions.
 1. [docstrings.md](docstrings.md): interactive help text policy for public APIs.
-1. [testing.md](testing.md): pytest and Octave consistency strategy.
+1. [testing.md](testing.md): pytest, Octave, and R consistency strategy.
 
 Objects:
 
@@ -54,22 +55,23 @@ API descriptions in the spec are language-agnostic. Signatures use generic pseud
 notation and define the logical contract — what arguments are required, what
 is returned, and what invariants hold. Function-like names such as
 `load_reference` are logical API names, not a mandate to implement module-level
-free functions. Python and MATLAB/Octave specifics (naming conventions, types,
-method vs. function style, native containers, and cache internals) belong in
-implementation notes, not in the contract spec.
+free functions. Python, MATLAB/Octave, and R specifics (naming conventions,
+types, method vs. function style, native containers, and cache internals)
+belong in implementation notes, not in the contract spec.
 
 API notation uses neutral data-shape terms:
 
 - `vector` means a one-dimensional logical column of values; Python may expose
-  it as a 1-D `numpy.ndarray`, while MATLAB/Octave should expose a column
-  vector unless local convention requires otherwise.
+  it as a 1-D `numpy.ndarray`, MATLAB/Octave should expose a column vector
+  unless local convention requires otherwise, and R may expose it as an
+  ordinary vector.
 - `matrix` means a two-dimensional numeric or logical array.
 - `table` means a column-oriented record collection with named fields/columns.
 - `optional X` means the argument may be omitted. Python may represent omitted
   optional values with `None`; MATLAB/Octave may use `[]` or an omitted
-  name-value argument.
+  name-value argument; R may use `NULL` or an omitted argument.
 - Missing optional return fields use the language's natural empty sentinel:
-  `None` in Python and `[]` in MATLAB/Octave.
+  `None` in Python, `[]` in MATLAB/Octave, and `NULL` in R.
 
 ## Contig naming, Genome build and Allele contract
 
@@ -120,7 +122,7 @@ Panel objects must contain at least one shard; empty panels are invalid.
 
 Unless a field is explicitly documented as portable-coordinate metadata (for
 example `start0`, `stop0`, or `index_base`), indexing semantics in code follow
-the host language (Python 0-based, MATLAB/Octave 1-based).
+the host language (Python 0-based, MATLAB/Octave and R 1-based).
 
 Reference checksum construction is defined in [reference.md](reference.md).
 Reference-aligned objects store the paired `ReferenceShard` checksum in memory
@@ -143,7 +145,8 @@ must be reproducible from portable source files.
 LD panels are the documented exception to this portable-storage policy: their
 distributed shard files are runtime-native sparse matrix artifacts, not caches.
 Python LD distributions use NumPy/SciPy `.npz`; MATLAB/Octave LD distributions
-use `.mat`. See [ld.md](ld.md) for the LD-specific distribution contract.
+use `.mat`; R LD distributions use `.rds`. See [ld.md](ld.md) for the
+LD-specific distribution contract.
 
 ## Object scope and mutability
 
@@ -162,8 +165,9 @@ The operations exposed by objects are limited to what is needed for basic
 statistical genetics workflows:
 
 - **Underlying data access**: read-only accessors that return plain
-  language-native arrays (numpy `ndarray`, MATLAB matrix/vector). For panel
-  objects these concatenate shards transparently into genome-wide arrays.
+  language-native arrays (numpy `ndarray`, MATLAB matrix/vector, R vector or
+  matrix). For panel objects these concatenate shards transparently into
+  genome-wide arrays.
   Examples: `AnnotationPanel.annomat`, `Sumstats.zvec`, `LDPanel.a1freq`.
 - **Object-specific operations**: defined in each object spec (for example
   `LDPanel.multiply_r2` and `fast_prune` in [ld.md](ld.md)).

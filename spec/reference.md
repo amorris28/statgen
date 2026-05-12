@@ -100,6 +100,18 @@ the recurrence are below `2^53` and can be computed exactly in IEEE-754 double
 precision. Implementations must not use saturating `uint64` multiplication to
 compute allele hashes.
 
+The construction also bounds every emitted hash below `2^63`:
+
+```text
+max_allele_hash64 = ((p - 1) << 32) + (p - 1)
+                  = 9223372030412324862
+                  < 9223372036854775808  # 2^63
+```
+
+This bound is part of the cross-runtime contract. It allows runtimes without a
+native unsigned 64-bit scalar, such as R, to store allele hashes exactly in a
+signed 64-bit representation.
+
 Source-to-reference matching for variant-bearing source files, including
 summary statistics and genotype BIM sources, uses the tuple `(shard label, bp,
 a1_hash64, a2_hash64)`. The allele hashes are not used for reference
@@ -117,13 +129,13 @@ count of such variants. This is diagnostic only: those variants remain
 unmatched, and callers must not silently flip alleles, repair strand issues, or
 otherwise rescue them.
 
-MATLAB/Octave sumstats loaders should match within each shard using a native
-numeric sort/merge over `(bp, a1_hash64, a2_hash64)`. Equivalent native numeric
-implementations are allowed, but implementations must not reconstruct string
-join keys and must not cast `uint64` hashes to `double` for matching because
-values above `2^53` would lose precision. Duplicate matching keys within a
-shard or source input must fail clearly when they would make alignment
-ambiguous.
+Implementations should match within each shard using native hash-preserving
+operations over `(bp, a1_hash64, a2_hash64)`. MATLAB/Octave implementations
+should use a native numeric sort/merge; equivalent native numeric approaches
+are allowed. Implementations must not reconstruct string join keys and must
+not cast `uint64` hashes to `double` for matching because values above `2^53`
+would lose precision. Duplicate matching keys within a shard or source input
+must fail clearly when they would make alignment ambiguous.
 
 Regardless of how the panel is sharded, callers access genome-wide vectors and
 matrices through read-only panel-level accessors that concatenate across shards
@@ -193,6 +205,15 @@ repeating each shard label `num_snp` times and concatenating shard vectors in
 panel order; it is not stored in the cache. `bp`, `a1_hash64`, and `a2_hash64`
 are available without decoding string payloads.
 
+R reference caches are RDS files containing one named list with the same logical
+top-level fields and metadata fields as the MATLAB/Octave cache layout above.
+R `metadata` is a named list, `a1_hash64` and `a2_hash64` are panel-wide
+`bit64::integer64` vectors, and `snp_text_by_shard`, `a1_text_by_shard`, and
+`a2_text_by_shard` are character vectors with one newline-delimited shard
+payload per shard in panel order. The RDS payload stores these encoded shard
+strings, not decoded per-SNP character vectors; cache-loaded R references should
+keep them encoded until the corresponding accessor is called.
+
 The `a1_hash64`/`a2_hash64` cache fields and sumstats matching semantics are
 cross-runtime object contracts. Cache metadata validation should be cheap,
 depending on shard count and array dimensions rather than scanning all SNP
@@ -203,13 +224,15 @@ themselves. Callers who want to verify reference cache integrity may explicitly
 call `ReferencePanel.validate_checksums()`, which forces string payload
 materialization.
 
-There is one reference cache representation.
+There is one logical reference cache API. Runtime storage details are
+language-specific cache concerns governed by
+[performance-contract.md](performance-contract.md).
 
 ## API
 
 ```text
 load_reference(path, optional shards) -> ReferencePanel
-save_reference_cache(panel, path, optional format) -> void
+save_reference_cache(panel, path) -> void
 load_reference_cache(path, optional shards) -> ReferencePanel
 
 ReferencePanel.num_snp -> int
@@ -226,17 +249,18 @@ ReferencePanel.shard_offsets -> table with shard_label, start0, stop0
 ReferencePanel.select_shards(shards) -> ReferencePanel
 ReferencePanel.is_object_compatible(object) -> bool
 ReferencePanel.validate_checksums() -> bool
-ReferencePanel.save_cache(path, optional format) -> void
+ReferencePanel.save_cache(path) -> void
 ```
 
 Expected behavior:
 
 - Reference panels are external inputs; reference APIs never write `.bim`
-  files. LD distribution builders (`statgen_build_ld.py` and the MATLAB/Octave
-  converter) are the only tools that write `.bim` files, and only as exact
-  copies of input BIM rows bundled alongside LD shards.
-- Cache is a single file (non-sharded). The MATLAB/Octave cache layout is
-  specified in the "Cache layout" section above.
+  files. LD distribution builders and runtime-native LD converters are the
+  only tools that write `.bim` files, and only as exact copies of input BIM rows
+  bundled alongside LD shards.
+- Cache is a single file (non-sharded). Runtime cache formats follow
+  [performance-contract.md](performance-contract.md); the MATLAB/Octave cache
+  layout is specified in the "Cache layout" section above.
 - Shard discovery, contig validation, row-order validation, and shard subsetting
   follow [contigs-and-shards.md](contigs-and-shards.md).
 - Reference source loaders validate only `chr_rank`/`bp` ordering, not
@@ -257,7 +281,7 @@ Expected behavior:
   caching.
 - `shard_offsets` uses zero-based half-open intervals into genome-wide arrays.
 - `shard_offsets.start0`/`stop0` are cross-language coordinate metadata, not
-  direct language indices. MATLAB/Octave callers convert at use-site
+  direct language indices. MATLAB/Octave and R callers convert at use-site
   (`start0 + 1 : stop0`).
 - `load_reference_cache` skips source-style row validation; `shards` subsetting
   applies against cached shard labels per

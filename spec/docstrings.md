@@ -44,3 +44,14 @@ cache internals, or catalog every warning and error.
 Python docstrings are out of scope for now. Python documentation requirements
 may be added later if the Python API needs interactive help conventions beyond
 the existing specs and tests.
+
+## R
+
+Public R entry points and user-facing S3 classes should have concise package
+documentation generated as standard `.Rd` help pages. The help should cover
+common call forms, main outputs or accessors, array orientation where it is easy
+to get wrong, and nearby public APIs.
+
+Do not duplicate full object specs in R help pages. Keep examples CRAN-safe:
+they must use tiny bundled fixtures or be guarded when they require optional
+external tools.
