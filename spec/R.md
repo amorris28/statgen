@@ -61,6 +61,33 @@ plain functions, or both. R should avoid ambiguous `$`-only public APIs for
 important operations because `$` bypasses validation and makes help text less
 discoverable.
 
+### S3 generic mapping
+
+Object-spec property and method notation maps to R accessor and operation
+generics with the dispatch object as the first argument. For example,
+`ReferencePanel.bp` is exposed as `bp(reference_panel)`, and
+`ReferencePanel.select_shards(shards)` is exposed as
+`select_shards(reference_panel, shards)`.
+
+When a logical method takes another argument in the object specs, R still puts
+the dispatch object first. For example, the LD operation specified as
+`LDPanel.multiply_r2(M, optional chrX_sex)` is exposed in R as
+`multiply_r2(ld_panel, M, chrX_sex = NULL)`.
+
+Compatibility checks intentionally dispatch on the reference panel:
+`is_object_compatible(reference, object)` uses the
+`is_object_compatible.ReferencePanel` method. Other panel classes do not need
+their own `is_object_compatible` methods for the shared reference-alignment
+check. To participate in this check, each reference-aligned panel class must
+provide a `shards.<Class>` method returning its ordered shard objects, and those
+shard objects must expose the reference-alignment metadata required by
+[reference.md](reference.md).
+
+The `$` operator is not the public API for important operations or accessors.
+Implementations may store ordinary list fields internally, but user-facing code
+should use exported accessors such as `bp(x)`, `shards(x)`, and
+`reference(ld_panel)`.
+
 ## Runtime verbosity
 
 R exports `set_verbosity(level)` and `get_verbosity()` with levels `quiet` and

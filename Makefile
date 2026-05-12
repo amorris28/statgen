@@ -1,7 +1,7 @@
 R_PACKAGE_VERSION := $(shell awk '/^Version:/ {print $$2}' R-package/DESCRIPTION)
 R_PACKAGE_TARBALL := /tmp/statgen_$(R_PACKAGE_VERSION).tar.gz
 
-.PHONY: install fixtures prepare-r-fixtures test test-python test-octave test-matlab test-r rcmd-check
+.PHONY: install fixtures prepare-r-fixtures test test-python test-octave test-matlab test-r r-manual rcmd-check
 
 install:
 	pip install -e python/
@@ -28,6 +28,10 @@ test-matlab:
 
 test-r: prepare-r-fixtures
 	pytest tests/ -m r
+
+r-manual:
+	$(RM) /tmp/statgen-manual.pdf
+	R CMD Rd2pdf R-package --output=/tmp/statgen-manual.pdf
 
 rcmd-check: prepare-r-fixtures
 	cd /tmp && R CMD build $(CURDIR)/R-package

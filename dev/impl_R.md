@@ -89,6 +89,11 @@ Implementation tasks:
   `select_shards`, compatibility checks, and checksum validation.
 - Implement R-native reference cache save/load as RDS unless the spec later
   defines another R-native format.
+- Establish the shared S3 generic pattern documented in `spec/R.md`: public
+  object access goes through accessors such as `bp(x)` and `shards(x)`;
+  `is_object_compatible(reference, object)` dispatches on `ReferencePanel`; and
+  future reference-aligned panel classes must register `shards.<Class>` for
+  compatibility checks.
 
 Acceptance criteria:
 
@@ -151,6 +156,8 @@ Implementation tasks:
   and optional `retain_ld_r = false` behavior.
 - Implement `multiply_r2` with `Matrix` sparse matrix multiplication over
   `Matrix::dgCMatrix` as the default path. Compiled accelerators are optional.
+- Document and implement the R S3 argument order as
+  `multiply_r2(ld_panel, M, chrX_sex = NULL)`, with the dispatch object first.
 - Emit compatibility warnings with `warning(..., call. = FALSE)`, including
   monomorphic SNP warnings when `num_monomorphic_snps > 0`.
 - Keep default LD loading on the manifest-declared reference cache path; parse
