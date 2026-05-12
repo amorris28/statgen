@@ -1,0 +1,61 @@
+\name{sumstats}
+\alias{load_sumstats}
+\alias{create_sumstats}
+\alias{save_sumstats_cache}
+\alias{load_sumstats_cache}
+\alias{logpvec}
+\alias{zvec}
+\alias{nvec}
+\alias{is_present}
+\alias{beta_vec}
+\alias{se_vec}
+\alias{eaf_vec}
+\alias{info_vec}
+\title{Sumstats objects}
+\description{
+Load, create, inspect, and cache reference-aligned GWAS summary statistics.
+}
+\usage{
+load_sumstats(path, reference)
+create_sumstats(reference, pvec, zvec = NULL, nvec = NULL,
+  beta_vec = NULL, se_vec = NULL, eaf_vec = NULL, info_vec = NULL)
+save_sumstats_cache(sumstats, path)
+load_sumstats_cache(path, shards = NULL)
+
+logpvec(x, ...)
+zvec(x, ...)
+nvec(x, ...)
+is_present(x, ...)
+beta_vec(x, ...)
+se_vec(x, ...)
+eaf_vec(x, ...)
+info_vec(x, ...)
+}
+\arguments{
+\item{path}{Character scalar path to a summary-statistics TSV or RDS cache.}
+\item{reference}{A \code{ReferencePanel}.}
+\item{sumstats, x}{A \code{Sumstats} object.}
+\item{pvec, zvec, nvec, beta_vec, se_vec, eaf_vec, info_vec}{Aligned
+numeric vectors. Optional vectors may be \code{NULL}.}
+\item{shards}{Optional character vector of shard labels in canonical order.}
+\item{...}{Reserved for S3 methods.}
+}
+\value{
+\code{load_sumstats()}, \code{create_sumstats()}, and
+\code{load_sumstats_cache()} return \code{Sumstats} S3 objects. Accessors
+return ordinary R vectors, with \code{NULL} for absent optional fields.
+}
+\details{
+Rows are projected onto the supplied reference by exact chromosome, position,
+and allele-hash matching. Missing reference variants are represented by
+\code{NaN} in \code{logpvec(x)} and by \code{is_present(x) == FALSE}.
+}
+\examples{
+ref_path <- system.file("extdata", "reference_chr1.bim", package = "statgen")
+sum_path <- system.file("extdata", "traits.tsv.gz", package = "statgen")
+if (nzchar(ref_path) && nzchar(sum_path)) {
+  ref <- load_reference(ref_path)
+  s <- suppressWarnings(load_sumstats(sum_path, ref))
+  head(logpvec(s))
+}
+}

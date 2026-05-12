@@ -40,10 +40,18 @@ def test_r_package_skeleton_present():
 
 
 def test_r_extdata_reference_fixture_matches_canonical_source():
-    r_fixture = R_PACKAGE_DIR / "inst/extdata/reference_chr1.bim"
-    canonical = FIXTURES_DIR / "reference/sharded/1.bim"
-    assert r_fixture.is_file(), "run `make prepare-r-fixtures` to create R extdata copies"
-    assert r_fixture.read_bytes() == canonical.read_bytes()
+    copies = {
+        "reference_chr1.bim": "reference/sharded/1.bim",
+        "reference_chrX.bim": "reference/sharded/X.bim",
+        "traits.tsv.gz": "sumstats/traits.tsv.gz",
+        "anno1.bed": "annotations/anno1.bed",
+        "anno2.bed": "annotations/anno2.bed",
+    }
+    for r_name, canonical_rel in copies.items():
+        r_fixture = R_PACKAGE_DIR / f"inst/extdata/{r_name}"
+        canonical = FIXTURES_DIR / canonical_rel
+        assert r_fixture.is_file(), "run `make prepare-r-fixtures` to create R extdata copies"
+        assert r_fixture.read_bytes() == canonical.read_bytes()
 
 
 def test_r_and_python_versions_match():

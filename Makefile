@@ -13,6 +13,10 @@ fixtures:
 prepare-r-fixtures:
 	mkdir -p R-package/inst/extdata
 	cp tests/fixtures/reference/sharded/1.bim R-package/inst/extdata/reference_chr1.bim
+	cp tests/fixtures/reference/sharded/X.bim R-package/inst/extdata/reference_chrX.bim
+	cp tests/fixtures/sumstats/traits.tsv.gz R-package/inst/extdata/traits.tsv.gz
+	cp tests/fixtures/annotations/anno1.bed R-package/inst/extdata/anno1.bed
+	cp tests/fixtures/annotations/anno2.bed R-package/inst/extdata/anno2.bed
 
 test: prepare-r-fixtures
 	pytest tests/

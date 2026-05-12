@@ -135,6 +135,11 @@ mirrors the MATLAB/Octave reference-cache strategy.
   vectors or numeric matrices.
 - Missing numeric values use `NaN` for aligned numeric vectors where parity
   with other runtimes is required. Optional absent fields use `NULL`.
+- `AnnotationPanel.annomat` is exposed as a sparse `Matrix::lgCMatrix` with
+  column names set to `annonames(annotation_panel)`. This is an R-native
+  enrichment for ergonomic subsetting such as `annomat(panel)[, "coding"]`;
+  annotation order and the authoritative annotation-name accessor remain the
+  object contract defined in [annotations.md](annotations.md).
 - Paths accept character scalars and are resolved with portable R path
   functions.
 - Allele hashes use `bit64::integer64`, not double. This relies on the

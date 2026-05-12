@@ -1,0 +1,485 @@
+.sumstats_cache_schema <- "sumstats_cache/0.1"
+.sumstats_required_cols <- c("chr", "bp", "a1", "a2", "p")
+.sumstats_optional_cols <- c("z", "n", "beta", "se", "eaf", "info")
+.sumstats_allowed_cols <- c(.sumstats_required_cols, .sumstats_optional_cols, "snp")
+.sumstats_col_map <- c(pos = "bp", effectallele = "a1", otherallele = "a2")
+
+logpvec <- function(x, ...) UseMethod("logpvec")
+zvec <- function(x, ...) UseMethod("zvec")
+nvec <- function(x, ...) UseMethod("nvec")
+is_present <- function(x, ...) UseMethod("is_present")
+beta_vec <- function(x, ...) UseMethod("beta_vec")
+se_vec <- function(x, ...) UseMethod("se_vec")
+eaf_vec <- function(x, ...) UseMethod("eaf_vec")
+info_vec <- function(x, ...) UseMethod("info_vec")
+
+load_sumstats <- function(path, reference) {
+  path <- .validate_path_scalar(path, "path")
+  if (!inherits(reference, "ReferencePanel")) {
+    stop("reference must be a ReferencePanel", call. = FALSE)
+  }
+  df <- .parse_sumstats_tsv(path)
+  .build_sumstats_panel(df, reference, path)
+}
+
+create_sumstats <- function(reference, pvec, zvec = NULL, nvec = NULL,
+                            beta_vec = NULL, se_vec = NULL,
+                            eaf_vec = NULL, info_vec = NULL) {
+  if (!inherits(reference, "ReferencePanel")) {
+    stop("reference must be a ReferencePanel", call. = FALSE)
+  }
+  n <- num_snp(reference)
+  p <- .coerce_aligned_numeric_vector(pvec, n, "pvec", allow_inf = FALSE)
+  .validate_p_values(p, "pvec")
+  aligned <- list(
+    z = .coerce_optional_aligned_numeric_vector(zvec, n, "zvec"),
+    n = .coerce_optional_aligned_numeric_vector(nvec, n, "nvec"),
+    beta = .coerce_optional_aligned_numeric_vector(beta_vec, n, "beta_vec"),
+    se = .coerce_optional_aligned_numeric_vector(se_vec, n, "se_vec"),
+    eaf = .coerce_optional_aligned_numeric_vector(eaf_vec, n, "eaf_vec"),
+    info = .coerce_optional_aligned_numeric_vector(info_vec, n, "info_vec")
+  )
+  .build_sumstats_from_aligned(reference, .derive_logp(p), aligned)
+}
+
+save_sumstats_cache <- function(sumstats, path) {
+  if (!inherits(sumstats, "Sumstats")) {
+    stop("sumstats must be a Sumstats object", call. = FALSE)
+  }
+  path <- .validate_path_scalar(path, "path")
+  offsets <- shard_offsets(sumstats)
+  metadata <- list(
+    schema = .sumstats_cache_schema,
+    n_shards = length(sumstats$shards),
+    shard_labels = vapply(sumstats$shards, function(s) s$label, character(1)),
+    shard_checksums = vapply(sumstats$shards, function(s) s$reference_checksum, character(1)),
+    shard_start0 = offsets$start0,
+    shard_stop0 = offsets$stop0,
+    has_z = !is.null(zvec(sumstats)),
+    has_n = !is.null(nvec(sumstats)),
+    has_beta = !is.null(beta_vec(sumstats)),
+    has_se = !is.null(se_vec(sumstats)),
+    has_eaf = !is.null(eaf_vec(sumstats)),
+    has_info = !is.null(info_vec(sumstats))
+  )
+  payload <- list(
+    metadata = metadata,
+    logpvec = logpvec(sumstats),
+    zvec = zvec(sumstats),
+    nvec = nvec(sumstats),
+    beta_vec = beta_vec(sumstats),
+    se_vec = se_vec(sumstats),
+    eaf_vec = eaf_vec(sumstats),
+    info_vec = info_vec(sumstats)
+  )
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  saveRDS(payload, path)
+  invisible(NULL)
+}
+
+load_sumstats_cache <- function(path, shards = NULL) {
+  path <- .validate_path_scalar(path, "path")
+  payload <- readRDS(path)
+  .validate_sumstats_cache_payload(payload)
+  meta <- payload$metadata
+  selected <- .validate_requested_shards(shards, meta$shard_labels, "load_sumstats_cache")
+  label_to_index <- stats::setNames(seq_along(meta$shard_labels), meta$shard_labels)
+
+  out <- vector("list", length(selected))
+  for (i in seq_along(selected)) {
+    label <- selected[[i]]
+    idx <- label_to_index[[label]]
+    start <- meta$shard_start0[[idx]] + 1L
+    stop <- meta$shard_stop0[[idx]]
+    out[[i]] <- .new_sumstats_shard(
+      label = label,
+      reference_checksum = meta$shard_checksums[[idx]],
+      logpvec = payload$logpvec[start:stop],
+      zvec = if (isTRUE(meta$has_z)) payload$zvec[start:stop] else NULL,
+      nvec = if (isTRUE(meta$has_n)) payload$nvec[start:stop] else NULL,
+      beta_vec = if (isTRUE(meta$has_beta)) payload$beta_vec[start:stop] else NULL,
+      se_vec = if (isTRUE(meta$has_se)) payload$se_vec[start:stop] else NULL,
+      eaf_vec = if (isTRUE(meta$has_eaf)) payload$eaf_vec[start:stop] else NULL,
+      info_vec = if (isTRUE(meta$has_info)) payload$info_vec[start:stop] else NULL
+    )
+  }
+  panel <- .new_sumstats_panel(out)
+  .warn_optional_zn_completeness(zvec(panel), nvec(panel), logpvec(panel), "load_sumstats_cache")
+  panel
+}
+
+num_snp.SumstatsShard <- function(x, ...) x$num_snp
+num_snp.Sumstats <- function(x, ...) x$num_snp
+shards.Sumstats <- function(x, ...) x$shards
+shard_offsets.Sumstats <- function(x, ...) x$shard_offsets
+
+logpvec.SumstatsShard <- function(x, ...) x$logpvec
+logpvec.Sumstats <- function(x, ...) unlist(lapply(x$shards, logpvec), use.names = FALSE)
+
+zvec.SumstatsShard <- function(x, ...) x$zvec
+zvec.Sumstats <- function(x, ...) .optional_sumstats_concat(x, "zvec")
+
+nvec.SumstatsShard <- function(x, ...) x$nvec
+nvec.Sumstats <- function(x, ...) .optional_sumstats_concat(x, "nvec")
+
+is_present.SumstatsShard <- function(x, ...) !is.nan(x$logpvec)
+is_present.Sumstats <- function(x, ...) !is.nan(logpvec(x))
+
+beta_vec.SumstatsShard <- function(x, ...) x$beta_vec
+beta_vec.Sumstats <- function(x, ...) .optional_sumstats_concat(x, "beta_vec")
+
+se_vec.SumstatsShard <- function(x, ...) x$se_vec
+se_vec.Sumstats <- function(x, ...) .optional_sumstats_concat(x, "se_vec")
+
+eaf_vec.SumstatsShard <- function(x, ...) x$eaf_vec
+eaf_vec.Sumstats <- function(x, ...) .optional_sumstats_concat(x, "eaf_vec")
+
+info_vec.SumstatsShard <- function(x, ...) x$info_vec
+info_vec.Sumstats <- function(x, ...) .optional_sumstats_concat(x, "info_vec")
+
+select_shards.Sumstats <- function(x, shards, ...) {
+  available <- vapply(x$shards, function(s) s$label, character(1))
+  selected <- .validate_requested_shards(shards, available, "Sumstats.select_shards")
+  by_label <- stats::setNames(x$shards, available)
+  .new_sumstats_panel(unname(by_label[selected]))
+}
+
+save_cache.Sumstats <- function(x, path, ...) save_sumstats_cache(x, path)
+
+print.Sumstats <- function(x, ...) {
+  labels <- vapply(x$shards, function(s) s$label, character(1))
+  cat(sprintf("<Sumstats: %d SNPs across %d shard(s): %s>\n", x$num_snp, length(labels), paste(labels, collapse = ", ")))
+  invisible(x)
+}
+
+.optional_sumstats_concat <- function(x, field) {
+  present <- vapply(x$shards, function(s) !is.null(s[[field]]), logical(1))
+  if (!any(present)) {
+    return(NULL)
+  }
+  if (!all(present)) {
+    stop(sprintf("Invalid Sumstats object: inconsistent %s presence across shards", field), call. = FALSE)
+  }
+  unlist(lapply(x$shards, function(s) s[[field]]), use.names = FALSE)
+}
+
+.new_sumstats_shard <- function(label, reference_checksum, logpvec,
+                                zvec = NULL, nvec = NULL, beta_vec = NULL,
+                                se_vec = NULL, eaf_vec = NULL, info_vec = NULL) {
+  logpvec <- as.numeric(logpvec)
+  n <- length(logpvec)
+  structure(
+    list(
+      label = as.character(label),
+      reference_checksum = as.character(reference_checksum),
+      num_snp = as.integer(n),
+      logpvec = logpvec,
+      zvec = .coerce_optional_shard_numeric_vector(zvec, n, "zvec"),
+      nvec = .coerce_optional_shard_numeric_vector(nvec, n, "nvec"),
+      beta_vec = .coerce_optional_shard_numeric_vector(beta_vec, n, "beta_vec"),
+      se_vec = .coerce_optional_shard_numeric_vector(se_vec, n, "se_vec"),
+      eaf_vec = .coerce_optional_shard_numeric_vector(eaf_vec, n, "eaf_vec"),
+      info_vec = .coerce_optional_shard_numeric_vector(info_vec, n, "info_vec")
+    ),
+    class = "SumstatsShard"
+  )
+}
+
+.new_sumstats_panel <- function(shard_list) {
+  if (!length(shard_list)) {
+    stop("Sumstats requires at least one shard", call. = FALSE)
+  }
+  for (field in c("zvec", "nvec", "beta_vec", "se_vec", "eaf_vec", "info_vec")) {
+    present <- vapply(shard_list, function(s) !is.null(s[[field]]), logical(1))
+    if (any(present) && !all(present)) {
+      stop(sprintf("Sumstats shards must have consistent %s presence", field), call. = FALSE)
+    }
+  }
+  pos <- 0L
+  offsets <- data.frame(
+    shard_label = character(length(shard_list)),
+    start0 = numeric(length(shard_list)),
+    stop0 = numeric(length(shard_list)),
+    stringsAsFactors = FALSE
+  )
+  for (i in seq_along(shard_list)) {
+    offsets$shard_label[[i]] <- shard_list[[i]]$label
+    offsets$start0[[i]] <- pos
+    pos <- pos + shard_list[[i]]$num_snp
+    offsets$stop0[[i]] <- pos
+  }
+  structure(list(shards = shard_list, num_snp = pos, shard_offsets = offsets), class = "Sumstats")
+}
+
+.parse_sumstats_tsv <- function(path) {
+  if (!file.exists(path)) {
+    stop(sprintf("File not found: %s", path), call. = FALSE)
+  }
+  con <- if (grepl("\\.gz$", path, ignore.case = TRUE)) gzfile(path, "rt") else file(path, "rt")
+  on.exit(close(con), add = TRUE)
+  df <- tryCatch(
+    utils::read.delim(
+      con,
+      header = TRUE,
+      sep = "\t",
+      quote = "",
+      comment.char = "",
+      stringsAsFactors = FALSE,
+      check.names = FALSE,
+      colClasses = "character",
+      na.strings = character(),
+      fill = FALSE
+    ),
+    error = function(e) {
+      stop(sprintf("%s: malformed TSV", path), call. = FALSE)
+    }
+  )
+  names(df) <- .canonicalize_sumstats_columns(names(df), path)
+  missing <- setdiff(.sumstats_required_cols, names(df))
+  if (length(missing)) {
+    stop(sprintf("%s: missing required columns: %s", path, paste(missing, collapse = ", ")), call. = FALSE)
+  }
+  unknown <- setdiff(names(df), .sumstats_allowed_cols)
+  if (length(unknown)) {
+    stop(sprintf("%s: unsupported columns: %s", path, paste(unknown, collapse = ", ")), call. = FALSE)
+  }
+
+  for (field in c("chr", "a1", "a2")) {
+    bad <- is.na(df[[field]]) | df[[field]] == ""
+    if (any(bad)) {
+      stop(sprintf("%s: row %d: %s must be non-empty", path, which(bad)[[1]] + 1L, field), call. = FALSE)
+    }
+  }
+  .validate_source_chr_labels(df$chr, path)
+
+  bp <- suppressWarnings(as.numeric(df$bp))
+  bad_bp <- is.na(bp) | !is.finite(bp) | floor(bp) != bp
+  if (any(bad_bp)) {
+    stop(sprintf("%s: row %d: bp is not an integer: %s", path, which(bad_bp)[[1]] + 1L, sQuote(df$bp[[which(bad_bp)[[1]]]])), call. = FALSE)
+  }
+  df$bp <- as.integer(bp)
+
+  p <- suppressWarnings(as.numeric(df$p))
+  bad_p <- is.na(p) | !is.finite(p) | p < 0 | p > 1
+  if (any(bad_p)) {
+    idx <- which(bad_p)[[1]]
+    stop(sprintf("%s: row %d: p must be finite numeric in [0, 1]: %s", path, idx + 1L, sQuote(df$p[[idx]])), call. = FALSE)
+  }
+  df$p <- p
+
+  for (field in .sumstats_optional_cols) {
+    if (field %in% names(df)) {
+      value <- suppressWarnings(as.numeric(df[[field]]))
+      value[!is.finite(value)] <- NaN
+      df[[field]] <- value
+    }
+  }
+  df
+}
+
+.canonicalize_sumstats_columns <- function(columns, path) {
+  out <- tolower(as.character(columns))
+  mapped <- .sumstats_col_map[out]
+  out[!is.na(mapped)] <- unname(mapped[!is.na(mapped)])
+  duplicates <- unique(out[duplicated(out)])
+  if (length(duplicates)) {
+    stop(sprintf("%s: duplicate columns after column normalization: %s", path, paste(sort(duplicates), collapse = ", ")), call. = FALSE)
+  }
+  out
+}
+
+.validate_source_chr_labels <- function(chr_values, path) {
+  chr_style <- startsWith(tolower(chr_values), "chr")
+  if (any(chr_style)) {
+    stop(sprintf("%s: row %d: chr-style labels (e.g., chr1/chrX) are not allowed", path, which(chr_style)[[1]] + 1L), call. = FALSE)
+  }
+  known <- chr_values %in% c(.canonical_chr_order, .ignored_chr)
+  if (!all(known)) {
+    idx <- which(!known)[[1]]
+    stop(sprintf("%s: row %d: unsupported chr label %s; expected 1-22, X (Y/MT are ignored)", path, idx + 1L, sQuote(chr_values[[idx]])), call. = FALSE)
+  }
+}
+
+.build_sumstats_panel <- function(df, reference, source_path) {
+  n <- num_snp(reference)
+  aligned_p <- rep.int(NaN, n)
+  aligned_optional <- lapply(.sumstats_optional_cols, function(field) {
+    if (field %in% names(df)) rep.int(NaN, n) else NULL
+  })
+  names(aligned_optional) <- .sumstats_optional_cols
+
+  src_chr <- as.character(df$chr)
+  keep_supported <- src_chr %in% .canonical_chr_order
+  source_rows_by_chr <- split(which(keep_supported), src_chr[keep_supported])
+  src_a1_hash64 <- .allele_hash64(df$a1)
+  src_a2_hash64 <- .allele_hash64(df$a2)
+
+  ref_shards <- shards(reference)
+  offsets <- shard_offsets(reference)
+  for (i in seq_along(ref_shards)) {
+    ref_shard <- ref_shards[[i]]
+    start <- offsets$start0[[i]] + 1L
+    stop <- offsets$stop0[[i]]
+    src_idx <- source_rows_by_chr[[ref_shard$label]]
+    if (is.null(src_idx)) {
+      src_idx <- integer()
+    }
+    if (!length(src_idx)) {
+      warning(sprintf("%s: shard %s has no matching source rows; representing as all missing", source_path, ref_shard$label), call. = FALSE)
+      next
+    }
+    local_match <- .match_variant_keys(
+      bp(ref_shard), a1_hash64(ref_shard), a2_hash64(ref_shard),
+      df$bp[src_idx], src_a1_hash64[src_idx], src_a2_hash64[src_idx],
+      ref_shard$label, "sumstats"
+    )
+    has_match <- !is.na(local_match)
+    matched_src <- src_idx[local_match[has_match]]
+    aligned_idx <- seq.int(start, stop)[has_match]
+    aligned_p[aligned_idx] <- df$p[matched_src]
+    for (field in .sumstats_optional_cols) {
+      if (!is.null(aligned_optional[[field]])) {
+        aligned_optional[[field]][aligned_idx] <- df[[field]][matched_src]
+      }
+    }
+
+    matched_source_mask <- rep.int(FALSE, length(src_idx))
+    matched_source_mask[local_match[has_match]] <- TRUE
+    unmatched_src <- src_idx[!matched_source_mask]
+    swapped <- .count_variant_key_intersections(
+      bp(ref_shard), a1_hash64(ref_shard), a2_hash64(ref_shard),
+      df$bp[unmatched_src], src_a2_hash64[unmatched_src], src_a1_hash64[unmatched_src]
+    )
+    if (swapped > 0L) {
+      warning(
+        sprintf(
+          "%s: shard %s: %d unmatched sumstats variant(s) would match the reference if a1/a2 were swapped; variants remain unmatched",
+          source_path, ref_shard$label, swapped
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
+  logp <- .derive_logp(aligned_p)
+  .warn_optional_zn_completeness(aligned_optional$z, aligned_optional$n, logp, "load_sumstats")
+  .build_sumstats_from_aligned(reference, logp, aligned_optional)
+}
+
+.build_sumstats_from_aligned <- function(reference, aligned_logp, aligned_optional) {
+  ref_shards <- shards(reference)
+  offsets <- shard_offsets(reference)
+  out <- vector("list", length(ref_shards))
+  for (i in seq_along(ref_shards)) {
+    ref_shard <- ref_shards[[i]]
+    start <- offsets$start0[[i]] + 1L
+    stop <- offsets$stop0[[i]]
+    out[[i]] <- .new_sumstats_shard(
+      label = ref_shard$label,
+      reference_checksum = ref_shard$checksum,
+      logpvec = aligned_logp[start:stop],
+      zvec = if (is.null(aligned_optional$z)) NULL else aligned_optional$z[start:stop],
+      nvec = if (is.null(aligned_optional$n)) NULL else aligned_optional$n[start:stop],
+      beta_vec = if (is.null(aligned_optional$beta)) NULL else aligned_optional$beta[start:stop],
+      se_vec = if (is.null(aligned_optional$se)) NULL else aligned_optional$se[start:stop],
+      eaf_vec = if (is.null(aligned_optional$eaf)) NULL else aligned_optional$eaf[start:stop],
+      info_vec = if (is.null(aligned_optional$info)) NULL else aligned_optional$info[start:stop]
+    )
+  }
+  .new_sumstats_panel(out)
+}
+
+.derive_logp <- function(p) {
+  out <- rep.int(NaN, length(p))
+  zero <- !is.na(p) & p == 0
+  positive <- !is.na(p) & p > 0
+  out[zero] <- Inf
+  out[positive] <- -log10(p[positive])
+  out
+}
+
+.validate_p_values <- function(p, name) {
+  bad <- is.na(p) | !is.finite(p) | p < 0 | p > 1
+  if (any(bad)) {
+    stop(sprintf("%s[%d] must be finite numeric in [0, 1]", name, which(bad)[[1]]), call. = FALSE)
+  }
+}
+
+.coerce_aligned_numeric_vector <- function(vec, n, name, allow_inf = FALSE) {
+  arr <- as.numeric(vec)
+  if (length(arr) != n) {
+    stop(sprintf("%s length mismatch: expected %d, got %d", name, n, length(arr)), call. = FALSE)
+  }
+  if (!allow_inf) {
+    bad <- is.infinite(arr)
+    if (any(bad)) {
+      stop(sprintf("%s[%d] must be finite numeric or NaN", name, which(bad)[[1]]), call. = FALSE)
+    }
+  }
+  arr
+}
+
+.coerce_optional_aligned_numeric_vector <- function(vec, n, name) {
+  if (is.null(vec)) {
+    return(NULL)
+  }
+  .coerce_aligned_numeric_vector(vec, n, name, allow_inf = FALSE)
+}
+
+.coerce_optional_shard_numeric_vector <- function(vec, n, name) {
+  if (is.null(vec)) {
+    return(NULL)
+  }
+  arr <- as.numeric(vec)
+  if (length(arr) != n) {
+    stop(sprintf("%s length mismatch: expected %d, got %d", name, n, length(arr)), call. = FALSE)
+  }
+  arr
+}
+
+.warn_optional_zn_completeness <- function(zvec, nvec, logpvec, context) {
+  present <- !is.nan(logpvec)
+  for (entry in list(list(name = "zvec", value = zvec), list(name = "nvec", value = nvec))) {
+    if (is.null(entry$value)) {
+      warning(sprintf("%s: %s is absent", context, entry$name), call. = FALSE)
+    } else if (any(is.nan(entry$value[present]))) {
+      warning(sprintf("%s: %s has missing values among present sumstats variants", context, entry$name), call. = FALSE)
+    }
+  }
+}
+
+.validate_sumstats_cache_payload <- function(payload) {
+  if (!is.list(payload) || is.null(payload$metadata)) {
+    stop("Invalid sumstats cache: expected an RDS list with metadata", call. = FALSE)
+  }
+  meta <- payload$metadata
+  if (!identical(meta$schema, .sumstats_cache_schema)) {
+    stop(sprintf("Unsupported sumstats cache schema: %s", sQuote(as.character(meta$schema))), call. = FALSE)
+  }
+  n_shards <- as.integer(meta$n_shards)
+  if (is.na(n_shards) || n_shards < 1L) {
+    stop("Invalid sumstats cache: n_shards must be at least 1", call. = FALSE)
+  }
+  for (field in c("shard_labels", "shard_checksums", "shard_start0", "shard_stop0")) {
+    if (is.null(meta[[field]]) || length(meta[[field]]) != n_shards) {
+      stop(sprintf("Invalid sumstats cache: metadata.%s length mismatch", field), call. = FALSE)
+    }
+  }
+  total <- if (n_shards) meta$shard_stop0[[n_shards]] else 0L
+  if (is.null(payload$logpvec) || length(payload$logpvec) != total) {
+    stop("Invalid sumstats cache: logpvec length mismatch", call. = FALSE)
+  }
+  if (!identical(as.integer(meta$shard_start0[[1]]), 0L) || any(meta$shard_stop0 < meta$shard_start0)) {
+    stop("Invalid sumstats cache: shard offsets are invalid", call. = FALSE)
+  }
+  if (n_shards > 1L && any(meta$shard_start0[-1L] != meta$shard_stop0[-n_shards])) {
+    stop("Invalid sumstats cache: shard offsets are not contiguous", call. = FALSE)
+  }
+  for (field in c("z", "n", "beta", "se", "eaf", "info")) {
+    flag <- paste0("has_", field)
+    vector_name <- if (field %in% c("z", "n")) paste0(field, "vec") else paste0(field, "_vec")
+    if (isTRUE(meta[[flag]]) && (is.null(payload[[vector_name]]) || length(payload[[vector_name]]) != total)) {
+      stop(sprintf("Invalid sumstats cache: %s length mismatch", vector_name), call. = FALSE)
+    }
+  }
+}
