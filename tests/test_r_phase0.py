@@ -46,6 +46,13 @@ def test_r_extdata_reference_fixture_matches_canonical_source():
         "traits.tsv.gz": "sumstats/traits.tsv.gz",
         "anno1.bed": "annotations/anno1.bed",
         "anno2.bed": "annotations/anno2.bed",
+        "genotype_1.bed": "genotype/sharded/1.bed",
+        "genotype_1.bim": "genotype/sharded/1.bim",
+        "genotype_1.fam": "genotype/sharded/1.fam",
+        "genotype_X.bed": "genotype/sharded/X.bed",
+        "genotype_X.bim": "genotype/sharded/X.bim",
+        "genotype_X.fam": "genotype/sharded/X.fam",
+        "genotype_X.ploidy": "genotype/sharded/X.ploidy",
     }
     for r_name, canonical_rel in copies.items():
         r_fixture = R_PACKAGE_DIR / f"inst/extdata/{r_name}"

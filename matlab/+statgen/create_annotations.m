@@ -1,30 +1,30 @@
-function panel = create_annotations(reference, annomat, annonames)
+function panel = create_annotations(reference, annotation_matrix, annotation_names)
 %CREATE_ANNOTATIONS Create annotations from an aligned binary matrix.
 %
-%   annotations = statgen.create_annotations(reference, annomat, annonames)
+%   annotations = statgen.create_annotations(reference, annotation_matrix, annotation_names)
 %
-% annomat must be a num_snp-by-num_annot binary matrix already aligned to
-% reference. annonames names the annotation columns. Use load_annotations for
-% raw BED input.
+% annotation_matrix must be a num_snp-by-num_annot binary matrix already
+% aligned to reference. annotation_names names the annotation columns. Use
+% load_annotations for raw BED input.
 %
 % See also statgen.AnnotationPanel, statgen.create_annotation,
 % statgen.load_annotations.
-    names = ensure_names_(annonames);
+    names = ensure_names_(annotation_names);
 
-    if issparse(annomat)
-        A = sparse(annomat);
+    if issparse(annotation_matrix)
+        A = sparse(annotation_matrix);
     else
-        A = double(annomat);
+        A = double(annotation_matrix);
     end
     if ndims(A) ~= 2
-        error('statgen:annotations', 'annomat must be a 2D matrix');
+        error('statgen:annotations', 'annotation_matrix must be a 2D matrix');
     end
 
     n = reference.num_snp;
     k = numel(names);
     if size(A, 1) ~= n || size(A, 2) ~= k
         error('statgen:annotations', ...
-            'annomat shape mismatch: expected (%d, %d), got (%d, %d)', ...
+            'annotation_matrix shape mismatch: expected (%d, %d), got (%d, %d)', ...
             n, k, size(A, 1), size(A, 2));
     end
 
@@ -32,7 +32,7 @@ function panel = create_annotations(reference, annomat, annonames)
     bad = (vals ~= 0) & (vals ~= 1);
     if any(bad)
         v = vals(find(bad, 1, 'first'));
-        error('statgen:annotations', 'annomat contains non-binary value: %g', v);
+        error('statgen:annotations', 'annotation_matrix contains non-binary value: %g', v);
     end
 
     A = spones(sparse(A));

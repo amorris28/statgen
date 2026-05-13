@@ -2,6 +2,8 @@
 .chr_rank <- stats::setNames(seq_along(.canonical_chr_order), .canonical_chr_order)
 .ignored_chr <- c("Y", "MT")
 
+is_present <- function(x, ...) UseMethod("is_present")
+
 .validate_requested_shards <- function(requested, available_labels, where) {
   available_labels <- as.character(available_labels)
   if (is.null(requested)) {
@@ -35,11 +37,15 @@
   requested
 }
 
-.validate_path_scalar <- function(path, name) {
-  if (!is.character(path) || length(path) != 1L || is.na(path)) {
+.validate_char_scalar <- function(value, name) {
+  if (!is.character(value) || length(value) != 1L || is.na(value)) {
     stop(sprintf("%s must be a character scalar", name), call. = FALSE)
   }
-  path
+  value
+}
+
+.validate_path_scalar <- function(path, name) {
+  .validate_char_scalar(path, name)
 }
 
 .validate_equal_lengths <- function(values, message) {

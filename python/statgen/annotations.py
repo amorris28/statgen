@@ -12,13 +12,13 @@ _CACHE_SCHEMA = "annotations_cache/0.1"
 
 
 
-def _as_sparse_binary(mat) -> sparse.csr_matrix:
+def _as_sparse_binary(mat, name: str = "annomat") -> sparse.csr_matrix:
     if sparse.issparse(mat):
         csr = mat.tocsr(copy=True)
     else:
         arr = np.asarray(mat)
         if arr.ndim != 2:
-            raise ValueError("annomat must be a 2D matrix")
+            raise ValueError(f"{name} must be a 2D matrix")
         csr = sparse.csr_matrix(arr)
 
     # Guard against CSR matrices carrying explicit stored zeros in .data.
@@ -30,7 +30,7 @@ def _as_sparse_binary(mat) -> sparse.csr_matrix:
         bad = data != 1
         if bad.any():
             idx = int(np.flatnonzero(bad)[0])
-            raise ValueError(f"annomat contains non-binary value: {data[idx]!r}")
+            raise ValueError(f"{name} contains non-binary value: {data[idx]!r}")
 
     csr = csr.astype(np.uint8)
     csr.data[:] = 1
@@ -340,13 +340,13 @@ class AnnotationPanel:
         save_annotations_cache(self, path, format=format)
 
 
-def create_annotations(reference, annomat, annonames) -> AnnotationPanel:
-    names = _coerce_annonames(annonames)
+def create_annotations(reference, annotation_matrix, annotation_names) -> AnnotationPanel:
+    names = _coerce_annonames(annotation_names)
     n = int(reference.num_snp)
-    mat = _as_sparse_binary(annomat)
+    mat = _as_sparse_binary(annotation_matrix, "annotation_matrix")
     if mat.shape != (n, len(names)):
         raise ValueError(
-            f"annomat shape mismatch: expected ({n}, {len(names)}), got {mat.shape}"
+            f"annotation_matrix shape mismatch: expected ({n}, {len(names)}), got {mat.shape}"
         )
 
     out_shards = []
@@ -369,7 +369,7 @@ def create_annotation(reference, annovec, annoname) -> AnnotationPanel:
         raise ValueError("annoname must be non-empty")
     vec = _coerce_annovec(annovec, int(reference.num_snp))
     mat = sparse.csr_matrix(vec.reshape(-1, 1))
-    return create_annotations(reference, mat, [name])
+    return create_annotations(reference, annotation_matrix=mat, annotation_names=[name])
 
 
 def load_annotations(bed_paths, reference) -> AnnotationPanel:
@@ -384,7 +384,7 @@ def load_annotations(bed_paths, reference) -> AnnotationPanel:
             raise FileNotFoundError(f"BED file not found: {p}")
 
     annomat, annonames = _paint_annotations(paths, reference)
-    return create_annotations(reference, annomat, annonames)
+    return create_annotations(reference, annotation_matrix=annomat, annotation_names=annonames)
 
 
 def save_annotations_cache(panel: AnnotationPanel, path, format=None) -> None:

@@ -4,8 +4,19 @@ function decoded = bfile_read_bed_rows_int8(path, source_rows0, source_num_sampl
     source_rows0 = double(source_rows0(:));
     source_num_sample = double(source_num_sample);
     bytes_per_snp = ceil(source_num_sample / 4);
-    decoded = int8(zeros(source_num_sample, numel(source_rows0)));
     lookup = bed_lookup_int8_();
+    if isempty(source_rows0)
+        decoded = int8(zeros(source_num_sample, 0));
+        return;
+    end
+    [unique_rows0, ~, inverse] = unique(source_rows0, 'sorted');
+    unique_decoded = int8(zeros(source_num_sample, numel(unique_rows0)));
+    max_read_bytes = 64 * 1024^2;
+    if bytes_per_snp == 0
+        rows_per_read = numel(unique_rows0);
+    else
+        rows_per_read = max(1, floor(max_read_bytes / bytes_per_snp));
+    end
 
     fid = fopen(path, 'rb');
     if fid < 0
@@ -13,24 +24,34 @@ function decoded = bfile_read_bed_rows_int8(path, source_rows0, source_num_sampl
     end
     cleaner = onCleanup(@() fclose(fid));
 
-    % PERF: loop over requested SNPs retained; each SNP is a separate packed BED
-    %       row requiring an individual seek. Inner decode is vectorized across subjects.
-    for j = 1:numel(source_rows0)
-        offset = 3 + source_rows0(j) * bytes_per_snp;
-        status = fseek(fid, offset, 'bof');
-        if status ~= 0
-            error('statgen:bed', '%s: failed to seek to source SNP row %.0f', path, source_rows0(j));
+    group_starts = [1; find(diff(unique_rows0) ~= 1) + 1; numel(unique_rows0) + 1];
+    % PERF: one seek/read per contiguous BED row block; requested order and
+    %       repeats are restored after block decoding. Blocks are capped to
+    %       bound transient packed/decode allocations for large requests.
+    for g = 1:(numel(group_starts) - 1)
+        group_cols = group_starts(g):(group_starts(g + 1) - 1);
+        for chunk_start = 1:rows_per_read:numel(group_cols)
+            chunk_stop = min(chunk_start + rows_per_read - 1, numel(group_cols));
+            block_cols = group_cols(chunk_start:chunk_stop);
+            block_rows0 = unique_rows0(block_cols);
+            offset = 3 + block_rows0(1) * bytes_per_snp;
+            expected_bytes = bytes_per_snp * numel(block_rows0);
+            status = fseek(fid, offset, 'bof');
+            if status ~= 0
+                error('statgen:bed', '%s: failed to seek to source SNP row %.0f', path, block_rows0(1));
+            end
+            packed = fread(fid, expected_bytes, 'uint8=>uint8');
+            if numel(packed) ~= expected_bytes
+                error('statgen:bed', ...
+                    '%s: short BED read for source SNP rows %.0f-%.0f: expected %.0f bytes, got %.0f', ...
+                    path, block_rows0(1), block_rows0(end), expected_bytes, numel(packed));
+            end
+            chunk = lookup(double(packed) + 1, :);
+            values = reshape(chunk.', [], numel(block_rows0));
+            unique_decoded(:, block_cols) = values(1:source_num_sample, :);
         end
-        packed = fread(fid, bytes_per_snp, 'uint8=>uint8');
-        if numel(packed) ~= bytes_per_snp
-            error('statgen:bed', ...
-                '%s: short BED read for source SNP row %.0f: expected %.0f bytes, got %.0f', ...
-                path, source_rows0(j), bytes_per_snp, numel(packed));
-        end
-        chunk = lookup(double(packed) + 1, :);
-        values = reshape(chunk.', [], 1);
-        decoded(:, j) = values(1:source_num_sample);
     end
+    decoded = unique_decoded(:, inverse);
     clear cleaner;
 end
 

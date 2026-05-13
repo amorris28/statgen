@@ -3,7 +3,7 @@ classdef AnnotationPanel
 %
 %   annotations = statgen.load_annotations(bed_paths, reference)
 %   annotations = statgen.load_annotations_cache(path)
-%   annotations = statgen.create_annotations(reference, annomat, annonames)
+%   annotations = statgen.create_annotations(reference, annotation_matrix, annotation_names)
 %
 % An AnnotationPanel stores one or more binary SNP annotations aligned to a
 % ReferencePanel. annomat is a num_snp-by-num_annot sparse matrix in panel

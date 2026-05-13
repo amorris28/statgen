@@ -17,8 +17,8 @@ Load, create, inspect, and cache reference-aligned GWAS summary statistics.
 }
 \usage{
 load_sumstats(path, reference)
-create_sumstats(reference, pvec, zvec = NULL, nvec = NULL,
-  beta_vec = NULL, se_vec = NULL, eaf_vec = NULL, info_vec = NULL)
+create_sumstats(reference, p, z = NULL, n = NULL,
+  beta = NULL, se = NULL, eaf = NULL, info = NULL)
 save_sumstats_cache(sumstats, path)
 load_sumstats_cache(path, shards = NULL)
 
@@ -35,7 +35,7 @@ info_vec(x, ...)
 \item{path}{Character scalar path to a summary-statistics TSV or RDS cache.}
 \item{reference}{A \code{ReferencePanel}.}
 \item{sumstats, x}{A \code{Sumstats} object.}
-\item{pvec, zvec, nvec, beta_vec, se_vec, eaf_vec, info_vec}{Aligned
+\item{p, z, n, beta, se, eaf, info}{Aligned
 numeric vectors. Optional vectors may be \code{NULL}.}
 \item{shards}{Optional character vector of shard labels in canonical order.}
 \item{...}{Reserved for S3 methods.}

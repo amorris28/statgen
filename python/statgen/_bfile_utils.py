@@ -17,6 +17,7 @@ _FAM_NAMES = ["fid", "iid", "father_id", "mother_id", "sex", "pheno"]
 _PLOIDY_NAMES = ["ploidy_male", "ploidy_female"]
 _DNA_ALLELE_RE = re.compile(r"^[ACGT]+$")
 _BED_LOOKUP_INT8 = None
+_BED_MAX_READ_BYTES = 64 * 1024 * 1024
 
 
 def _read_csv_strict(path: Path, *, sep, names, description: str | None = None) -> pd.DataFrame:
@@ -256,20 +257,33 @@ def _bed_lookup_int8() -> np.ndarray:
 def _read_bed_rows_int8(path: Path, source_rows: np.ndarray, source_num_sample: int) -> np.ndarray:
     path = Path(path)
     source_rows = np.asarray(source_rows, dtype=np.int64).reshape(-1)
-    bytes_per_snp = (int(source_num_sample) + 3) // 4
-    decoded = np.empty((int(source_num_sample), source_rows.size), dtype=np.int8)
+    n_samples = int(source_num_sample)
+    bytes_per_snp = (n_samples + 3) // 4
+    if source_rows.size == 0:
+        return np.empty((n_samples, 0), dtype=np.int8)
+    unique_rows, inverse = np.unique(source_rows, return_inverse=True)
+    unique_decoded = np.empty((n_samples, unique_rows.size), dtype=np.int8)
+    rows_per_read = unique_rows.size if bytes_per_snp == 0 else max(1, _BED_MAX_READ_BYTES // bytes_per_snp)
     lookup = _bed_lookup_int8()
     with open(path, "rb") as f:
-        # PERF: loop over requested SNPs retained; each SNP is a separate BED row
-        #       requiring an individual seek. Inner decode is vectorized across subjects.
-        for j, source_row0 in enumerate(source_rows):
-            f.seek(3 + int(source_row0) * bytes_per_snp)
-            packed = f.read(bytes_per_snp)
-            if len(packed) != bytes_per_snp:
-                raise ValueError(
-                    f"{path}: short BED read for source SNP row {int(source_row0)}: "
-                    f"expected {bytes_per_snp} bytes, got {len(packed)}"
-                )
-            byte_values = np.frombuffer(packed, dtype=np.uint8)
-            decoded[:, j] = lookup[byte_values].reshape(-1)[:source_num_sample]
-    return decoded
+        group_starts = np.r_[0, np.flatnonzero(np.diff(unique_rows) != 1) + 1]
+        group_stops = np.r_[group_starts[1:], unique_rows.size]
+        # PERF: one seek/read per contiguous BED row block; requested order and
+        #       repeats are restored after block decoding. Blocks are capped to
+        #       bound transient packed/decode allocations for large requests.
+        for start, stop in zip(group_starts, group_stops, strict=True):
+            for chunk_start in range(start, stop, rows_per_read):
+                chunk_stop = min(chunk_start + rows_per_read, stop)
+                block_rows = unique_rows[chunk_start:chunk_stop]
+                expected_bytes = int(bytes_per_snp * block_rows.size)
+                f.seek(3 + int(block_rows[0]) * bytes_per_snp)
+                packed = f.read(expected_bytes)
+                if len(packed) != expected_bytes:
+                    raise ValueError(
+                        f"{path}: short BED read for source SNP rows {int(block_rows[0])}-{int(block_rows[-1])}: "
+                        f"expected {expected_bytes} bytes, got {len(packed)}"
+                    )
+                byte_values = np.frombuffer(packed, dtype=np.uint8)
+                block_decoded = lookup[byte_values].reshape(block_rows.size, bytes_per_snp * 4)
+                unique_decoded[:, chunk_start:chunk_stop] = block_decoded[:, :n_samples].T
+    return unique_decoded[:, inverse]

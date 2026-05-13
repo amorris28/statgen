@@ -56,6 +56,7 @@ def test_nonsharded_genotype_loads_against_multi_shard_reference(tmp_path):
     assert [s.bed_path for s in panel.shards] == [prefix.with_suffix(".bed")] * 2
     assert [s.source_num_snp for s in panel.shards] == [8, 8]
     assert panel.source_row0.tolist() == list(range(8))
+    assert [s.chr for s in panel.shards] == ["1", "X"]
 
 
 def test_nonsharded_committed_fixture_loads():
@@ -70,6 +71,22 @@ def test_nonsharded_committed_fixture_loads():
     # chr1 rows (0-4): diploid (2, 2); chrX rows (5-7): male=1, female=2 from all.ploidy
     assert panel.ploidy_male.tolist() == [2.0, 2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0]
     assert panel.ploidy_female.tolist() == [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+
+
+def test_nonsharded_absent_chrx_does_not_warn_about_ploidy(tmp_path):
+    prefix = tmp_path / "all"
+    prefix.with_suffix(".bim").write_bytes((FIXTURES_DIR / "genotype/sharded/1.bim").read_bytes())
+    prefix.with_suffix(".fam").write_bytes((FIXTURES_DIR / "genotype/sharded/1.fam").read_bytes())
+    prefix.with_suffix(".bed").write_bytes((FIXTURES_DIR / "genotype/sharded/1.bed").read_bytes())
+
+    ref = load_reference(REF_SHARDED)
+    with pytest.warns(RuntimeWarning) as warnings_seen:
+        panel = load_genotype(prefix, ref)
+
+    messages = [str(w.message) for w in warnings_seen]
+    assert not any("chrX genotype source has no .ploidy" in msg for msg in messages)
+    assert any("no source BIM rows for requested reference shard 'X'" in msg for msg in messages)
+    assert panel.is_present.tolist() == [True, True, True, True, True, False, False, False]
 
 
 def test_chrx_subset_fam_maps_to_panel_axis(tmp_path):

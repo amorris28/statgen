@@ -77,6 +77,27 @@ def test_octave_genotype_nonsharded_metadata_loads():
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_nonsharded_absent_chrx_does_not_warn_about_ploidy(tmp_path):
+    for suffix in (".bim", ".fam", ".bed"):
+        (tmp_path / f"all{suffix}").write_bytes(
+            (FIXTURES_DIR / f"genotype/sharded/1{suffix}").read_bytes()
+        )
+
+    script = (
+        f"ref = statgen.load_reference('{REF_SHARDED}'); "
+        f"g = statgen.load_genotype('{tmp_path / 'all'}', ref); "
+        "fprintf('%d ', g.is_present); fprintf('\\n');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    combined = " ".join((result.stdout + result.stderr).replace("\b", "").split())
+    assert "chrX genotype source has no .ploidy" not in combined
+    assert "no source BIM rows for requested reference shard" in combined
+    assert matlab_data_lines(result.stdout)[-1] == "1 1 1 1 1 0 0 0"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_genotype_chrx_subset_fam_maps_to_panel_axis(tmp_path):
     copy_sharded_genotype(tmp_path)
     (tmp_path / "X.fam").write_text(

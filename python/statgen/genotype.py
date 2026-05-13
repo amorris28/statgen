@@ -642,7 +642,11 @@ def load_genotype(bfile_prefix, reference) -> GenotypePanel:
     else:
         source_layout = "non_sharded"
         shared = _load_source_record(prefix, None)
-        if "X" in ref_labels and Path(prefix + ".ploidy").is_file() is False:
+        if (
+            "X" in ref_labels
+            and (shared.bim["chr"] == "X").any()
+            and Path(prefix + ".ploidy").is_file() is False
+        ):
             warnings.warn(
                 f"{prefix}: chrX genotype source has no .ploidy sidecar; "
                 "defaulting chrX rows to male/female ploidy (1, 2)",

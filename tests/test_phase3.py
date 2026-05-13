@@ -242,7 +242,7 @@ def test_create_annotations_sparse_explicit_zeros_do_not_flip_to_one():
         shape=(reference.num_snp, 1),
     )
 
-    panel = create_annotations(reference, annomat, ["anno"])
+    panel = create_annotations(reference, annotation_matrix=annomat, annotation_names=["anno"])
     dense = panel.annomat.toarray().reshape(-1)
     assert dense[0] == 0
     assert dense[1] == 1

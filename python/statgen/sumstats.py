@@ -393,26 +393,26 @@ def load_sumstats(path, reference) -> Sumstats:
 
 def create_sumstats(
     reference,
-    pvec,
-    zvec=None,
-    nvec=None,
-    beta_vec=None,
-    se_vec=None,
-    eaf_vec=None,
-    info_vec=None,
+    p,
+    z=None,
+    n=None,
+    beta=None,
+    se=None,
+    eaf=None,
+    info=None,
 ) -> Sumstats:
-    n = int(reference.num_snp)
-    aligned_p = _coerce_aligned_vec("pvec", pvec, n=n, allow_inf=True)
-    _validate_pvec(aligned_p, "pvec")
+    num_snp_value = int(reference.num_snp)
+    aligned_p = _coerce_aligned_vec("p", p, n=num_snp_value, allow_inf=True)
+    _validate_pvec(aligned_p, "p")
     aligned_logp = _derive_logp(aligned_p)
 
     aligned_optional = {
-        "z": None if zvec is None else _coerce_aligned_vec("zvec", zvec, n=n, allow_inf=False),
-        "n": None if nvec is None else _coerce_aligned_vec("nvec", nvec, n=n, allow_inf=False),
-        "beta": None if beta_vec is None else _coerce_aligned_vec("beta_vec", beta_vec, n=n, allow_inf=False),
-        "se": None if se_vec is None else _coerce_aligned_vec("se_vec", se_vec, n=n, allow_inf=False),
-        "eaf": None if eaf_vec is None else _coerce_aligned_vec("eaf_vec", eaf_vec, n=n, allow_inf=False),
-        "info": None if info_vec is None else _coerce_aligned_vec("info_vec", info_vec, n=n, allow_inf=False),
+        "z": None if z is None else _coerce_aligned_vec("z", z, n=num_snp_value, allow_inf=False),
+        "n": None if n is None else _coerce_aligned_vec("n", n, n=num_snp_value, allow_inf=False),
+        "beta": None if beta is None else _coerce_aligned_vec("beta", beta, n=num_snp_value, allow_inf=False),
+        "se": None if se is None else _coerce_aligned_vec("se", se, n=num_snp_value, allow_inf=False),
+        "eaf": None if eaf is None else _coerce_aligned_vec("eaf", eaf, n=num_snp_value, allow_inf=False),
+        "info": None if info is None else _coerce_aligned_vec("info", info, n=num_snp_value, allow_inf=False),
     }
 
     return _build_sumstats_from_aligned(

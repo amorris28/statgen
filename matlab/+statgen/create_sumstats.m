@@ -1,35 +1,35 @@
-function sumstats = create_sumstats(reference, pvec, zvec, nvec, beta_vec, se_vec, eaf_vec, info_vec)
+function sumstats = create_sumstats(reference, p, z, n, beta, se, eaf, info)
 %CREATE_SUMSTATS Create summary statistics from aligned vectors.
 %
-%   sumstats = statgen.create_sumstats(reference, pvec)
-%   sumstats = statgen.create_sumstats(reference, pvec, zvec, nvec, beta_vec, se_vec, eaf_vec, info_vec)
+%   sumstats = statgen.create_sumstats(reference, p)
+%   sumstats = statgen.create_sumstats(reference, p, z, n, beta, se, eaf, info)
 %
-% pvec and optional vectors must be aligned to reference and have num_snp
-% elements. Optional vectors are z, n, beta, se, eaf, and info. pvec is
+% p and optional vectors must be aligned to reference and have num_snp
+% elements. Optional vectors are z, n, beta, se, eaf, and info. p is
 % converted to logpvec in the returned Sumstats object. Use load_sumstats for
 % raw TSV input; create_sumstats expects already aligned full-panel vectors.
 %
 % See also statgen.Sumstats, statgen.load_sumstats.
     if nargin < 2
-        error('statgen:arg', 'create_sumstats requires reference and pvec');
+        error('statgen:arg', 'create_sumstats requires reference and p');
     end
-    if nargin < 3, zvec = []; end
-    if nargin < 4, nvec = []; end
-    if nargin < 5, beta_vec = []; end
-    if nargin < 6, se_vec = []; end
-    if nargin < 7, eaf_vec = []; end
-    if nargin < 8, info_vec = []; end
+    if nargin < 3, z = []; end
+    if nargin < 4, n = []; end
+    if nargin < 5, beta = []; end
+    if nargin < 6, se = []; end
+    if nargin < 7, eaf = []; end
+    if nargin < 8, info = []; end
 
-    n = double(reference.num_snp);
-    p_aligned = coerce_pvec_(pvec, n, 'pvec');
+    num_snp_value = double(reference.num_snp);
+    p_aligned = coerce_pvec_(p, num_snp_value, 'p');
     logp_aligned = statgen.internal.sumstats_derive_logp(p_aligned);
 
-    z_aligned = coerce_optional_vec_(zvec, n, 'zvec');
-    n_aligned = coerce_optional_vec_(nvec, n, 'nvec');
-    beta_aligned = coerce_optional_vec_(beta_vec, n, 'beta_vec');
-    se_aligned = coerce_optional_vec_(se_vec, n, 'se_vec');
-    eaf_aligned = coerce_optional_vec_(eaf_vec, n, 'eaf_vec');
-    info_aligned = coerce_optional_vec_(info_vec, n, 'info_vec');
+    z_aligned = coerce_optional_vec_(z, num_snp_value, 'z');
+    n_aligned = coerce_optional_vec_(n, num_snp_value, 'n');
+    beta_aligned = coerce_optional_vec_(beta, num_snp_value, 'beta');
+    se_aligned = coerce_optional_vec_(se, num_snp_value, 'se');
+    eaf_aligned = coerce_optional_vec_(eaf, num_snp_value, 'eaf');
+    info_aligned = coerce_optional_vec_(info, num_snp_value, 'info');
 
     n_shards = numel(reference.shards);
     out_shards = cell(n_shards, 1);

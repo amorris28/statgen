@@ -43,7 +43,7 @@ function panel = load_genotype(bfile_prefix, reference)
     else
         source_layout = 'non_sharded';
         shared = load_source_record_(prefix, []);
-        if any(strcmp(ref_labels, 'X')) && exist([prefix '.ploidy'], 'file') ~= 2
+        if any(strcmp(ref_labels, 'X')) && any(strcmp(shared.bim.chr, 'X')) && exist([prefix '.ploidy'], 'file') ~= 2
             warning('statgen:genotype', ...
                 '%s: chrX genotype source has no .ploidy sidecar; defaulting chrX rows to male/female ploidy (1, 2)', ...
                 prefix);

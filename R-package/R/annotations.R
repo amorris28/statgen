@@ -24,7 +24,7 @@ load_annotations <- function(bed_paths, reference) {
   columns <- lapply(paths, function(path) {
     Matrix::Matrix(.paint_bed_to_reference(.parse_bed(path), reference), ncol = 1L, sparse = TRUE)
   })
-  create_annotations(reference, do.call(cbind, columns), names)
+  create_annotations(reference, annotation_matrix = do.call(cbind, columns), annotation_names = names)
 }
 
 create_annotation <- function(reference, annovec, annoname) {
@@ -33,19 +33,19 @@ create_annotation <- function(reference, annovec, annoname) {
     stop("annoname must be a non-empty character scalar", call. = FALSE)
   }
   vec <- .coerce_annovec(annovec, num_snp(reference))
-  create_annotations(reference, matrix(vec, ncol = 1L), name)
+  create_annotations(reference, annotation_matrix = Matrix::Matrix(vec, ncol = 1L, sparse = TRUE), annotation_names = name)
 }
 
-create_annotations <- function(reference, annomat, annonames) {
+create_annotations <- function(reference, annotation_matrix, annotation_names) {
   if (!inherits(reference, "ReferencePanel")) {
     stop("reference must be a ReferencePanel", call. = FALSE)
   }
-  names <- .coerce_annonames(annonames)
-  mat <- .as_lgC_binary_matrix(annomat)
+  names <- .coerce_annonames(annotation_names)
+  mat <- .as_lgC_binary_matrix(annotation_matrix, "annotation_matrix")
   expected <- c(num_snp(reference), length(names))
   if (!identical(as.integer(dim(mat)), as.integer(expected))) {
     stop(sprintf(
-      "annomat shape mismatch: expected (%d, %d), got (%d, %d)",
+      "annotation_matrix shape mismatch: expected (%d, %d), got (%d, %d)",
       expected[[1]], expected[[2]], dim(mat)[[1]], dim(mat)[[2]]
     ), call. = FALSE)
   }
@@ -158,25 +158,33 @@ union_annotations.AnnotationPanel <- function(x, other, mode = "by_name", ...) {
     stop(sprintf("annotation name collision(s): %s", paste(overlap, collapse = ", ")), call. = FALSE)
   }
   reference_proxy <- .reference_proxy_from_annotation_panel(x)
-  compat_warning <- NULL
+  compat_warnings <- character()
   compatible <- withCallingHandlers(
     is_object_compatible(reference_proxy, other),
     warning = function(w) {
-      compat_warning <<- conditionMessage(w)
+      compat_warnings <<- c(compat_warnings, conditionMessage(w))
       invokeRestart("muffleWarning")
     }
   )
   if (!isTRUE(compatible)) {
     msg <- "union_annotations requires compatible reference alignment"
-    if (!is.null(compat_warning)) {
-      msg <- paste0(msg, ": ", compat_warning)
+    if (length(compat_warnings)) {
+      msg <- paste0(msg, ": ", paste(compat_warnings, collapse = "; "))
     }
     stop(msg, call. = FALSE)
   }
+  if (length(compat_warnings)) {
+    warning(paste(compat_warnings, collapse = "; "), call. = FALSE)
+  }
+
+  other_by_label <- stats::setNames(other$shards, vapply(other$shards, function(s) s$label, character(1)))
   out <- vector("list", length(x$shards))
   for (i in seq_along(x$shards)) {
     a <- x$shards[[i]]
-    b <- other$shards[[i]]
+    b <- other_by_label[[a$label]]
+    if (is.null(b)) {
+      stop(sprintf("union_annotations requires compatible reference alignment: missing shard %s", sQuote(a$label)), call. = FALSE)
+    }
     out[[i]] <- .new_annotation_shard(
       a$label,
       a$reference_checksum,
@@ -298,7 +306,7 @@ print.AnnotationPanel <- function(x, ...) {
   as.logical(vec)
 }
 
-.as_lgC_binary_matrix <- function(mat) {
+.as_lgC_binary_matrix <- function(mat, name = "annomat") {
   if (inherits(mat, "lgCMatrix")) {
     return(mat)
   }
@@ -309,7 +317,7 @@ print.AnnotationPanel <- function(x, ...) {
       nonzero <- entries$x != 0
       bad <- !(entries$x[nonzero] %in% c(TRUE, 1))
       if (any(bad)) {
-        stop("annomat contains non-binary values", call. = FALSE)
+        stop(sprintf("%s contains non-binary values", name), call. = FALSE)
       }
       return(Matrix::sparseMatrix(
         i = entries$i[nonzero],
@@ -322,15 +330,18 @@ print.AnnotationPanel <- function(x, ...) {
   }
   arr <- as.matrix(mat)
   if (length(dim(arr)) != 2L) {
-    stop("annomat must be a 2D matrix", call. = FALSE)
+    stop(sprintf("%s must be a 2D matrix", name), call. = FALSE)
   }
   if (any(is.na(arr)) || any(!(arr %in% c(FALSE, TRUE, 0, 1)))) {
-    stop("annomat contains non-binary values", call. = FALSE)
+    stop(sprintf("%s contains non-binary values", name), call. = FALSE)
   }
   Matrix::Matrix(arr != 0, sparse = TRUE)
 }
 
 .parse_bed <- function(path) {
+  # PERF: readLines is retained to allow leading comments/blanks while
+  # rejecting comments/blanks after data starts; read.table then parses the
+  # already-filtered lines via textConnection to avoid reopening the file.
   lines <- readLines(path, warn = FALSE)
   if (!length(lines)) {
     stop(sprintf("%s: BED file is empty", path), call. = FALSE)
@@ -345,10 +356,11 @@ print.AnnotationPanel <- function(x, ...) {
   if (any(bad_late)) {
     stop(sprintf("%s: blank or comment line after BED data row", path), call. = FALSE)
   }
+  con <- textConnection(data_lines)
+  on.exit(close(con), add = TRUE)
   df <- tryCatch(
     utils::read.table(
-      file = path,
-      skip = first_data - 1L,
+      file = con,
       header = FALSE,
       sep = "\t",
       quote = "",
@@ -438,6 +450,9 @@ print.AnnotationPanel <- function(x, ...) {
     stop(sprintf("Unsupported annotations cache schema: %s", sQuote(as.character(meta$schema))), call. = FALSE)
   }
   n_shards <- as.integer(meta$n_shards)
+  if (is.na(n_shards) || n_shards < 1L) {
+    stop("Invalid annotations cache: n_shards must be at least 1", call. = FALSE)
+  }
   for (field in c("shard_labels", "shard_checksums", "shard_start0", "shard_stop0")) {
     if (is.null(meta[[field]]) || length(meta[[field]]) != n_shards) {
       stop(sprintf("Invalid annotations cache: metadata.%s length mismatch", field), call. = FALSE)

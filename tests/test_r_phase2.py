@@ -83,7 +83,7 @@ def test_r_sumstats_cache_subset_and_create(tmp_path):
             f"s <- suppressWarnings(load_sumstats({json.dumps(str(SUMSTATS))}, ref)); "
             f"save_sumstats_cache(s, {json.dumps(str(cache))}); "
             f"loaded <- suppressWarnings(load_sumstats_cache({json.dumps(str(cache))}, shards = 'X')); "
-            "created <- create_sumstats(ref, rep(0.5, num_snp(ref)), zvec = rep(1, num_snp(ref)), nvec = rep(100, num_snp(ref)), beta_vec = rep(0.1, num_snp(ref)), se_vec = rep(0.2, num_snp(ref)), eaf_vec = rep(0.3, num_snp(ref)), info_vec = rep(0.9, num_snp(ref))); "
+            "created <- create_sumstats(ref, p = rep(0.5, num_snp(ref)), z = rep(1, num_snp(ref)), n = rep(100, num_snp(ref)), beta = rep(0.1, num_snp(ref)), se = rep(0.2, num_snp(ref)), eaf = rep(0.3, num_snp(ref)), info = rep(0.9, num_snp(ref))); "
             "cat(num_snp(loaded), '\\n'); "
             "cat(paste(format(logpvec(loaded), digits=17), collapse=','), '\\n'); "
             "cat(paste(as.integer(is_present(created)), collapse=','), '\\n'); "
@@ -116,7 +116,7 @@ def test_r_sumstats_constructor_rejects_inconsistent_optional_fields():
     result = run_rscript(
         _source_phase2_script(
             f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
-            "s <- create_sumstats(ref, rep(0.5, num_snp(ref)), zvec = rep(1, num_snp(ref))); "
+            "s <- create_sumstats(ref, p = rep(0.5, num_snp(ref)), z = rep(1, num_snp(ref))); "
             "bad <- s; bad$shards[[2]]$zvec <- NULL; "
             "ok <- FALSE; tryCatch(.new_sumstats_panel(bad$shards), error = function(e) ok <<- grepl('consistent zvec presence', e$message)); "
             "ok2 <- FALSE; tryCatch(zvec(bad), error = function(e) ok2 <<- grepl('inconsistent zvec presence', e$message)); "
@@ -153,6 +153,8 @@ def test_r_annotations_match_python_fixture_matrix_and_cache(tmp_path):
     assert result.returncode == 0, result.stderr
     lines = [line.strip() for line in result.stdout.strip().splitlines()]
     assert lines[:4] == ["8", "2", "anno1,anno2", "lgCMatrix"]
+    # R stores matrices in column-major order; this flattening matches the
+    # Python expected_col_major vector built from the dense annotation matrix.
     assert lines[4] == ",".join(str(x) for x in expected_col_major.tolist())
     assert lines[5] == "anno2,anno1"
     assert lines[6] == "anno2,anno1"
@@ -180,6 +182,29 @@ def test_r_annotation_union_uses_reference_compatible_panels():
     assert result.returncode == 0, result.stderr
     lines = [line.strip() for line in result.stdout.strip().splitlines()]
     assert lines == ["a,b", "a,b", "TRUE", "FALSE", "TRUE"]
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_annotations_allow_leading_comments_but_reject_late_comments(tmp_path):
+    leading = tmp_path / "leading.bed"
+    leading.write_text("# header\n\n1\t99\t200\n")
+    late = tmp_path / "late.bed"
+    late.write_text("1\t99\t200\n# late\n")
+
+    result = run_rscript(
+        _source_phase2_script(
+            f"ref <- load_reference({json.dumps(str(SHARDED_REF))}, shards = '1'); "
+            f"a <- load_annotations({json.dumps(str(leading))}, ref); "
+            f"ok <- FALSE; tryCatch(load_annotations({json.dumps(str(late))}, ref), error = function(e) ok <<- grepl('blank or comment line after BED data row', e$message)); "
+            "cat(num_snp(a), num_annot(a), '\\n'); "
+            "cat(paste(as.integer(as.vector(as.matrix(annomat(a)))), collapse=','), '\\n'); "
+            "cat(as.character(ok), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.strip() for line in result.stdout.strip().splitlines()]
+    assert lines == ["5 1", "1,1,0,0,0", "TRUE"]
 
 
 @pytest.mark.r

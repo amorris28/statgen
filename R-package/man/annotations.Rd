@@ -16,7 +16,7 @@ annotation matrices, and save or load R-native annotation caches.
 }
 \usage{
 load_annotations(bed_paths, reference)
-create_annotations(reference, annomat, annonames)
+create_annotations(reference, annotation_matrix, annotation_names)
 create_annotation(reference, annovec, annoname)
 save_annotations_cache(panel, path)
 load_annotations_cache(path, shards = NULL)
@@ -30,8 +30,8 @@ union_annotations(x, other, mode = "by_name", ...)
 \arguments{
 \item{bed_paths}{Character path or character vector of BED files.}
 \item{reference}{A \code{ReferencePanel}.}
-\item{annomat}{A binary matrix with SNPs as rows and annotations as columns.}
-\item{annonames, names}{Character annotation names.}
+\item{annotation_matrix}{A binary matrix with SNPs as rows and annotations as columns.}
+\item{annotation_names, names}{Character annotation names.}
 \item{annovec}{Binary annotation vector aligned to \code{reference}.}
 \item{annoname}{Character scalar annotation name.}
 \item{panel, x, other}{Annotation panel objects.}

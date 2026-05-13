@@ -154,8 +154,8 @@ Implementation tasks:
 - implement Python and MATLAB/Octave accessors for genome-wide concatenated
   vectors;
 - implement `Sumstats.select_shards(shards)` returning a subset object;
-- implement `create_sumstats(reference, zvec, nvec, optional pvec, optional
-  beta_vec, optional se_vec, optional eaf_vec, optional info_vec)` in both
+- implement `create_sumstats(reference, p, optional z, optional n, optional
+  beta, optional se, optional eaf, optional info)` in both
   languages with strict length/shape validation against `reference.num_snp`;
 - implement cache save/load: `load_sumstats_cache(path, shards=None)` performs
   cache-internal validation only, supports optional `shards` subsetting, and
@@ -195,7 +195,7 @@ Implementation tasks:
 - implement `AnnotationPanel.union_annotations(other, mode='by_name')`
   requiring `ReferencePanel.is_object_compatible(other)` and failing on name
   collisions;
-- implement `create_annotations(reference, annomat, annonames)` and
+- implement `create_annotations(reference, annotation_matrix, annotation_names)` and
   `create_annotation(reference, annovec, annoname)` with strict
   reference-alignment and binary-value validation;
 - use sparse internal representation by default and avoid dense materialization

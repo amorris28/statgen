@@ -3,7 +3,7 @@ classdef Sumstats
 %
 %   sumstats = statgen.load_sumstats(path, reference)
 %   sumstats = statgen.load_sumstats_cache(path)
-%   sumstats = statgen.create_sumstats(reference, pvec, ...)
+%   sumstats = statgen.create_sumstats(reference, p, ...)
 %
 % A Sumstats object stores GWAS summary statistics aligned to a ReferencePanel.
 % SNP-axis properties are returned as num_snp-by-1 vectors in panel order.

@@ -17,6 +17,13 @@ prepare-r-fixtures:
 	cp tests/fixtures/sumstats/traits.tsv.gz R-package/inst/extdata/traits.tsv.gz
 	cp tests/fixtures/annotations/anno1.bed R-package/inst/extdata/anno1.bed
 	cp tests/fixtures/annotations/anno2.bed R-package/inst/extdata/anno2.bed
+	cp tests/fixtures/genotype/sharded/1.bed R-package/inst/extdata/genotype_1.bed
+	cp tests/fixtures/genotype/sharded/1.bim R-package/inst/extdata/genotype_1.bim
+	cp tests/fixtures/genotype/sharded/1.fam R-package/inst/extdata/genotype_1.fam
+	cp tests/fixtures/genotype/sharded/X.bed R-package/inst/extdata/genotype_X.bed
+	cp tests/fixtures/genotype/sharded/X.bim R-package/inst/extdata/genotype_X.bim
+	cp tests/fixtures/genotype/sharded/X.fam R-package/inst/extdata/genotype_X.fam
+	cp tests/fixtures/genotype/sharded/X.ploidy R-package/inst/extdata/genotype_X.ploidy
 
 test: prepare-r-fixtures
 	pytest tests/

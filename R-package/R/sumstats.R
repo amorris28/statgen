@@ -7,7 +7,6 @@
 logpvec <- function(x, ...) UseMethod("logpvec")
 zvec <- function(x, ...) UseMethod("zvec")
 nvec <- function(x, ...) UseMethod("nvec")
-is_present <- function(x, ...) UseMethod("is_present")
 beta_vec <- function(x, ...) UseMethod("beta_vec")
 se_vec <- function(x, ...) UseMethod("se_vec")
 eaf_vec <- function(x, ...) UseMethod("eaf_vec")
@@ -22,22 +21,22 @@ load_sumstats <- function(path, reference) {
   .build_sumstats_panel(df, reference, path)
 }
 
-create_sumstats <- function(reference, pvec, zvec = NULL, nvec = NULL,
-                            beta_vec = NULL, se_vec = NULL,
-                            eaf_vec = NULL, info_vec = NULL) {
+create_sumstats <- function(reference, p, z = NULL, n = NULL,
+                            beta = NULL, se = NULL,
+                            eaf = NULL, info = NULL) {
   if (!inherits(reference, "ReferencePanel")) {
     stop("reference must be a ReferencePanel", call. = FALSE)
   }
-  n <- num_snp(reference)
-  p <- .coerce_aligned_numeric_vector(pvec, n, "pvec", allow_inf = FALSE)
-  .validate_p_values(p, "pvec")
+  num_snp_value <- num_snp(reference)
+  p <- .coerce_aligned_numeric_vector(p, num_snp_value, "p", allow_inf = FALSE)
+  .validate_p_values(p, "p")
   aligned <- list(
-    z = .coerce_optional_aligned_numeric_vector(zvec, n, "zvec"),
-    n = .coerce_optional_aligned_numeric_vector(nvec, n, "nvec"),
-    beta = .coerce_optional_aligned_numeric_vector(beta_vec, n, "beta_vec"),
-    se = .coerce_optional_aligned_numeric_vector(se_vec, n, "se_vec"),
-    eaf = .coerce_optional_aligned_numeric_vector(eaf_vec, n, "eaf_vec"),
-    info = .coerce_optional_aligned_numeric_vector(info_vec, n, "info_vec")
+    z = .coerce_optional_aligned_numeric_vector(z, num_snp_value, "z"),
+    n = .coerce_optional_aligned_numeric_vector(n, num_snp_value, "n"),
+    beta = .coerce_optional_aligned_numeric_vector(beta, num_snp_value, "beta"),
+    se = .coerce_optional_aligned_numeric_vector(se, num_snp_value, "se"),
+    eaf = .coerce_optional_aligned_numeric_vector(eaf, num_snp_value, "eaf"),
+    info = .coerce_optional_aligned_numeric_vector(info, num_snp_value, "info")
   )
   .build_sumstats_from_aligned(reference, .derive_logp(p), aligned)
 }

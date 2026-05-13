@@ -396,10 +396,10 @@ def test_create_sumstats_from_vectors():
     reference = load_reference(SHARDED_REF)
     zvec = np.array([2.5, 1.0, 1.8, -1.2, np.nan, 3.0, 0.5, np.nan], dtype=float)
     nvec = np.array([1000, 950, 1000, 1000, np.nan, 500, 500, np.nan], dtype=float)
-    pvec = np.array([0.01, 0.5, 0.0, 0.2, 1.0, 0.003, 0.6, 0.9], dtype=float)
-    beta_vec = np.array([0.2, -0.1, 0.3, 0.0, np.nan, 0.5, 0.05, np.nan], dtype=float)
+    p = np.array([0.01, 0.5, 0.0, 0.2, 1.0, 0.003, 0.6, 0.9], dtype=float)
+    beta = np.array([0.2, -0.1, 0.3, 0.0, np.nan, 0.5, 0.05, np.nan], dtype=float)
 
-    s = create_sumstats(reference, pvec, zvec=zvec, nvec=nvec, beta_vec=beta_vec)
+    s = create_sumstats(reference, p, z=zvec, n=nvec, beta=beta)
 
     np.testing.assert_allclose(s.zvec, zvec, equal_nan=True)
     np.testing.assert_allclose(s.nvec, nvec, equal_nan=True)
@@ -412,7 +412,7 @@ def test_create_sumstats_from_vectors():
     assert math.isclose(s.logpvec[5], -math.log10(0.003))
     assert math.isclose(s.logpvec[6], -math.log10(0.6))
     assert math.isclose(s.logpvec[7], -math.log10(0.9))
-    np.testing.assert_allclose(s.beta_vec, beta_vec, equal_nan=True)
+    np.testing.assert_allclose(s.beta_vec, beta, equal_nan=True)
     assert s.se_vec is None
     assert s.eaf_vec is None
     assert s.info_vec is None
@@ -420,24 +420,24 @@ def test_create_sumstats_from_vectors():
 
 def test_create_sumstats_validation_errors():
     reference = load_reference(SHARDED_REF)
-    pvec = np.full(reference.num_snp, 0.5)
-    with pytest.raises(ValueError, match="pvec length mismatch"):
+    p = np.full(reference.num_snp, 0.5)
+    with pytest.raises(ValueError, match="p length mismatch"):
         create_sumstats(reference, np.array([1.0]))
-    with pytest.raises(ValueError, match="zvec length mismatch"):
-        create_sumstats(reference, pvec, zvec=np.array([1.0]))
-    with pytest.raises(ValueError, match="nvec\\[0\\] must be finite numeric or NaN"):
-        create_sumstats(reference, pvec, nvec=np.r_[np.inf, np.zeros(reference.num_snp - 1)])
-    with pytest.raises(ValueError, match=r"pvec\[0\] must be finite numeric in \[0, 1\]"):
+    with pytest.raises(ValueError, match="z length mismatch"):
+        create_sumstats(reference, p, z=np.array([1.0]))
+    with pytest.raises(ValueError, match="n\\[0\\] must be finite numeric or NaN"):
+        create_sumstats(reference, p, n=np.r_[np.inf, np.zeros(reference.num_snp - 1)])
+    with pytest.raises(ValueError, match=r"p\[0\] must be finite numeric in \[0, 1\]"):
         create_sumstats(reference, np.r_[np.inf, np.zeros(reference.num_snp - 1)])
-    with pytest.raises(ValueError, match=r"pvec\[0\] must be finite numeric in \[0, 1\]"):
+    with pytest.raises(ValueError, match=r"p\[0\] must be finite numeric in \[0, 1\]"):
         create_sumstats(reference, np.r_[np.nan, np.zeros(reference.num_snp - 1)])
-    with pytest.raises(ValueError, match=r"pvec\[0\] must be finite numeric in \[0, 1\]"):
+    with pytest.raises(ValueError, match=r"p\[0\] must be finite numeric in \[0, 1\]"):
         create_sumstats(reference, np.r_[-0.1, np.zeros(reference.num_snp - 1)])
-    with pytest.raises(ValueError, match="beta_vec\\[0\\] must be finite numeric or NaN"):
+    with pytest.raises(ValueError, match="beta\\[0\\] must be finite numeric or NaN"):
         create_sumstats(
             reference,
-            pvec,
-            beta_vec=np.r_[np.inf, np.zeros(reference.num_snp - 1)],
+            p,
+            beta=np.r_[np.inf, np.zeros(reference.num_snp - 1)],
         )
 
 

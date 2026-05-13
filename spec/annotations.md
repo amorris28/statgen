@@ -162,7 +162,7 @@ is a sparse binary matrix.
 load_annotations(bed_paths, reference) -> AnnotationPanel
 save_annotations_cache(panel, path)
 load_annotations_cache(path, optional shards) -> AnnotationPanel
-create_annotations(reference, annomat, annonames) -> AnnotationPanel
+create_annotations(reference, annotation_matrix, annotation_names) -> AnnotationPanel
 create_annotation(reference, annovec, annoname) -> AnnotationPanel
 
 AnnotationPanel.num_snp -> int

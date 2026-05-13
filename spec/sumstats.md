@@ -57,13 +57,18 @@ then matching within that shard on the tuple `(bp, a1_hash64, a2_hash64)`
 defined by the shared source-to-reference matching contract in
 [reference.md](reference.md), including swapped-allele diagnostics for
 unmatched source rows. Validated source rows outside the supplied reference
-shard set are ignored for alignment. The allele hashes are computed from each
-source row's exact `a1` and `a2` strings. This is semantically an exact
-`chr:bp:a1:a2` join; the hashes are only fixed-width implementation keys for
-sumstats-to-reference matching. The result is split into `SumstatsShard`s
-matching the reference shards, and variants absent from the TSV are represented
-as missing values. If a supplied reference shard has no matching source rows at
-all, the loader warns and represents that shard as all
+shard set are ignored for alignment only when they are canonical contigs that
+were not selected in the supplied reference, such as `X` rows loaded against a
+chr1-only reference. Recognized non-supported contigs and invalid labels follow
+the shared rules in [contigs-and-shards.md](contigs-and-shards.md): `Y` and
+`MT` are dropped before validation, while labels such as `chr1`/`chrX`,
+scaffolds, or otherwise unrecognized contigs are validation errors. The allele
+hashes are computed from each source row's exact `a1` and `a2` strings. This is
+semantically an exact `chr:bp:a1:a2` join; the hashes are only fixed-width
+implementation keys for sumstats-to-reference matching. The result is split
+into `SumstatsShard`s matching the reference shards, and variants absent from
+the TSV are represented as missing values. If a supplied reference shard has no
+matching source rows at all, the loader warns and represents that shard as all
 missing. The loader does not normalize or alias contig labels; matched sumstats
 `chr` values must already match the reference labels.
 
@@ -180,8 +185,8 @@ defined in [SPEC.md](SPEC.md).
 load_sumstats(path, reference) -> Sumstats
 save_sumstats_cache(sumstats, path)
 load_sumstats_cache(path, optional shards) -> Sumstats
-create_sumstats(reference, pvec, optional zvec, optional nvec, optional beta_vec,
-                optional se_vec, optional eaf_vec, optional info_vec) -> Sumstats
+create_sumstats(reference, p, optional z, optional n, optional beta,
+                optional se, optional eaf, optional info) -> Sumstats
 
 Sumstats.num_snp -> int
 Sumstats.logpvec -> num_snp float vector
@@ -240,7 +245,7 @@ Expected behavior:
   from [SPEC.md](SPEC.md) (`None` in Python, `[]` in MATLAB/Octave, `NULL` in
   R).
 - `create_sumstats(...)` validates vector lengths against `reference.num_snp`.
-  Unknown shapes fail clearly; required `pvec` values must satisfy the same
+  Unknown shapes fail clearly; required `p` values must satisfy the same
   finite numeric range contract as loaded objects, with `p == 0` allowed.
   Optional vectors follow the same absent/present sentinel semantics.
 - cache save/load must preserve the same optional-field semantics (field absent
