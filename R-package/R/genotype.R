@@ -658,30 +658,25 @@ print.GenotypePanel <- function(x, ...) {
     if (any(female)) {
       geno[female, entry$cols] <- sweep(geno[female, entry$cols, drop = FALSE], 2L, pf / 2, `*`)
     }
-    if (any(unknown)) {
-      geno[unknown, entry$cols] <- sweep(geno[unknown, entry$cols, drop = FALSE], 2L, pm / 2, `*`)
+    same_ploidy <- !differs
+    if (any(unknown) && any(same_ploidy)) {
+      cols <- entry$cols[same_ploidy]
+      geno[unknown, cols] <- sweep(geno[unknown, cols, drop = FALSE], 2L, pf[same_ploidy] / 2, `*`)
     }
   }
   geno
 }
 
 .validate_genotype_cache_payload <- function(payload) {
-  if (!is.list(payload) || is.null(payload$metadata)) {
-    stop("Invalid genotype cache: expected an RDS list with metadata", call. = FALSE)
-  }
-  meta <- payload$metadata
-  if (!identical(meta$schema, .genotype_cache_schema)) {
-    stop(sprintf("Unsupported genotype cache schema: %s", sQuote(as.character(meta$schema))), call. = FALSE)
-  }
-  n_shards <- as.integer(meta$n_shards)
-  if (is.na(n_shards) || n_shards < 1L) {
-    stop("Invalid genotype cache: n_shards must be at least 1", call. = FALSE)
-  }
-  for (field in c("shard_labels", "shard_checksums", "shard_start0", "shard_stop0", "bed_paths", "bed_file_sizes", "source_num_snp", "source_num_sample")) {
-    if (is.null(meta[[field]]) || length(meta[[field]]) != n_shards) {
-      stop(sprintf("Invalid genotype cache: metadata.%s length mismatch", field), call. = FALSE)
-    }
-  }
+  cache <- .validate_cache_payload_metadata(
+    payload,
+    .genotype_cache_schema,
+    "genotype",
+    extra_fields = c("bed_paths", "bed_file_sizes", "source_num_snp", "source_num_sample")
+  )
+  meta <- cache$meta
+  n_shards <- cache$n_shards
+  total <- cache$total
   .validate_requested_shards(meta$shard_labels, meta$shard_labels, "load_genotype_cache")
   if (!(meta$source_layout %in% c("non_sharded", "sharded"))) {
     stop("Invalid genotype cache: source_layout must be 'non_sharded' or 'sharded'", call. = FALSE)
@@ -691,18 +686,11 @@ print.GenotypePanel <- function(x, ...) {
       stop(sprintf("Invalid genotype cache: missing field %s", sQuote(field)), call. = FALSE)
     }
   }
-  total <- meta$shard_stop0[[n_shards]]
   if (length(payload$is_present) != total || length(payload$source_row0) != total) {
     stop("Invalid genotype cache: SNP-axis vector lengths mismatch", call. = FALSE)
   }
   if (length(payload$ploidy_male) != total || length(payload$ploidy_female) != total) {
     stop("Invalid genotype cache: ploidy vector lengths mismatch", call. = FALSE)
-  }
-  if (!identical(as.integer(meta$shard_start0[[1]]), 0L) || any(meta$shard_stop0 < meta$shard_start0)) {
-    stop("Invalid genotype cache: shard offsets are invalid", call. = FALSE)
-  }
-  if (n_shards > 1L && any(meta$shard_start0[-1L] != meta$shard_stop0[-n_shards])) {
-    stop("Invalid genotype cache: shard offsets are not contiguous", call. = FALSE)
   }
   num_sample_value <- as.integer(meta$num_sample)
   if (is.na(num_sample_value) || num_sample_value < 0L) {

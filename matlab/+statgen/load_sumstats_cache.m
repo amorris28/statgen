@@ -52,36 +52,10 @@ function sumstats = load_sumstats_cache(path, shards)
 end
 
 function [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp)
-    if ~strcmp(meta.schema, 'sumstats_cache/0.1')
-        error('statgen:cache', 'Unsupported sumstats cache schema: %s', meta.schema);
-    end
-    labels = statgen.internal.ensure_cell_col(meta.shard_labels);
-    checksums = statgen.internal.ensure_cell_col(meta.shard_checksums);
-    start0 = double(meta.shard_start0(:));
-    stop0 = double(meta.shard_stop0(:));
-
-    n_shards = numel(labels);
-    if ~isfield(meta, 'n_shards') || ~isscalar(meta.n_shards) || meta.n_shards ~= n_shards
-        error('statgen:cache', 'Invalid sumstats cache: n_shards mismatch');
-    end
+    [labels, checksums, start0, stop0] = statgen.internal.validate_cache_shard_metadata( ...
+        meta, 'sumstats_cache/0.1', 'sumstats', num_snp, false);
     if ~isfield(meta, 'has_z') || ~isfield(meta, 'has_n')
         error('statgen:cache', 'Invalid sumstats cache: missing has_z/has_n metadata');
-    end
-    if numel(checksums) ~= n_shards || numel(start0) ~= n_shards || numel(stop0) ~= n_shards
-        error('statgen:cache', 'Invalid sumstats cache: shard metadata length mismatch');
-    end
-    validate_offsets_(start0, stop0, num_snp);
-end
-
-function validate_offsets_(start0, stop0, num_snp)
-    if isempty(start0)
-        if num_snp ~= 0
-            error('statgen:cache', 'Invalid sumstats cache: empty shard offsets for non-empty payload');
-        end
-        return
-    end
-    if start0(1) ~= 0 || stop0(end) ~= num_snp || any(stop0 < start0) || any(start0(2:end) ~= stop0(1:end-1))
-        error('statgen:cache', 'Invalid sumstats cache: shard offsets are not contiguous');
     end
 end
 

@@ -128,6 +128,31 @@ def test_r_reference_nonsharded_split_and_cache_subset(tmp_path):
 
 @pytest.mark.r
 @skipif_no_rscript
+def test_r_reference_cache_rejects_zero_shards(tmp_path):
+    cache = tmp_path / "zero_shards.rds"
+    result = run_rscript(
+        _source_reference_script(
+            "payload <- list("
+            "metadata = list(schema = .reference_cache_schema, n_shards = 0L, "
+            "shard_labels = character(), shard_checksums = character(), "
+            "shard_start0 = integer(), shard_stop0 = integer()), "
+            "bp = integer(), snp_text_by_shard = character(), "
+            "a1_text_by_shard = character(), a2_text_by_shard = character(), "
+            "a1_hash64 = bit64::as.integer64(integer()), "
+            "a2_hash64 = bit64::as.integer64(integer())); "
+            f"saveRDS(payload, {json.dumps(str(cache))}); "
+            "ok <- FALSE; "
+            f"tryCatch(load_reference_cache({json.dumps(str(cache))}), "
+            "error = function(e) ok <<- grepl('n_shards must be at least 1', e$message)); "
+            "cat(as.character(ok), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "TRUE"
+
+
+@pytest.mark.r
+@skipif_no_rscript
 def test_r_reference_select_shards_source_loaded_panel():
     result = run_rscript(
         _source_reference_script(

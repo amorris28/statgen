@@ -86,22 +86,8 @@ function validate_cache_metadata_schema_(meta)
 end
 
 function [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp)
-    if ~strcmp(meta.schema, 'reference_cache/0.1')
-        error('statgen:cache', 'Unsupported reference cache schema: %s', meta.schema);
-    end
-    labels = statgen.internal.ensure_cell_col(meta.shard_labels);
-    checksums = statgen.internal.ensure_cell_col(meta.shard_checksums);
-    start0 = double(meta.shard_start0(:));
-    stop0 = double(meta.shard_stop0(:));
-
-    n_shards = numel(labels);
-    if ~isfield(meta, 'n_shards') || ~isscalar(meta.n_shards) || meta.n_shards ~= n_shards
-        error('statgen:cache', 'Invalid reference cache: n_shards mismatch');
-    end
-    if numel(checksums) ~= n_shards || numel(start0) ~= n_shards || numel(stop0) ~= n_shards
-        error('statgen:cache', 'Invalid reference cache: shard metadata length mismatch');
-    end
-    validate_offsets_(start0, stop0, num_snp, 'reference');
+    [labels, checksums, start0, stop0] = statgen.internal.validate_cache_shard_metadata( ...
+        meta, 'reference_cache/0.1', 'reference', num_snp, false);
 end
 
 function out = validate_text_payloads_(value, n_shards, name)
@@ -114,17 +100,5 @@ function out = validate_text_payloads_(value, n_shards, name)
             error('statgen:cache', 'Invalid reference cache: %s{%d} must be text', name, i);
         end
         out{i} = char(out{i});
-    end
-end
-
-function validate_offsets_(start0, stop0, num_snp, label)
-    if isempty(start0)
-        if num_snp ~= 0
-            error('statgen:cache', 'Invalid %s cache: empty shard offsets for non-empty payload', label);
-        end
-        return
-    end
-    if start0(1) ~= 0 || stop0(end) ~= num_snp || any(stop0 < start0) || any(start0(2:end) ~= stop0(1:end-1))
-        error('statgen:cache', 'Invalid %s cache: shard offsets are not contiguous', label);
     end
 end

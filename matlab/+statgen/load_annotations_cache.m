@@ -36,35 +36,8 @@ function panel = load_annotations_cache(path, shards)
 end
 
 function [labels, checksums, start0, stop0] = validate_metadata_(meta, num_snp)
-    if ~strcmp(meta.schema, 'annotations_cache/0.1')
-        error('statgen:cache', 'Unsupported annotations cache schema: %s', meta.schema);
-    end
-
-    labels = statgen.internal.ensure_cell_col(meta.shard_labels);
-    checksums = statgen.internal.ensure_cell_col(meta.shard_checksums);
-    start0 = double(meta.shard_start0(:));
-    stop0 = double(meta.shard_stop0(:));
-
-    n_shards = numel(labels);
-    if ~isfield(meta, 'n_shards') || ~isscalar(meta.n_shards) || meta.n_shards ~= n_shards
-        error('statgen:cache', 'Invalid annotations cache: n_shards mismatch');
-    end
-    if numel(checksums) ~= n_shards || numel(start0) ~= n_shards || numel(stop0) ~= n_shards
-        error('statgen:cache', 'Invalid annotations cache: shard metadata length mismatch');
-    end
-    validate_offsets_(start0, stop0, num_snp);
-end
-
-function validate_offsets_(start0, stop0, num_snp)
-    if isempty(start0)
-        if num_snp ~= 0
-            error('statgen:cache', 'Invalid annotations cache: empty shard offsets for non-empty payload');
-        end
-        return
-    end
-    if start0(1) ~= 0 || stop0(end) ~= num_snp || any(stop0 < start0) || any(start0(2:end) ~= stop0(1:end-1))
-        error('statgen:cache', 'Invalid annotations cache: shard offsets are not contiguous');
-    end
+    [labels, checksums, start0, stop0] = statgen.internal.validate_cache_shard_metadata( ...
+        meta, 'annotations_cache/0.1', 'annotations', num_snp, false);
 end
 
 function validate_annonames_(annonames)

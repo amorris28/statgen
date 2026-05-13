@@ -339,25 +339,36 @@ print.AnnotationPanel <- function(x, ...) {
 }
 
 .parse_bed <- function(path) {
-  # PERF: readLines is retained to allow leading comments/blanks while
-  # rejecting comments/blanks after data starts; read.table then parses the
-  # already-filtered lines via textConnection to avoid reopening the file.
-  lines <- readLines(path, warn = FALSE)
-  if (!length(lines)) {
-    stop(sprintf("%s: BED file is empty", path), call. = FALSE)
-  }
-  is_leading_skip <- grepl("^$|^#", lines)
-  first_data <- match(FALSE, is_leading_skip)
-  if (is.na(first_data)) {
-    stop(sprintf("%s: BED file is empty", path), call. = FALSE)
-  }
-  data_lines <- lines[first_data:length(lines)]
-  bad_late <- grepl("^$|^#", data_lines)
-  if (any(bad_late)) {
-    stop(sprintf("%s: blank or comment line after BED data row", path), call. = FALSE)
-  }
-  con <- textConnection(data_lines)
+  con <- file(path, open = "rt")
   on.exit(close(con), add = TRUE)
+  first_data <- NULL
+  first_pos <- 0
+  repeat {
+    pos <- seek(con, where = NA)
+    line <- readLines(con, n = 1L, warn = FALSE)
+    if (!length(line)) {
+      stop(sprintf("%s: BED file is empty", path), call. = FALSE)
+    }
+    if (!identical(line, "") && !startsWith(line, "#")) {
+      first_data <- line
+      first_pos <- pos
+      break
+    }
+  }
+  if (length(strsplit(first_data, "\t", fixed = TRUE)[[1L]]) < 3L) {
+    stop(sprintf("%s: BED must have at least 3 tab-separated columns", path), call. = FALSE)
+  }
+  seek(con, where = first_pos)
+  repeat {
+    line <- readLines(con, n = 1L, warn = FALSE)
+    if (!length(line)) {
+      break
+    }
+    if (identical(line, "") || startsWith(line, "#")) {
+      stop(sprintf("%s: blank or comment line after BED data row", path), call. = FALSE)
+    }
+  }
+  seek(con, where = first_pos)
   df <- tryCatch(
     utils::read.table(
       file = con,
@@ -442,38 +453,17 @@ print.AnnotationPanel <- function(x, ...) {
 }
 
 .validate_annotations_cache_payload <- function(payload) {
-  if (!is.list(payload) || is.null(payload$metadata)) {
-    stop("Invalid annotations cache: expected an RDS list with metadata", call. = FALSE)
-  }
-  meta <- payload$metadata
-  if (!identical(meta$schema, .annotations_cache_schema)) {
-    stop(sprintf("Unsupported annotations cache schema: %s", sQuote(as.character(meta$schema))), call. = FALSE)
-  }
-  n_shards <- as.integer(meta$n_shards)
-  if (is.na(n_shards) || n_shards < 1L) {
-    stop("Invalid annotations cache: n_shards must be at least 1", call. = FALSE)
-  }
-  for (field in c("shard_labels", "shard_checksums", "shard_start0", "shard_stop0")) {
-    if (is.null(meta[[field]]) || length(meta[[field]]) != n_shards) {
-      stop(sprintf("Invalid annotations cache: metadata.%s length mismatch", field), call. = FALSE)
-    }
-  }
+  cache <- .validate_cache_payload_metadata(payload, .annotations_cache_schema, "annotations")
+  total <- cache$total
   if (is.null(payload$annomat) || is.null(payload$annonames)) {
     stop("Invalid annotations cache: missing annomat or annonames", call. = FALSE)
   }
   annomat <- .as_lgC_binary_matrix(payload$annomat)
-  total <- if (n_shards) meta$shard_stop0[[n_shards]] else 0L
   if (!identical(as.integer(dim(annomat)[[1]]), as.integer(total))) {
     stop("Invalid annotations cache: annomat row count mismatch", call. = FALSE)
   }
   if (!identical(as.integer(dim(annomat)[[2]]), as.integer(length(payload$annonames)))) {
     stop("Invalid annotations cache: annomat column count mismatch", call. = FALSE)
-  }
-  if (!identical(as.integer(meta$shard_start0[[1]]), 0L) || any(meta$shard_stop0 < meta$shard_start0)) {
-    stop("Invalid annotations cache: shard offsets are invalid", call. = FALSE)
-  }
-  if (n_shards > 1L && any(meta$shard_start0[-1L] != meta$shard_stop0[-n_shards])) {
-    stop("Invalid annotations cache: shard offsets are not contiguous", call. = FALSE)
   }
   list(annomat = annomat)
 }

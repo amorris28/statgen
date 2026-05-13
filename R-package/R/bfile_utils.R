@@ -111,7 +111,7 @@
   names(df) <- c("fid", "iid", "father_id", "mother_id", "sex", "pheno")
   bad_required <- df == ""
   if (any(bad_required)) {
-    stop(sprintf("%s:%d: FAM must contain exactly 6 non-empty columns", path, which(rowSums(bad_required) > 0L)[[1]]), call. = FALSE)
+    stop(sprintf("%s:%d: FAM fields must be non-empty; 6 whitespace-delimited columns are required", path, which(rowSums(bad_required) > 0L)[[1]]), call. = FALSE)
   }
   sex_num <- suppressWarnings(as.numeric(df$sex))
   bad_sex <- is.na(sex_num) | !is.finite(sex_num) | floor(sex_num) != sex_num | !(sex_num %in% c(0, 1, 2))

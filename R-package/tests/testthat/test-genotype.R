@@ -37,6 +37,9 @@ test_that("load_genotype reads bundled PLINK fixture and fetches slices", {
   gi <- fetch_genotypes_int8(g, c(1, 5))
   expect_equal(dim(gi), c(4L, 2L))
   expect_equal(as.integer(gi), rep(2L, 8L))
+  gi_empty <- fetch_genotypes_int8(g, integer(0))
+  expect_equal(dim(gi_empty), c(4L, 0L))
+  expect_equal(typeof(gi_empty), "integer")
 
   gf <- fetch_genotypes(g, c(1, 5))
   expect_equal(dim(gf), c(4L, 2L))
@@ -62,20 +65,26 @@ test_that("sharded genotype exposes chrX ploidy, subject presence, and shard sub
 test_that("genotype metadata cache round-trips", {
   root <- .prepare_sharded_genotype_fixture()
   cache <- tempfile(fileext = ".rds")
+  override <- file.path(root, "override@.bed")
 
   ref <- load_reference(file.path(root, "@.bim"))
   g <- load_genotype(file.path(root, "g@"), ref)
   save_genotype_cache(g, cache)
+  file.copy(file.path(root, "g1.bed"), file.path(root, "override1.bed"))
+  file.copy(file.path(root, "gX.bed"), file.path(root, "overrideX.bed"))
+  unlink(file.path(root, "g1.bed"))
+  unlink(file.path(root, "gX.bed"))
   loaded <- load_genotype_cache(cache)
   loaded_x <- load_genotype_cache(cache, shards = "X")
 
   expect_equal(source_layout(loaded), source_layout(g))
   expect_equal(source_row0(loaded), source_row0(g))
   expect_equal(fid(loaded), fid(g))
-  expect_equal(fetch_genotypes_int8(loaded, c(1, 5)), fetch_genotypes_int8(g, c(1, 5)))
+  expect_error(fetch_genotypes_int8(loaded, 1), "File not found")
+  expect_equal(fetch_genotypes_int8(loaded, c(1, 6), bed_path = override), fetch_genotypes_int8(g, c(1, 6), bed_path = override))
   expect_equal(num_snp(loaded_x), 3L)
   expect_equal(source_layout(loaded_x), "sharded")
-  expect_equal(fetch_genotypes_int8(loaded_x, 1), fetch_genotypes_int8(g, 6))
+  expect_equal(fetch_genotypes_int8(loaded_x, 1, bed_path = override), fetch_genotypes_int8(g, 6, bed_path = override))
 })
 
 test_that("genotype validation rejects bad sex and malformed cache", {

@@ -212,6 +212,8 @@ def test_r_annotations_allow_leading_comments_but_reject_late_comments(tmp_path)
 def test_r_phase2_rejects_malformed_inputs(tmp_path):
     bad_sumstats = tmp_path / "bad.tsv"
     bad_sumstats.write_text("chr\tbp\ta1\ta2\tp\n1\t100\tA\tG\t1.5\n")
+    bad_nan_sumstats = tmp_path / "bad_nan.tsv"
+    bad_nan_sumstats.write_text("chr\tbp\ta1\ta2\tp\n1\t100\tA\tG\tNaN\n")
     bad_bed = tmp_path / "bad.bed"
     bad_bed.write_text("1\t100\n")
     bad_cache = tmp_path / "bad_sumstats_cache.rds"
@@ -220,11 +222,12 @@ def test_r_phase2_rejects_malformed_inputs(tmp_path):
             f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
             f"saveRDS(list(metadata = list(schema = 'sumstats_cache/0.1', n_shards = 0L, shard_labels = character(), shard_checksums = character(), shard_start0 = numeric(), shard_stop0 = numeric()), logpvec = numeric()), {json.dumps(str(bad_cache))}); "
             f"ok1 <- FALSE; tryCatch(load_sumstats({json.dumps(str(bad_sumstats))}, ref), error = function(e) ok1 <<- grepl('p must be finite numeric', e$message)); "
+            f"ok1_nan <- FALSE; tryCatch(load_sumstats({json.dumps(str(bad_nan_sumstats))}, ref), error = function(e) ok1_nan <<- grepl('p must be finite numeric', e$message)); "
             f"ok2 <- FALSE; tryCatch(load_annotations({json.dumps(str(bad_bed))}, ref), error = function(e) ok2 <<- grepl('at least 3', e$message)); "
             "ok3 <- FALSE; tryCatch(load_annotations('', ref), error = function(e) ok3 <<- grepl('bed_paths must be a non-empty character vector', e$message)); "
             "ok4 <- FALSE; tryCatch(load_annotations(NA_character_, ref), error = function(e) ok4 <<- grepl('bed_paths must be a non-empty character vector', e$message)); "
             f"ok5 <- FALSE; tryCatch(load_sumstats_cache({json.dumps(str(bad_cache))}), error = function(e) ok5 <<- grepl('n_shards must be at least 1', e$message)); "
-            "stopifnot(ok1, ok2, ok3, ok4, ok5)"
+            "stopifnot(ok1, ok1_nan, ok2, ok3, ok4, ok5)"
         )
     )
     assert result.returncode == 0, result.stderr

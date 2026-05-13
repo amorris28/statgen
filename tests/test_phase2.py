@@ -821,6 +821,7 @@ def test_octave_cache_validation_errors(tmp_path):
     cache = tmp_path / "sumstats_cache.mat"
     bad_schema = tmp_path / "sumstats_bad_schema.mat"
     bad_lengths = tmp_path / "sumstats_bad_lengths.mat"
+    bad_zero_shards = tmp_path / "sumstats_zero_shards.mat"
     script = _octave_script(
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         f"s = statgen.load_sumstats('{path}', ref); "
@@ -838,11 +839,17 @@ def test_octave_cache_validation_errors(tmp_path):
         f"save('{bad_lengths}', 'metadata', 'zvec', 'nvec', 'logpvec', 'beta_vec', 'se_vec', 'eaf_vec', 'info_vec'); "
         f"ok2 = 0; try; statgen.load_sumstats_cache('{bad_lengths}'); catch; ok2 = 1; end; "
         f"ok3 = 0; try; statgen.load_sumstats_cache('{cache}', {{'2'}}); catch; ok3 = 1; end; "
-        "fprintf('%d %d %d\\n', ok1, ok2, ok3);"
+        f"L3 = load('{cache}'); "
+        "metadata = L3.metadata; zvec = L3.zvec; nvec = L3.nvec; logpvec = L3.logpvec; "
+        "beta_vec = L3.beta_vec; se_vec = L3.se_vec; eaf_vec = L3.eaf_vec; info_vec = L3.info_vec; "
+        "metadata.n_shards = 0; metadata.shard_labels = {}; metadata.shard_checksums = {}; metadata.shard_start0 = []; metadata.shard_stop0 = []; "
+        f"save('{bad_zero_shards}', 'metadata', 'zvec', 'nvec', 'logpvec', 'beta_vec', 'se_vec', 'eaf_vec', 'info_vec'); "
+        f"ok4 = 0; try; statgen.load_sumstats_cache('{bad_zero_shards}'); catch ME; ok4 = ~isempty(strfind(ME.message, 'n_shards must be positive')); end; "
+        "fprintf('%d %d %d %d\\n', ok1, ok2, ok3, ok4);"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "1 1 1"
+    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1"
 
 
 @pytest.mark.octave

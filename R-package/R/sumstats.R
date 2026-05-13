@@ -448,31 +448,11 @@ print.Sumstats <- function(x, ...) {
 }
 
 .validate_sumstats_cache_payload <- function(payload) {
-  if (!is.list(payload) || is.null(payload$metadata)) {
-    stop("Invalid sumstats cache: expected an RDS list with metadata", call. = FALSE)
-  }
-  meta <- payload$metadata
-  if (!identical(meta$schema, .sumstats_cache_schema)) {
-    stop(sprintf("Unsupported sumstats cache schema: %s", sQuote(as.character(meta$schema))), call. = FALSE)
-  }
-  n_shards <- as.integer(meta$n_shards)
-  if (is.na(n_shards) || n_shards < 1L) {
-    stop("Invalid sumstats cache: n_shards must be at least 1", call. = FALSE)
-  }
-  for (field in c("shard_labels", "shard_checksums", "shard_start0", "shard_stop0")) {
-    if (is.null(meta[[field]]) || length(meta[[field]]) != n_shards) {
-      stop(sprintf("Invalid sumstats cache: metadata.%s length mismatch", field), call. = FALSE)
-    }
-  }
-  total <- if (n_shards) meta$shard_stop0[[n_shards]] else 0L
+  cache <- .validate_cache_payload_metadata(payload, .sumstats_cache_schema, "sumstats")
+  meta <- cache$meta
+  total <- cache$total
   if (is.null(payload$logpvec) || length(payload$logpvec) != total) {
     stop("Invalid sumstats cache: logpvec length mismatch", call. = FALSE)
-  }
-  if (!identical(as.integer(meta$shard_start0[[1]]), 0L) || any(meta$shard_stop0 < meta$shard_start0)) {
-    stop("Invalid sumstats cache: shard offsets are invalid", call. = FALSE)
-  }
-  if (n_shards > 1L && any(meta$shard_start0[-1L] != meta$shard_stop0[-n_shards])) {
-    stop("Invalid sumstats cache: shard offsets are not contiguous", call. = FALSE)
   }
   for (field in c("z", "n", "beta", "se", "eaf", "info")) {
     flag <- paste0("has_", field)

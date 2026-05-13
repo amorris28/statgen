@@ -103,10 +103,8 @@ function [labels, checksums, start0, stop0, source_layout, bed_paths, bed_file_s
         end
     end
 
-    labels = statgen.internal.ensure_cell_col(meta.shard_labels);
-    checksums = statgen.internal.ensure_cell_col(meta.shard_checksums);
-    start0 = double(meta.shard_start0(:));
-    stop0 = double(meta.shard_stop0(:));
+    [labels, checksums, start0, stop0, n_shards] = statgen.internal.validate_cache_shard_metadata( ...
+        meta, 'genotype_cache/0.1', 'genotype', num_snp, true);
     bed_paths = statgen.internal.ensure_cell_col(meta.bed_paths);
     bed_file_sizes = double(meta.bed_file_sizes(:));
     source_num_snp = double(meta.source_num_snp(:));
@@ -114,15 +112,7 @@ function [labels, checksums, start0, stop0, source_layout, bed_paths, bed_file_s
     source_layout = char(meta.source_layout);
     num_sample = double(meta.num_sample);
 
-    n_shards = numel(labels);
-    if ~isscalar(meta.n_shards) || double(meta.n_shards) ~= n_shards
-        error('statgen:cache', 'Invalid genotype cache: n_shards mismatch');
-    end
-    if n_shards <= 0
-        error('statgen:cache', 'Invalid genotype cache: n_shards must be positive');
-    end
-    if numel(checksums) ~= n_shards || numel(start0) ~= n_shards || numel(stop0) ~= n_shards || ...
-            numel(bed_paths) ~= n_shards || numel(bed_file_sizes) ~= n_shards || ...
+    if numel(bed_paths) ~= n_shards || numel(bed_file_sizes) ~= n_shards || ...
             numel(source_num_snp) ~= n_shards || numel(source_num_sample) ~= n_shards
         error('statgen:cache', 'Invalid genotype cache: shard metadata length mismatch');
     end
@@ -134,23 +124,10 @@ function [labels, checksums, start0, stop0, source_layout, bed_paths, bed_file_s
         error('statgen:cache', 'Invalid genotype cache: num_sample must be a non-negative integer');
     end
 
-    validate_offsets_(start0, stop0, num_snp);
     for i = 1:n_shards
         expected = statgen.internal.bfile_expected_bed_size(source_num_sample(i), source_num_snp(i));
         if bed_file_sizes(i) ~= expected
             error('statgen:cache', 'Invalid genotype cache: bed_file_size mismatch for shard %s', labels{i});
         end
-    end
-end
-
-function validate_offsets_(start0, stop0, num_snp)
-    if isempty(start0)
-        if num_snp ~= 0
-            error('statgen:cache', 'Invalid genotype cache: empty shard offsets for non-empty payload');
-        end
-        return
-    end
-    if start0(1) ~= 0 || stop0(end) ~= num_snp || any(stop0 <= start0) || any(start0(2:end) ~= stop0(1:end-1))
-        error('statgen:cache', 'Invalid genotype cache: shard offsets are not contiguous');
     end
 end

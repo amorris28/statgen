@@ -54,3 +54,30 @@ is_present <- function(x, ...) UseMethod("is_present")
     stop(message, call. = FALSE)
   }
 }
+
+.validate_cache_payload_metadata <- function(payload, schema, cache_name, extra_fields = character()) {
+  if (!is.list(payload) || is.null(payload$metadata)) {
+    stop(sprintf("Invalid %s cache: expected an RDS list with metadata", cache_name), call. = FALSE)
+  }
+  meta <- payload$metadata
+  if (!identical(meta$schema, schema)) {
+    stop(sprintf("Unsupported %s cache schema: %s", cache_name, sQuote(as.character(meta$schema))), call. = FALSE)
+  }
+  n_shards <- suppressWarnings(as.integer(meta$n_shards))
+  if (length(n_shards) != 1L || is.na(n_shards) || n_shards < 1L) {
+    stop(sprintf("Invalid %s cache: n_shards must be at least 1", cache_name), call. = FALSE)
+  }
+  for (field in c("shard_labels", "shard_checksums", "shard_start0", "shard_stop0", extra_fields)) {
+    if (is.null(meta[[field]]) || length(meta[[field]]) != n_shards) {
+      stop(sprintf("Invalid %s cache: metadata.%s length mismatch", cache_name, field), call. = FALSE)
+    }
+  }
+  total <- meta$shard_stop0[[n_shards]]
+  if (!identical(as.integer(meta$shard_start0[[1]]), 0L) || any(meta$shard_stop0 < meta$shard_start0)) {
+    stop(sprintf("Invalid %s cache: shard offsets are invalid", cache_name), call. = FALSE)
+  }
+  if (n_shards > 1L && any(meta$shard_start0[-1L] != meta$shard_stop0[-n_shards])) {
+    stop(sprintf("Invalid %s cache: shard offsets are not contiguous", cache_name), call. = FALSE)
+  }
+  list(meta = meta, n_shards = n_shards, total = total)
+}

@@ -388,6 +388,30 @@ def test_octave_annotations_cache_roundtrip_and_subset(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_annotations_cache_rejects_zero_shards(tmp_path):
+    cache = tmp_path / "annotations_cache.mat"
+    bad_cache = tmp_path / "annotations_zero_shards.mat"
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        "a = statgen.load_annotations({[fixture_dir '/annotations/anno1.bed'], [fixture_dir '/annotations/anno2.bed']}, ref); "
+        f"statgen.save_annotations_cache(a, '{cache}'); "
+        f"L = load('{cache}'); "
+        "L.metadata.n_shards = 0; "
+        "L.metadata.shard_labels = {}; "
+        "L.metadata.shard_checksums = {}; "
+        "L.metadata.shard_start0 = []; "
+        "L.metadata.shard_stop0 = []; "
+        f"save('{bad_cache}', '-struct', 'L'); "
+        f"ok = 0; try; statgen.load_annotations_cache('{bad_cache}'); catch ME; ok = ~isempty(strfind(ME.message, 'n_shards must be positive')); end; "
+        "fprintf('%d\\n', ok);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_empty_bed_fails(tmp_path):
     empty = tmp_path / "empty.bed"
     empty.write_text("")

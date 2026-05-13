@@ -126,22 +126,29 @@ def test_octave_genotype_cache_subset_preserves_sample_axis_source_layout_and_fe
 def test_octave_genotype_cache_validation_failures(tmp_path):
     bad_schema = tmp_path / "bad_schema.mat"
     bad_offsets = tmp_path / "bad_offsets.mat"
+    bad_zero_shards = tmp_path / "bad_zero_shards.mat"
     unknown = tmp_path / "valid.mat"
     script = (
         f"ref = statgen.load_reference('{REF_SHARDED}'); "
         f"g = statgen.load_genotype('{G_SHARDED}', ref); "
         f"statgen.save_genotype_cache(g, '{bad_schema}'); "
         f"statgen.save_genotype_cache(g, '{bad_offsets}'); "
+        f"statgen.save_genotype_cache(g, '{bad_zero_shards}'); "
         f"statgen.save_genotype_cache(g, '{unknown}'); "
         f"payload = load('{bad_schema}'); payload.metadata.schema = 'bad'; "
         f"save('{bad_schema}', '-struct', 'payload'); "
         f"payload = load('{bad_offsets}'); payload.metadata.shard_start0(2) = 99; "
         f"save('{bad_offsets}', '-struct', 'payload'); "
+        f"payload = load('{bad_zero_shards}'); payload.metadata.n_shards = 0; "
+        f"payload.metadata.shard_labels = {{}}; payload.metadata.shard_checksums = {{}}; "
+        f"payload.metadata.shard_start0 = []; payload.metadata.shard_stop0 = []; "
+        f"save('{bad_zero_shards}', '-struct', 'payload'); "
         f"e1 = 0; try; statgen.load_genotype_cache('{bad_schema}'); catch; e1 = 1; end; "
         f"e2 = 0; try; statgen.load_genotype_cache('{bad_offsets}'); catch; e2 = 1; end; "
         f"e3 = 0; try; statgen.load_genotype_cache('{unknown}', {{'2'}}); catch; e3 = 1; end; "
-        "fprintf('%d %d %d\\n', e1, e2, e3);"
+        f"e4 = 0; try; statgen.load_genotype_cache('{bad_zero_shards}'); catch ME; e4 = ~isempty(strfind(ME.message, 'n_shards must be positive')); end; "
+        "fprintf('%d %d %d %d\\n', e1, e2, e3, e4);"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    assert matlab_data_lines(result.stdout) == ["1 1 1"]
+    assert matlab_data_lines(result.stdout) == ["1 1 1 1"]

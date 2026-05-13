@@ -726,6 +726,29 @@ def test_octave_reference_cache_accepts_format_option(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_reference_cache_rejects_zero_shards(tmp_path):
+    cache_path = str(tmp_path / "ref_cache.mat")
+    bad_cache_path = str(tmp_path / "ref_cache_zero_shards.mat")
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"statgen.save_reference_cache(ref, '{cache_path}'); "
+        f"L = load('{cache_path}'); "
+        "L.metadata.n_shards = 0; "
+        "L.metadata.shard_labels = {}; "
+        "L.metadata.shard_checksums = {}; "
+        "L.metadata.shard_start0 = []; "
+        "L.metadata.shard_stop0 = []; "
+        f"save('{bad_cache_path}', '-struct', 'L'); "
+        f"ok = 0; try; statgen.load_reference_cache('{bad_cache_path}'); catch ME; ok = ~isempty(strfind(ME.message, 'n_shards must be positive')); end; "
+        "fprintf('%d\\n', ok);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_is_object_compatible():
     script = _octave_script(
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "

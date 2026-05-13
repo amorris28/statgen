@@ -353,20 +353,10 @@ print.ReferencePanel <- function(x, ...) {
 }
 
 .validate_reference_cache_payload <- function(payload) {
-  if (!is.list(payload) || is.null(payload$metadata)) {
-    stop("Invalid reference cache: expected an RDS list with metadata", call. = FALSE)
-  }
-  meta <- payload$metadata
-  if (!identical(meta$schema, .reference_cache_schema)) {
-    stop(sprintf("Unsupported reference cache schema: %s", sQuote(as.character(meta$schema))), call. = FALSE)
-  }
-  n_shards <- as.integer(meta$n_shards)
-  fields <- c("shard_labels", "shard_checksums", "shard_start0", "shard_stop0")
-  for (field in fields) {
-    if (is.null(meta[[field]]) || length(meta[[field]]) != n_shards) {
-      stop(sprintf("Invalid reference cache: metadata.%s length mismatch", field), call. = FALSE)
-    }
-  }
+  cache <- .validate_cache_payload_metadata(payload, .reference_cache_schema, "reference")
+  meta <- cache$meta
+  n_shards <- cache$n_shards
+  total <- cache$total
   payload_fields <- c("bp", "snp_text_by_shard", "a1_text_by_shard", "a2_text_by_shard", "a1_hash64", "a2_hash64")
   for (field in payload_fields) {
     if (is.null(payload[[field]])) {
@@ -375,13 +365,6 @@ print.ReferencePanel <- function(x, ...) {
   }
   if (length(payload$snp_text_by_shard) != n_shards || length(payload$a1_text_by_shard) != n_shards || length(payload$a2_text_by_shard) != n_shards) {
     stop("Invalid reference cache: string payload shard count mismatch", call. = FALSE)
-  }
-  total <- if (n_shards) meta$shard_stop0[[n_shards]] else 0L
-  if (!identical(as.integer(meta$shard_start0[[1]]), 0L) || any(meta$shard_stop0 < meta$shard_start0)) {
-    stop("Invalid reference cache: shard offsets are invalid", call. = FALSE)
-  }
-  if (n_shards > 1L && any(meta$shard_start0[-1L] != meta$shard_stop0[-n_shards])) {
-    stop("Invalid reference cache: shard offsets are not contiguous", call. = FALSE)
   }
   if (length(payload$bp) != total || length(payload$a1_hash64) != total || length(payload$a2_hash64) != total) {
     stop("Invalid reference cache: panel-wide vector lengths mismatch", call. = FALSE)

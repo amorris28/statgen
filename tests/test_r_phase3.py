@@ -221,17 +221,19 @@ def test_r_genotype_chrx_subset_and_ploidy_scaled(tmp_path):
             f"ref <- load_reference({json.dumps(str(REF_SHARDED))}); "
             f"g <- load_genotype({json.dumps(str(tmp_path / '@'))}, ref); "
             "gi <- fetch_genotypes_int8(g, 6); "
+            "gi_empty <- fetch_genotypes_int8(g, integer(0)); "
             "scaled <- fetch_genotypes(g, 6, haploid_mode = 'ploidy_scaled'); "
             "scaled[is.nan(scaled)] <- -9; "
             "cat(paste(as.integer(is_subject_present(g, 'X')), collapse=','), '\\n'); "
             "cat(paste(shards(g)[[2]]$source_subject_row0, collapse=','), '\\n'); "
             "cat(paste(as.integer(gi), collapse=','), '\\n'); "
+            "cat(paste(dim(gi_empty), collapse='x'), typeof(gi_empty), '\\n'); "
             "cat(paste(as.numeric(scaled), collapse=','), '\\n')"
         )
     )
     assert result.returncode == 0, result.stderr
     lines = [line.strip() for line in result.stdout.strip().splitlines()]
-    assert lines == ["1,0,1,0", "1,-1,0,-1", "1,-1,0,-1", "0.5,-9,0,-9"]
+    assert lines == ["1,0,1,0", "1,-1,0,-1", "1,-1,0,-1", "4x0 integer", "0.5,-9,0,-9"]
 
 
 @pytest.mark.r
@@ -261,6 +263,28 @@ def test_r_genotype_chrx_only_reference_and_unknown_sex_scaled_error(tmp_path):
         "1,1,1,1",
         "TRUE",
     ]
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_genotype_ploidy_scaled_unknown_sex_scales_only_equal_ploidy_snps():
+    result = run_rscript(
+        _source_phase3_script(
+            "shard <- structure(list(label = 'X', num_snp = 2L, "
+            "subject_present = TRUE, ploidy_male = c(0, 2), ploidy_female = c(2, 2)), "
+            "class = 'GenotypeShard'); "
+            "panel <- structure(list(sex = 0L, shards = list(shard), num_snp = 2L, "
+            "shard_offsets = data.frame(shard_label = 'X', start0 = 0L, stop0 = 2L)), "
+            "class = 'GenotypePanel'); "
+            "out <- .apply_ploidy_scaled(panel, matrix(c(Inf, 2), nrow = 1L), c(1L, 2L)); "
+            "ok_error <- FALSE; "
+            "tryCatch(.apply_ploidy_scaled(panel, matrix(c(1, 2), nrow = 1L), c(1L, 2L)), "
+            "error = function(e) ok_error <<- grepl('requires known FAM sex', e$message)); "
+            "cat(as.character(is.infinite(out[1, 1])), out[1, 2], as.character(ok_error), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "TRUE 2 TRUE"
 
 
 @pytest.mark.r
@@ -303,6 +327,30 @@ def test_r_genotype_validation_failures(tmp_path):
         )
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_genotype_fam_empty_field_message_and_zero_parent_placeholders(tmp_path):
+    copy_genotype_shard_files(tmp_path, "1")
+    result = run_rscript(
+        _source_phase3_script(
+            f"ref <- load_reference({json.dumps(str(REF_SHARDED))}, shards = '1'); "
+            f"g <- load_genotype({json.dumps(str(tmp_path / '1'))}, ref); "
+            "cat(paste(father_id(g), collapse=','), '\\n'); "
+            f"bad <- {json.dumps(str(tmp_path / 'bad.fam'))}; "
+            "writeLines('FAM1 IND1 0 1 -9', bad); "
+            f"invisible(file.copy({json.dumps(str(tmp_path / '1.bim'))}, {json.dumps(str(tmp_path / 'bad.bim'))}, overwrite = TRUE)); "
+            f"invisible(file.copy({json.dumps(str(tmp_path / '1.bed'))}, {json.dumps(str(tmp_path / 'bad.bed'))}, overwrite = TRUE)); "
+            "ok <- FALSE; "
+            f"tryCatch(load_genotype({json.dumps(str(tmp_path / 'bad'))}, ref), "
+            "error = function(e) ok <<- grepl('expected 6 whitespace-delimited columns', e$message)); "
+            "cat(as.character(ok), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.strip() for line in result.stdout.strip().splitlines()]
+    assert lines == ["0,0,0,0", "TRUE"]
 
 
 @pytest.mark.r
