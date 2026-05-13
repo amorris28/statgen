@@ -6,6 +6,16 @@ import numpy as np
 import pytest
 
 from tests.conftest import FIXTURES_DIR, R_PACKAGE_DIR, run_rscript, skipif_no_rscript
+from tests.test_end_to_end_alignment import (
+    _assert_full_outputs,
+    _assert_preflight_outputs,
+    _build_full_artifacts,
+    _build_preflight_artifacts,
+    _full_sample_ids,
+    _full_x_subset,
+    _python_preflight_outputs,
+    _read_labeled_numeric_output,
+)
 
 
 LD_PY = FIXTURES_DIR / "ld/python"
@@ -59,6 +69,32 @@ def _source_phase5_script(expr: str) -> str:
         for filename in files
     )
     return f"{sources} {expr}"
+
+
+def _source_phase5_genotype_script(expr: str) -> str:
+    files = [
+        "utils.R",
+        "verbosity.R",
+        "hash.R",
+        "variant_match.R",
+        "bfile_utils.R",
+        "reference.R",
+        "genotype.R",
+        "ld_schema.R",
+        "ld_reference.R",
+        "ld_rds.R",
+        "ld_npz.R",
+        "ld.R",
+    ]
+    sources = " ".join(
+        f"source({json.dumps(str(R_PACKAGE_DIR / 'R' / filename))});"
+        for filename in files
+    )
+    return f"{sources} {expr}"
+
+
+def _r_quote(path) -> str:
+    return json.dumps(str(path))
 
 
 @pytest.mark.r
@@ -164,6 +200,171 @@ def test_r_ld_npz_to_rds_conversion_loads_and_operates(tmp_path):
         [9, np.nan, 7, np.nan, 2, 6, np.nan, 4],
         equal_nan=True,
     )
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_preflight_chr1_a1freq_and_ld_r_match_fetched_genotypes(tmp_path):
+    prefix, ld_root = _build_preflight_artifacts(tmp_path)
+    expected = _python_preflight_outputs(prefix, ld_root)
+    r_root = tmp_path / "ld_rds"
+    out_path = tmp_path / "r_preflight.tsv"
+
+    result = run_rscript(
+        _source_phase5_genotype_script(
+            "set_verbosity('quiet'); "
+            f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, '1'); "
+            f"manifest <- create_ld_rds_manifest({_r_quote(ld_root)}, {_r_quote(r_root)}, '1'); "
+            f"report <- validate_ld_distribution({_r_quote(r_root)}, TRUE); "
+            f"ld <- load_ld({_r_quote(r_root)}); "
+            f"g <- load_genotype({_r_quote(prefix)}, reference(ld)); "
+            "G <- fetch_genotypes(g, seq_len(num_snp(g))); "
+            "obs <- is.finite(G); G0 <- G; G0[!obs] <- 0; "
+            "freq <- colSums(G0) / (2 * colSums(obs)); "
+            "ld_r <- ld$shard_groups[[1]][[1]]$ld_r; "
+            "vec <- seq(-1.5, 2.5, length.out = num_snp(g)); "
+            "mat <- cbind(vec, rev(vec)); "
+            "mvec <- multiply_r2(ld, vec); "
+            "mmat <- multiply_r2(ld, mat); "
+            "explicit_vec <- as.numeric((ld_r ^ 2) %*% vec); "
+            "explicit_mat <- as.numeric((ld_r ^ 2) %*% mat); "
+            "r01_keep <- is.finite(G[, 1]) & is.finite(G[, 2]); "
+            "r02_keep <- is.finite(G[, 1]) & is.finite(G[, 3]); "
+            "direct <- c(cor(G[r01_keep, 1], G[r01_keep, 2]), cor(G[r02_keep, 1], G[r02_keep, 3])); "
+            f"out_file <- {_r_quote(out_path)}; "
+            "write_line <- function(name, values) { "
+            "cat(name, paste(format(as.numeric(values), digits = 12, scientific = FALSE), collapse = ' '), '\\n', file = out_file, append = TRUE) }; "
+            "write_line('manifest_count', length(manifest$shards)); "
+            "write_line('validate_ok', as.integer(report$ok)); "
+            "write_line('is_present', as.integer(is_present(g))); "
+            "write_line('ld_a1freq', a1freq(ld)); "
+            "write_line('fetch_a1freq', freq); "
+            "write_line('ld_r_selected', c(as.numeric(ld_r[1, 2]), as.numeric(ld_r[1, 3]))); "
+            "write_line('direct_r_selected', direct); "
+            "write_line('multiply_vec', mvec); "
+            "write_line('explicit_vec', explicit_vec); "
+            "write_line('multiply_mat', as.numeric(mmat)); "
+            "write_line('explicit_mat', explicit_mat); "
+            "invisible(NULL)"
+        ),
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    actual = _read_labeled_numeric_output(out_path)
+    assert actual["manifest_count"].tolist() == [1.0]
+    assert actual["validate_ok"].tolist() == [1.0]
+    for key in [
+        "is_present",
+        "ld_a1freq",
+        "fetch_a1freq",
+        "ld_r_selected",
+        "direct_r_selected",
+        "multiply_vec",
+        "explicit_vec",
+        "multiply_mat",
+        "explicit_mat",
+    ]:
+        np.testing.assert_allclose(actual[key], expected[key], atol=1e-5)
+    _assert_preflight_outputs(actual)
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_full_e2e_partial_overlap_a1freq_ld_r_and_chrx_subject_mapping(tmp_path):
+    artifacts = _build_full_artifacts(tmp_path)
+
+    def run_case(ld_root, genotype_prefix, r_root, out_path):
+        script_path = out_path.with_suffix(".R")
+        script_code = _source_phase5_genotype_script(
+                "set_verbosity('quiet'); "
+                f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, '1'); "
+                f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, '2'); "
+                f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, 'X'); "
+                f"manifest <- create_ld_rds_manifest({_r_quote(ld_root)}, {_r_quote(r_root)}, c('1', '2', 'X')); "
+                f"report <- validate_ld_distribution({_r_quote(r_root)}, TRUE); "
+                f"ld <- load_ld({_r_quote(r_root)}); "
+                f"g <- load_genotype({_r_quote(genotype_prefix)}, reference(ld)); "
+                "present_idx <- which(is_present(g)); "
+                "G <- fetch_genotypes(g, present_idx); "
+                "freq_f <- rep(NaN, num_snp(g)); freq_m <- rep(NaN, num_snp(g)); "
+                "goff <- shard_offsets(g); x_row <- which(goff$shard_label == 'X'); x_start <- goff$start0[[x_row]] + 1L; "
+                "mask_x_f <- is_subject_present(g, 'X') & is_female(g); "
+                "mask_x_m <- is_subject_present(g, 'X') & is_male(g); "
+                "for (col in seq_along(present_idx)) { "
+                "gi <- present_idx[[col]]; "
+                "if (gi >= x_start) { "
+                "vf <- G[mask_x_f, col]; of <- is.finite(vf); if (any(of)) { freq_f[[gi]] <- sum(vf[of]) / (2 * sum(of)); }; "
+                "vm <- G[mask_x_m, col]; om <- is.finite(vm); if (any(om)) { freq_m[[gi]] <- sum(pmin(vm[om], 1)) / sum(om); }; "
+                "} else { "
+                "v <- G[, col]; o <- is.finite(v); if (any(o)) { f <- sum(v[o]) / (2 * sum(o)); freq_f[[gi]] <- f; freq_m[[gi]] <- f; }; "
+                "} "
+                "}; "
+                "find_idx <- function(marker) which(snp(reference(ld)) == marker)[[1]]; "
+                "pair_for <- function(chrom) { ids <- grep(paste0('^e2e_full_chr', chrom, '_.*_shared_'), snp(reference(ld)), value = TRUE); c(find_idx(ids[[1]]), find_idx(ids[[2]])) }; "
+                "pairs <- list(pair_for('1'), pair_for('2'), pair_for('X')); "
+                "bounds <- shard_offsets(reference(ld)); "
+                "shard_row <- function(idx) which(idx > bounds$start0 & idx <= bounds$stop0)[[1]]; "
+                "ld_value <- function(pair, sex_label) { row <- shard_row(pair[[1]]); local <- pair - bounds$start0[[row]]; group <- ld$shard_groups[[row]]; "
+                "shard <- if (identical(bounds$shard_label[[row]], 'X')) group[[match(sex_label, vapply(group, function(s) s$sex, character(1)))]] else group[[1]]; "
+                "as.numeric(shard$ld_r[local[[1]], local[[2]]]) }; "
+                "direct_pair <- function(pair, sex_label) { P <- fetch_genotypes(g, pair); row <- shard_row(pair[[1]]); label <- bounds$shard_label[[row]]; "
+                "if (identical(label, 'X')) { mask <- is_subject_present(g, 'X'); if (identical(sex_label, 'female')) { mask <- mask & is_female(g) } else { mask <- mask & is_male(g) } } else { mask <- rep(TRUE, num_sample(g)) }; "
+                "x <- P[mask, 1]; y <- P[mask, 2]; keep <- is.finite(x) & is.finite(y); x <- x[keep]; y <- y[keep]; "
+                "if (identical(label, 'X') && identical(sex_label, 'male')) { x <- pmin(x, 1); y <- pmin(y, 1) }; cor(x, y) }; "
+                "ld_r_selected <- c(ld_value(pairs[[1]], 'female'), ld_value(pairs[[2]], 'female'), ld_value(pairs[[3]], 'female'), ld_value(pairs[[3]], 'male')); "
+                "direct_r_selected <- c(direct_pair(pairs[[1]], 'female'), direct_pair(pairs[[2]], 'female'), direct_pair(pairs[[3]], 'female'), direct_pair(pairs[[3]], 'male')); "
+                "vec <- seq(-2.0, 3.0, length.out = num_snp(ld)); "
+                "mf <- multiply_r2(ld, vec, chrX_sex = 'female'); mm <- multiply_r2(ld, vec, chrX_sex = 'male'); "
+                "af <- a1freq(ld, chrX_sex = 'female'); am <- a1freq(ld, chrX_sex = 'male'); "
+                f"out_file <- {_r_quote(out_path)}; "
+                "write_line <- function(name, values) { "
+                "cat(name, paste(format(as.numeric(values), digits = 12, scientific = FALSE), collapse = ' '), '\\n', file = out_file, append = TRUE) }; "
+                "write_line('manifest_count', length(manifest$shards)); "
+                "write_line('validate_ok', as.integer(report$ok)); "
+                "write_line('present', as.integer(is_present(g))); "
+                "write_line('chrx_subject_present', as.integer(is_subject_present(g, 'X'))); "
+                "write_line('ld_a1freq_female_present', af[present_idx]); "
+                "write_line('calc_a1freq_female_present', freq_f[present_idx]); "
+                "write_line('ld_a1freq_male_present', am[present_idx]); "
+                "write_line('calc_a1freq_male_present', freq_m[present_idx]); "
+                "write_line('ld_r_selected', ld_r_selected); "
+                "write_line('direct_r_selected', direct_r_selected); "
+                "write_line('multiply_female_head', mf[1:10]); "
+                "write_line('multiply_male_head', mm[1:10]); "
+                "invisible(NULL)"
+        )
+        script_path.write_text(script_code.replace("; ", ";\n"), encoding="utf-8")
+        result = run_rscript(
+            f"source({_r_quote(script_path)})",
+            timeout=180,
+        )
+        assert result.returncode == 0, result.stderr
+        actual = _read_labeled_numeric_output(out_path)
+        assert actual["manifest_count"].tolist() == [4.0]
+        assert actual["validate_ok"].tolist() == [1.0]
+        _assert_full_outputs(actual)
+        return actual
+
+    nonsharded = run_case(
+        artifacts["ld_full_root"],
+        artifacts["genotype_prefix"],
+        tmp_path / "ld_full_rds",
+        tmp_path / "r_full_nonsharded.tsv",
+    )
+    sharded = run_case(
+        artifacts["ld_sharded_root"],
+        artifacts["genotype_sharded"],
+        tmp_path / "ld_sharded_rds",
+        tmp_path / "r_full_sharded.tsv",
+    )
+
+    assert nonsharded["chrx_subject_present"].sum() == 40
+    expected_mask = np.zeros_like(sharded["chrx_subject_present"])
+    x_samples = set(_full_x_subset(_full_sample_ids()))
+    genotype_iids = [f"S{i + 1:02d}" for i in range(40)]
+    for i, iid in enumerate(genotype_iids):
+        expected_mask[i] = 1.0 if iid in x_samples else 0.0
+    np.testing.assert_array_equal(sharded["chrx_subject_present"], expected_mask)
 
 
 @pytest.mark.r

@@ -519,8 +519,8 @@ class GenotypePanel:
                 same_ploidy = ploidy_male.reshape(1, -1)
                 geno[np.ix_(is_unknown, cols)] *= same_ploidy / 2.0
 
-    def save_cache(self, path, format=None) -> None:
-        save_genotype_cache(self, path, format=format)
+    def save_cache(self, path) -> None:
+        save_genotype_cache(self, path)
 
 
 def _fam_equal(lhs: pd.DataFrame, rhs: pd.DataFrame) -> bool:
@@ -696,7 +696,7 @@ def load_genotype(bfile_prefix, reference) -> GenotypePanel:
     )
 
 
-def save_genotype_cache(panel: GenotypePanel, path, format=None) -> None:
+def save_genotype_cache(panel: GenotypePanel, path) -> None:
     meta = {
         "schema": _CACHE_SCHEMA,
         "n_shards": len(panel.shards),

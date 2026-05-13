@@ -341,8 +341,8 @@ class ReferencePanel:
                 ok = False
         return ok
 
-    def save_cache(self, path, format=None) -> None:
-        save_reference_cache(self, path, format=format)
+    def save_cache(self, path) -> None:
+        save_reference_cache(self, path)
 
 
 def load_reference(path, shards=None) -> ReferencePanel:
@@ -403,7 +403,7 @@ def load_reference(path, shards=None) -> ReferencePanel:
     return ReferencePanel(out_shards)
 
 
-def save_reference_cache(panel: ReferencePanel, path, format=None) -> None:
+def save_reference_cache(panel: ReferencePanel, path) -> None:
     # Metadata (schema, labels, checksums) as a compact JSON blob stored in the npz.
     # SNP-axis numeric vectors (bp) and string arrays are stored as native
     # binary numpy arrays — not JSON — per the performance contract.

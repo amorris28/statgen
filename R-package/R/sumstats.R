@@ -238,10 +238,7 @@ print.Sumstats <- function(x, ...) {
   if (length(missing)) {
     stop(sprintf("%s: missing required columns: %s", path, paste(missing, collapse = ", ")), call. = FALSE)
   }
-  unknown <- setdiff(names(df), .sumstats_allowed_cols)
-  if (length(unknown)) {
-    stop(sprintf("%s: unsupported columns: %s", path, paste(unknown, collapse = ", ")), call. = FALSE)
-  }
+  df <- df[, intersect(names(df), .sumstats_allowed_cols), drop = FALSE]
 
   for (field in c("chr", "a1", "a2")) {
     bad <- is.na(df[[field]]) | df[[field]] == ""

@@ -35,6 +35,6 @@ function [labels, checksums, start0, stop0, n_shards] = validate_cache_shard_met
         error('statgen:cache', 'Invalid %s cache: shard offsets are not contiguous', cache_name);
     end
     if require_nonempty_shards && any(stop0 <= start0)
-        error('statgen:cache', 'Invalid %s cache: shard offsets are not contiguous', cache_name);
+        error('statgen:cache', 'Invalid %s cache: shard offsets must be non-empty half-open ranges', cache_name);
     end
 end

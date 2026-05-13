@@ -252,8 +252,8 @@ class Sumstats:
         by_label = {s.label: s for s in self._shards}
         return Sumstats([by_label[label] for label in selected])
 
-    def save_cache(self, path, format=None) -> None:
-        save_sumstats_cache(self, path, format=format)
+    def save_cache(self, path) -> None:
+        save_sumstats_cache(self, path)
 
 
 def _derive_logp(p_vals: np.ndarray) -> np.ndarray:
@@ -422,7 +422,7 @@ def create_sumstats(
     )
 
 
-def save_sumstats_cache(sumstats: Sumstats, path, format=None) -> None:
+def save_sumstats_cache(sumstats: Sumstats, path) -> None:
     meta = {
         "schema": _CACHE_SCHEMA,
         "shard_labels": [s.label for s in sumstats.shards],

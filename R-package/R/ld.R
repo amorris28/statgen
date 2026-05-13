@@ -325,12 +325,12 @@ print.LDPanel <- function(x, ...) {
 }
 
 .build_ld_r2 <- function(ld_r) {
-  Matrix::sparseMatrix(
+  .new_dgCMatrix_from_slots(
     i = ld_r@i,
     p = ld_r@p,
     x = ld_r@x * ld_r@x,
-    dims = ld_r@Dim,
-    index1 = FALSE
+    dim = ld_r@Dim,
+    dimnames = ld_r@Dimnames
   )
 }
 

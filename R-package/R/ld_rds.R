@@ -35,12 +35,24 @@
 }
 
 .csc_payload_to_dgCMatrix <- function(data, indices, indptr, num_snp) {
-  Matrix::sparseMatrix(
+  .new_dgCMatrix_from_slots(
     i = as.integer(indices),
     p = as.integer(indptr),
     x = as.numeric(data),
-    dims = as.integer(c(num_snp, num_snp)),
-    index1 = FALSE
+    dim = as.integer(c(num_snp, num_snp))
+  )
+}
+
+.new_dgCMatrix_from_slots <- function(i, p, x, dim, dimnames = list(NULL, NULL)) {
+  loadNamespace("Matrix")
+  methods::new(
+    "dgCMatrix",
+    i = as.integer(i),
+    p = as.integer(p),
+    Dim = as.integer(dim),
+    Dimnames = dimnames,
+    x = as.numeric(x),
+    factors = list()
   )
 }
 

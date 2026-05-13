@@ -1,5 +1,6 @@
 """R phase 2 acceptance tests: sumstats and annotations."""
 
+import gzip
 import json
 import math
 
@@ -71,6 +72,33 @@ def test_r_sumstats_matches_python_fixture_alignment():
     np.testing.assert_allclose(_parse_float_csv(lines[2]), py.logpvec, equal_nan=True)
     np.testing.assert_allclose(_parse_float_csv(lines[3]), py.zvec, equal_nan=True)
     assert lines[4] == ",".join(str(int(x)) for x in py.is_present)
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_sumstats_ignores_extra_columns(tmp_path):
+    path = tmp_path / "extra_cols.tsv.gz"
+    with gzip.open(path, "wt") as f:
+        f.write(
+            "CHR\tPOS\tSNP\tEffectAllele\tOtherAllele\tP\tZ\tN\tStudyN\tDirection\n"
+            "1\t100\trs1\tA\tG\t0.01\t2.5\t1000\t999\t+\n"
+            "X\t100\trsx1\tA\tG\t0.003\t3.0\t500\t499\t-\n"
+        )
+
+    result = run_rscript(
+        _source_phase2_script(
+            f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
+            f"s <- suppressWarnings(load_sumstats({json.dumps(str(path))}, ref)); "
+            "cat(num_snp(s), '\\n'); "
+            "cat(paste(format(zvec(s)[c(1, 6)], digits=17), collapse=','), '\\n'); "
+            "cat(paste(format(nvec(s)[c(1, 6)], digits=17), collapse=','), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.strip() for line in result.stdout.strip().splitlines()]
+    assert lines[0] == "8"
+    np.testing.assert_allclose(_parse_float_csv(lines[1]), np.array([2.5, 3.0]))
+    np.testing.assert_allclose(_parse_float_csv(lines[2]), np.array([1000, 500]))
 
 
 @pytest.mark.r

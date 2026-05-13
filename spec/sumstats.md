@@ -43,11 +43,11 @@ Optional columns:
 - `eaf`;
 - `info`.
 
-Column recognition is case-insensitive. Apart from case, the only non-internal
-column names accepted by `statgen` are the genomatch cleaned-sumstats names
-`POS`, `EffectAllele`, and `OtherAllele`, which map to internal fields `bp`,
-`a1`, and `a2`. Genomatch vmap-style `bp`, `a1`, and `a2` are accepted
-directly. `SNP` may be present but is not used for matching.
+Column recognition is case-insensitive. Apart from case, the recognized
+genomatch cleaned-sumstats names `POS`, `EffectAllele`, and `OtherAllele` map
+to internal fields `bp`, `a1`, and `a2`. Genomatch vmap-style `bp`, `a1`, and
+`a2` are accepted directly. `SNP` may be present but is not used for matching.
+Unrecognized extra columns are ignored.
 
 Logical column types:
 
