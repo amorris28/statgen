@@ -164,12 +164,14 @@ They return a scalar logical and do not throw.
     TSV): probe-and-seek or header-read `textscan`. For BED, a `fgetl` loop
     skips leading blank and `'#'`-prefixed lines to find the first data line,
     then `fseek` repositions there; for TSV, a single `fgetl` reads the header
-    line and the file position advances naturally. In both cases the format
-    string is built dynamically as `repmat('%s', 1, n_cols)` from the probed
-    column count. `textscan` requires an exact column count with tab delimiter;
-    a fixed under-count confuses the parser. For BED, `#`-prefixed lines are
-    not permitted after the first data row so `CommentStyle` is not needed.
-    See `load_annotations.m:read_bed_tabular_`, `load_sumstats.m`.
+    line and the file position advances naturally. The format string is built
+    dynamically from the probed column count. BED fields are read as strings;
+    sumstats TSV fields use the logical parse types in [sumstats.md](sumstats.md),
+    with `%f` for numeric columns and `%s` for string columns. `textscan`
+    requires an exact column count with tab delimiter; a fixed under-count
+    confuses the parser. For BED, `#`-prefixed lines are not permitted after the
+    first data row so `CommentStyle` is not needed. See
+    `load_annotations.m:read_bed_tabular_`, `load_sumstats.m`.
 - Internal struct metadata keys must be valid MATLAB identifiers (for example
   `statgen_var_names__`), not names that rely on permissive dynamic-field
   behavior (for example leading-underscore keys such as `_var_names`), because

@@ -51,10 +51,10 @@ function sumstats = build_sumstats_(tbl, reference, path)
     end
 
     chr_col = ensure_cellstr_col_(get_col_(tbl, var_names, 'chr'));
-    bp_num  = to_numeric_col_(get_col_(tbl, var_names, 'bp'));
+    bp_num  = require_numeric_col_(get_col_(tbl, var_names, 'bp'));
     a1_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a1'));
     a2_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a2'));
-    p_num   = to_numeric_col_(get_col_(tbl, var_names, 'p'));
+    p_num   = require_numeric_col_(get_col_(tbl, var_names, 'p'));
 
     bad_chr = cellfun('isempty', chr_col);
     if any(bad_chr), error('statgen:sumstats', '%s: row %d: chr must be non-empty', path, find(bad_chr, 1, 'first') + 1); end
@@ -80,7 +80,7 @@ function sumstats = build_sumstats_(tbl, reference, path)
     for i = 1:numel(optional_names)
         nm = optional_names{i};
         if any(strcmp(var_names, nm))
-            vals = to_numeric_col_(get_col_(tbl, var_names, nm));
+            vals = require_numeric_col_(get_col_(tbl, var_names, nm));
             vals(~isfinite(vals)) = NaN;
             optional_map.(nm) = vals;
         end
@@ -205,8 +205,9 @@ function [tbl, cleanup_fn] = parse_sumstats_table_(path)
     end
     names = strsplit(hdr, '\t');
     fmt = build_col_formats_(names);
-    cols = textscan(fid, fmt, 'Delimiter', '\t', 'Whitespace', '', 'MultipleDelimsAsOne', false, 'ReturnOnError', false);
+    cols = scan_sumstats_cols_(fid, fmt);
     clear closer;
+    validate_col_lengths_(cols, path);
     S = struct();
     S.statgen_var_names__ = names;
     for i = 1:numel(names)
@@ -295,15 +296,50 @@ function tf = ends_with_(s, suffix)
 end
 
 function fmt = build_col_formats_(raw_names)
-    fmt = repmat('%s', 1, numel(raw_names));
+    numeric = is_numeric_sumstats_col_(raw_names);
+    parts = repmat({'%s'}, 1, numel(raw_names));
+    for i = find(numeric)
+        parts{i} = '%f';
+    end
+    fmt = strjoin(parts, '');
 end
 
-function out = to_numeric_col_(x)
-    if isnumeric(x)
-        out = double(x(:));
-    else
-        out = str2double(ensure_cellstr_col_(x));
+function cols = scan_sumstats_cols_(fid, fmt)
+    cols = textscan(fid, fmt, ...
+        'Delimiter', '\t', ...
+        'Whitespace', '', ...
+        'MultipleDelimsAsOne', false, ...
+        'ReturnOnError', false, ...
+        'EmptyValue', NaN, ...
+        'TreatAsEmpty', {'NA', 'na', 'N/A', '.', 'NaN', 'nan', 'Inf', 'inf'});
+end
+
+function tf = is_numeric_sumstats_col_(raw_names)
+    names = lower(raw_names);
+    numeric_names = {'bp', 'pos', 'p', 'z', 'n', 'beta', 'se', 'eaf', 'info'};
+    tf = false(1, numel(names));
+    for i = 1:numel(names)
+        tf(i) = any(strcmp(names{i}, numeric_names));
     end
+end
+
+function validate_col_lengths_(cols, path)
+    if isempty(cols)
+        return
+    end
+    n = numel(cols{1});
+    for i = 2:numel(cols)
+        if numel(cols{i}) ~= n
+            error('statgen:sumstats', '%s: malformed TSV', path);
+        end
+    end
+end
+
+function out = require_numeric_col_(x)
+    if ~isnumeric(x)
+        error('statgen:sumstats', 'internal error: expected numeric sumstats column');
+    end
+    out = double(x(:));
 end
 
 function out = ensure_cellstr_col_(x)

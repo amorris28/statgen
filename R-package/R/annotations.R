@@ -157,34 +157,11 @@ union_annotations.AnnotationPanel <- function(x, other, mode = "by_name", ...) {
   if (length(overlap)) {
     stop(sprintf("annotation name collision(s): %s", paste(overlap, collapse = ", ")), call. = FALSE)
   }
-  reference_proxy <- .reference_proxy_from_annotation_panel(x)
-  compat_warnings <- character()
-  compatible <- withCallingHandlers(
-    is_object_compatible(reference_proxy, other),
-    warning = function(w) {
-      compat_warnings <<- c(compat_warnings, conditionMessage(w))
-      invokeRestart("muffleWarning")
-    }
-  )
-  if (!isTRUE(compatible)) {
-    msg <- "union_annotations requires compatible reference alignment"
-    if (length(compat_warnings)) {
-      msg <- paste0(msg, ": ", paste(compat_warnings, collapse = "; "))
-    }
-    stop(msg, call. = FALSE)
-  }
-  if (length(compat_warnings)) {
-    warning(paste(compat_warnings, collapse = "; "), call. = FALSE)
-  }
-
-  other_by_label <- stats::setNames(other$shards, vapply(other$shards, function(s) s$label, character(1)))
+  .check_annotation_reference_alignment(x, other, "union_annotations")
   out <- vector("list", length(x$shards))
   for (i in seq_along(x$shards)) {
     a <- x$shards[[i]]
-    b <- other_by_label[[a$label]]
-    if (is.null(b)) {
-      stop(sprintf("union_annotations requires compatible reference alignment: missing shard %s", sQuote(a$label)), call. = FALSE)
-    }
+    b <- other$shards[[i]]
     out[[i]] <- .new_annotation_shard(
       a$label,
       a$reference_checksum,
@@ -194,18 +171,36 @@ union_annotations.AnnotationPanel <- function(x, other, mode = "by_name", ...) {
   .new_annotation_panel(out, c(x$annonames, other$annonames))
 }
 
-.reference_proxy_from_annotation_panel <- function(panel) {
-  proxy_shards <- lapply(panel$shards, function(shard) {
-    structure(
-      list(
-        label = shard$label,
-        num_snp = shard$num_snp,
-        checksum = shard$reference_checksum
-      ),
-      class = "ReferenceShard"
-    )
-  })
-  structure(list(shards = proxy_shards), class = "ReferencePanel")
+.check_annotation_reference_alignment <- function(x, other, context) {
+  if (length(x$shards) != length(other$shards)) {
+    stop(sprintf(
+      "%s requires compatible reference alignment: shard count mismatch",
+      context
+    ), call. = FALSE)
+  }
+  for (i in seq_along(x$shards)) {
+    a <- x$shards[[i]]
+    b <- other$shards[[i]]
+    if (!identical(a$label, b$label)) {
+      stop(sprintf(
+        "%s requires compatible reference alignment: shard label mismatch: %s vs %s",
+        context, sQuote(a$label), sQuote(b$label)
+      ), call. = FALSE)
+    }
+    if (!identical(as.integer(a$num_snp), as.integer(b$num_snp))) {
+      stop(sprintf(
+        "%s requires compatible reference alignment: shard %s row count mismatch",
+        context, sQuote(a$label)
+      ), call. = FALSE)
+    }
+    if (!identical(a$reference_checksum, b$reference_checksum)) {
+      stop(sprintf(
+        "%s requires compatible reference alignment: shard %s reference_checksum mismatch",
+        context, sQuote(a$label)
+      ), call. = FALSE)
+    }
+  }
+  invisible(NULL)
 }
 
 save_cache.AnnotationPanel <- function(x, path, ...) save_annotations_cache(x, path)

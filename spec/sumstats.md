@@ -49,6 +49,38 @@ column names accepted by `statgen` are the genomatch cleaned-sumstats names
 `a1`, and `a2`. Genomatch vmap-style `bp`, `a1`, and `a2` are accepted
 directly. `SNP` may be present but is not used for matching.
 
+Logical column types:
+
+| Logical column | Required | Type |
+| --- | --- | --- |
+| `chr` | yes | string |
+| `bp` | yes | float-parsed integer |
+| `a1` | yes | string |
+| `a2` | yes | string |
+| `p` | yes | float |
+| `snp` | no | string |
+| `z` | no | float |
+| `n` | no | float |
+| `beta` | no | float |
+| `se` | no | float |
+| `eaf` | no | float |
+| `info` | no | float |
+
+`bp` is parsed as a numeric value and then validated to be integral. It is not
+parsed as a string on performance-sensitive paths. Missing optional numeric
+values are represented as `NaN` after parsing. The token `NA` is accepted as an
+input missing-value spelling for numeric columns; for required numeric columns
+it still fails the downstream required-field validation.
+
+Implementations must parse numeric logical columns with native numeric TSV
+reader support where the runtime provides it. MATLAB/Octave readers therefore
+use `%f` textscan specifiers for `bp`, `p`, `z`, `n`, `beta`, `se`, `eaf`, and
+`info`, and `%s` for string columns. This avoids a default path that reads large
+numeric columns as strings and converts them later row by row. Python and R may
+use their language-native tabular readers and vectorized numeric conversion
+paths, provided they preserve the same logical column types and validation
+behavior.
+
 The TSV does not have to contain every variant in the reference panel.
 `load_sumstats` is a reference-driven projection from a possibly larger source.
 Loading against a `ReferencePanel` projects rows into reference order by taking
