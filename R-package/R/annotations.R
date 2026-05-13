@@ -241,8 +241,8 @@ print.AnnotationPanel <- function(x, ...) {
   pos <- 0L
   offsets <- data.frame(
     shard_label = character(length(shard_list)),
-    start0 = numeric(length(shard_list)),
-    stop0 = numeric(length(shard_list)),
+    start0 = integer(length(shard_list)),
+    stop0 = integer(length(shard_list)),
     stringsAsFactors = FALSE
   )
   for (i in seq_along(shard_list)) {

@@ -329,11 +329,11 @@ print.ReferencePanel <- function(x, ...) {
   if (!length(shard_list)) {
     stop("ReferencePanel requires at least one shard", call. = FALSE)
   }
-  pos <- 0
+  pos <- 0L
   offsets <- data.frame(
     shard_label = character(length(shard_list)),
-    start0 = numeric(length(shard_list)),
-    stop0 = numeric(length(shard_list)),
+    start0 = integer(length(shard_list)),
+    stop0 = integer(length(shard_list)),
     stringsAsFactors = FALSE
   )
   for (i in seq_along(shard_list)) {

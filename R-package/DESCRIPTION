@@ -16,7 +16,8 @@ Imports:
     Matrix,
     jsonlite,
     digest,
-    bit64
+    bit64,
+    methods
 Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

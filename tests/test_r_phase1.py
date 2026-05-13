@@ -96,12 +96,13 @@ def test_r_reference_hash_checksum_and_offset_parity_with_python():
             "cat(paste(as.character(a1_hash64(ref)), collapse=','), '\\n'); "
             "cat(paste(as.character(a2_hash64(ref)), collapse=','), '\\n'); "
             "cat(paste(vapply(shards(ref), function(s) s$checksum, character(1)), collapse=','), '\\n'); "
-            "cat(paste(paste(off$shard_label, off$start0, off$stop0, sep=':'), collapse=';'), '\\n')"
+            "cat(paste(paste(off$shard_label, off$start0, off$stop0, sep=':'), collapse=';'), '\\n'); "
+            "cat(typeof(off$start0), typeof(off$stop0), '\\n')"
         )
     )
     assert result.returncode == 0, result.stderr
     lines = [line.strip() for line in result.stdout.strip().splitlines()]
-    assert lines == [py_a1_hash, py_a2_hash, py_checksums, py_offsets]
+    assert lines == [py_a1_hash, py_a2_hash, py_checksums, py_offsets, "integer integer"]
 
 
 @pytest.mark.r
