@@ -10,6 +10,28 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).parent.parent
 MATLAB_DIR = REPO_ROOT / "matlab"
 R_PACKAGE_DIR = REPO_ROOT / "R-package"
+R_EXTDATA_COPIES = {
+    "reference_chr1.bim": "reference/sharded/1.bim",
+    "reference_chrX.bim": "reference/sharded/X.bim",
+    "traits.tsv.gz": "sumstats/traits.tsv.gz",
+    "anno1.bed": "annotations/anno1.bed",
+    "anno2.bed": "annotations/anno2.bed",
+    "genotype_1.bed": "genotype/sharded/1.bed",
+    "genotype_1.bim": "genotype/sharded/1.bim",
+    "genotype_1.fam": "genotype/sharded/1.fam",
+    "genotype_X.bed": "genotype/sharded/X.bed",
+    "genotype_X.bim": "genotype/sharded/X.bim",
+    "genotype_X.fam": "genotype/sharded/X.fam",
+    "genotype_X.ploidy": "genotype/sharded/X.ploidy",
+    "ld/python/ld_manifest.json": "ld/python/ld_manifest.json",
+    "ld/python/reference_cache.npz": "ld/python/reference_cache.npz",
+    "ld/python/reference_chr1.bim": "ld/python/reference_chr1.bim",
+    "ld/python/reference_chrX.bim": "ld/python/reference_chrX.bim",
+    "ld/python/ld_chr1.npz": "ld/python/ld_chr1.npz",
+    "ld/python/ld_chrX_female.npz": "ld/python/ld_chrX_female.npz",
+    "ld/python/ld_chrX_male.npz": "ld/python/ld_chrX_male.npz",
+    "ld/python/ld_chrX_combined.npz": "ld/python/ld_chrX_combined.npz",
+}
 
 # Set STATGEN_MATLAB=1 to run octave-marked tests via native MATLAB instead.
 _USE_MATLAB = os.environ.get("STATGEN_MATLAB", "0") == "1"
@@ -85,6 +107,23 @@ def _close_matlab_engine_at_end():
         except Exception:
             pass
         _MATLAB_ENGINE = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _prepare_r_extdata_fixtures():
+    for r_name, canonical_rel in R_EXTDATA_COPIES.items():
+        r_fixture = R_PACKAGE_DIR / f"inst/extdata/{r_name}"
+        canonical = FIXTURES_DIR / canonical_rel
+        if not r_fixture.is_file() or r_fixture.read_bytes() != canonical.read_bytes():
+            result = subprocess.run(
+                ["make", "prepare-r-fixtures"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            assert result.returncode == 0, result.stderr
+            break
 
 
 def run_octave(expr: str, timeout: int = 30) -> subprocess.CompletedProcess:
