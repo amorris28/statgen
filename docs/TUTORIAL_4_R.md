@@ -1,0 +1,182 @@
+# Tutorial 4: R Analysis
+
+This tutorial uses the same source fixtures and Python-built LD distribution as
+[Tutorial 1](TUTORIAL_1_PREPARE_DATA.md), but runs the analysis workflow with
+the R package.
+
+R differs from Python and MATLAB/Octave in one important way:
+
+```text
+Python builds derived/ld_npz/
+R prepares derived/ld_npz/ in place
+MATLAB/Octave converts derived/ld_npz/ to derived/ld_mat/
+```
+
+R reads Python `.npz` LD shards directly after `prepare_ld_npz_for_r()` adds an
+R reference-cache sidecar. With `extract_npz = TRUE`, R also creates sibling
+`*.npz.d` extracted caches for faster repeated loads.
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Prepare The LD Directory For R](#prepare-the-ld-directory-for-r)
+- [Load Objects](#load-objects)
+- [Check Compatibility](#check-compatibility)
+- [Run LD Operations](#run-ld-operations)
+- [Fetch Genotypes For Pruned SNPs](#fetch-genotypes-for-pruned-snps)
+- [Save R Caches](#save-r-caches)
+- [Subset To One Chromosome](#subset-to-one-chromosome)
+
+## Prerequisites
+
+Start from `docs/tutorial_1_fixtures/` after Tutorial 1 has built at least
+`derived/ld_npz/`:
+
+```bash
+cd docs/tutorial_1_fixtures
+```
+
+Install the R package from the repository root:
+
+```r
+install.packages("../../R-package", repos = NULL, type = "source")
+```
+
+Then load it:
+
+```r
+library(statgen)
+set_verbosity("quiet")
+```
+
+## Prepare The LD Directory For R
+
+Prepare the Python LD distribution in place:
+
+```r
+ld_npz_dir <- "derived/ld_npz"
+
+prepare_ld_npz_for_r(ld_npz_dir, extract_npz = TRUE)
+validate_ld_distribution(ld_npz_dir)
+```
+
+The manifest still names `.npz` LD shards. R adds `reference_cache.rds` and, when
+requested, extracted `*.npz.d` cache directories. If extracted caches are absent
+or stale, `load_ld()` falls back to reading the `.npz` shards normally.
+
+## Load Objects
+
+Use the LD distribution reference as the analysis reference.
+
+```r
+reference <- load_ld_reference(ld_npz_dir)
+
+ld <- load_ld(
+  ld_npz_dir,
+  default_chrX_sex = "female"
+)
+```
+
+Load summary statistics, annotations, and genotype metadata against the same
+reference.
+
+```r
+trait_a <- load_sumstats("source/sumstats/trait_a.tsv.gz", reference)
+trait_b <- load_sumstats("source/sumstats/trait_b.tsv.gz", reference)
+
+annotation_paths <- file.path(
+  "source/annotations",
+  c(
+    "coding_exon.bed",
+    "exon.bed",
+    "intron.bed",
+    "utr3.bed",
+    "utr5.bed",
+    "whole_gene.bed"
+  )
+)
+annotations <- load_annotations(annotation_paths, reference)
+
+genotype <- load_genotype("source/genotypes/chr@", reference)
+```
+
+Use `default_chrX_sex = "male"` when the analysis should use male chrX LD by
+default.
+
+## Check Compatibility
+
+All objects should share the same reference coordinates.
+
+```r
+stopifnot(is_object_compatible(reference, ld))
+stopifnot(is_object_compatible(reference, trait_a))
+stopifnot(is_object_compatible(reference, trait_b))
+stopifnot(is_object_compatible(reference, annotations))
+stopifnot(is_object_compatible(reference, genotype))
+```
+
+## Run LD Operations
+
+`annomat(annotations)` is aligned to the reference, so it can be multiplied by
+LD `r^2` directly.
+
+```r
+a1 <- a1freq(ld)
+ld_weighted_annotations <- multiply_r2(ld, annomat(annotations))
+trait_a_pruned <- fast_prune(logpvec(trait_a), ld, r2_threshold = 0.2)
+```
+
+`trait_a_pruned` remains in reference coordinates. Pruned variants are set to
+`NaN`.
+
+## Fetch Genotypes For Pruned SNPs
+
+Fetch genotype calls for retained pruned SNPs that are also present in the
+genotype source.
+
+```r
+pruned_snp_indices <- which(is.finite(trait_a_pruned) & is_present(genotype))
+pruned_genotypes <- fetch_genotypes(genotype, pruned_snp_indices)
+
+dim(pruned_genotypes)
+```
+
+R SNP indices are one-based. Genotype matrices have samples as rows and
+requested SNPs as columns. `fetch_genotypes()` returns raw PLINK-decoded calls
+by default; pass `haploid_mode = "ploidy_scaled"` when haploid calls should be
+mapped onto declared biological ploidy.
+
+When using a genotype metadata cache, the original BED files must still be
+available. If they moved, pass a replacement `bed_path` to the fetch function.
+
+## Save R Caches
+
+R caches are runtime-native RDS files. They are useful when the same source
+files are loaded repeatedly in R.
+
+```r
+r_cache <- "derived/r_cache"
+dir.create(r_cache, recursive = TRUE, showWarnings = FALSE)
+
+save_reference_cache(reference, file.path(r_cache, "reference.rds"))
+save_sumstats_cache(trait_a, file.path(r_cache, "trait_a.sumstats.rds"))
+save_sumstats_cache(trait_b, file.path(r_cache, "trait_b.sumstats.rds"))
+save_annotations_cache(annotations, file.path(r_cache, "annotations.rds"))
+save_genotype_cache(genotype, file.path(r_cache, "genotype.rds"))
+```
+
+Load the caches later with the corresponding `load_*_cache()` functions.
+
+## Subset To One Chromosome
+
+For analyses restricted to a chromosome subset, load or select compatible
+objects against that subset.
+
+```r
+ref_chr21 <- select_shards(reference, "21")
+ld_chr21 <- load_ld(ld_npz_dir, shards = "21")
+trait_a_chr21 <- select_shards(trait_a, "21")
+ann_chr21 <- select_shards(annotations, "21")
+genotype_chr21 <- select_shards(genotype, "21")
+```
+

@@ -13,8 +13,9 @@ should not be treated as authoritative for R work.
   annotations, genotype, summary statistics, and LD panels.
 - Keep the R package CRAN-compatible: no required Python, MATLAB/Octave, PLINK,
   internet access, large bundled data, or generated code during `R CMD check`.
-- Use R-native caches and R-native LD distribution files while preserving shared
-  logical behavior and cross-runtime fixture parity.
+- Use R-native caches where the specs define them. R reads Python `.npz` LD
+  shard payloads directly after adding an R reference-cache sidecar, rather
+  than defining an R-specific LD shard format.
 - Keep spec documents minimal by moving scaffold details, test inventories, and
   sequencing notes into this plan.
 
@@ -28,7 +29,7 @@ should not be treated as authoritative for R work.
 
 ## Spec boundaries
 
-- Keep the R LD storage and conversion contract in `spec/ld.md`.
+- Keep the R LD preparation and direct `.npz` loading contract in `spec/ld.md`.
 - Keep `spec/R.md` limited to package layout, naming, dependencies, R type
   conventions, error handling, and the normative CRAN-facing test subset.
 - Keep detailed R package scaffold examples, internal file names, expanded test
@@ -145,12 +146,12 @@ Acceptance criteria:
 - Cache load skips source-style revalidation but enforces schema and reference
   compatibility gates.
 
-## Phase 4: LD RDS loading and operations
+## Phase 4: LD loading and operations
 
 Implementation tasks:
 
-- Implement RDS LD shard loading from CSC payloads and construction of
-  `Matrix::dgCMatrix` in memory.
+- Implement LD shard loading from Python `.npz` CSC payloads and construction
+  of `Matrix::dgCMatrix` in memory.
 - Implement `load_ld`, `load_ld_reference`, `validate_ld_distribution`,
   `a1freq`, `multiply_r2`, `fast_prune`, shard subsetting, chrX sex selection,
   and optional `retain_ld_r = false` behavior.
@@ -230,7 +231,8 @@ Suggested CRAN-facing coverage:
 - `load_sumstats` from tiny `.tsv.gz` with exact reference matching and missing
   rows represented on the aligned SNP axis;
 - cache round-trips for reference, annotations, genotype metadata, and sumstats;
-- loading a tiny RDS LD distribution with autosomal and chrX shards;
+- loading a tiny `.npz` LD distribution with autosomal and chrX shards after
+  `prepare_ld_npz_for_r`;
 - LD reference loading without LD matrix loading;
 - manifest filename validation and runtime-format rejection for non-R manifests
   on the R load path;

@@ -1,7 +1,9 @@
 R_PACKAGE_VERSION := $(shell awk '/^Version:/ {print $$2}' R-package/DESCRIPTION)
 R_PACKAGE_TARBALL := /tmp/statgen_$(R_PACKAGE_VERSION).tar.gz
+R_DOCS_DIR := /tmp/statgen-docs
+R_DOCS_LIB := /tmp/statgen-r-lib
 
-.PHONY: install fixtures prepare-r-fixtures test test-python test-octave test-matlab test-r r-manual rcmd-check
+.PHONY: install fixtures prepare-r-fixtures test test-python test-octave test-matlab test-r r-manual r-vignettes r-docs rcmd-check
 
 install:
 	pip install -e python/
@@ -52,6 +54,15 @@ test-r: prepare-r-fixtures
 r-manual:
 	$(RM) /tmp/statgen-manual.pdf
 	R CMD Rd2pdf R-package --output=/tmp/statgen-manual.pdf
+
+r-vignettes: prepare-r-fixtures
+	mkdir -p $(R_DOCS_DIR) $(R_DOCS_LIB)
+	R CMD INSTALL --library=$(R_DOCS_LIB) R-package
+	Rscript -e ".libPaths(c('$(R_DOCS_LIB)', .libPaths())); rmarkdown::render('R-package/vignettes/statgen.Rmd', output_dir = '$(R_DOCS_DIR)')"
+
+r-docs: r-vignettes
+	$(RM) $(R_DOCS_DIR)/statgen-manual.pdf
+	R CMD Rd2pdf R-package --output=$(R_DOCS_DIR)/statgen-manual.pdf
 
 rcmd-check: prepare-r-fixtures
 	cd /tmp && R CMD build $(CURDIR)/R-package

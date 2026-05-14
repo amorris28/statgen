@@ -32,8 +32,10 @@ test_that("prepare_ld_npz_for_r enables LD loading and operations", {
   expect_identical(manifest2$r_reference_cache, manifest$r_reference_cache)
   expect_match(manifest2$r_reference_cache_md5, "^[0-9a-f]{32}$")
 
-  report <- validate_ld_distribution(ld_root, check_payload_structure = TRUE)
-  expect_true(report$ok)
+  report_fast <- validate_ld_distribution(ld_root)
+  expect_true(report_fast$ok)
+  report_full <- validate_ld_distribution(ld_root, check_payload_structure = TRUE)
+  expect_true(report_full$ok)
 
   ref <- load_ld_reference(ld_root)
   ld <- load_ld(ld_root)
@@ -64,4 +66,14 @@ test_that("prepare_ld_npz_for_r enables LD loading and operations", {
   ld_no_r <- load_ld(ld_root, retain_ld_r = FALSE)
   expect_true(is.null(ld_no_r$shard_groups[[1]][[1]]$ld_r))
   expect_equal(round(multiply_r2(ld_no_r, seq_len(num_snp(ld_no_r)))[[1]], 6), 2.89)
+})
+
+test_that("R LD loader rejects non-NPZ runtime manifests", {
+  ld_root <- copy_ld_fixture()
+  manifest_path <- file.path(ld_root, "ld_manifest.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  manifest$runtime_format <- "matlab_mat_sparse_double"
+  writeLines(jsonlite::toJSON(manifest, auto_unbox = TRUE), manifest_path)
+
+  expect_error(load_ld(ld_root), "unsupported LD runtime_format")
 })

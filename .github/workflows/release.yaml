@@ -82,11 +82,46 @@ jobs:
       - name: Run test suite
         run: pytest tests
 
+  r-package-check:
+    name: R Package Check
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install system check tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qpdf
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Set up Pandoc
+        uses: r-lib/actions/setup-pandoc@v2
+
+      - name: Install R package dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: R-package
+
+      - name: Run R CMD check
+        run: make rcmd-check
+
+      - name: Upload R CRAN source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r-cran-source
+          path: /tmp/statgen_*.tar.gz
+
   build-python-artifacts:
     name: Build Python Artifacts
     needs:
       - verify-version
       - test
+      - r-package-check
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -160,6 +195,7 @@ jobs:
     needs:
       - verify-version
       - test
+      - r-package-check
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -183,6 +219,7 @@ jobs:
     needs:
       - verify-version
       - test
+      - r-package-check
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -253,6 +290,7 @@ jobs:
     name: Publish GitHub Release
     needs:
       - verify-version
+      - r-package-check
       - build-python-artifacts
       - build-matlab-artifact
       - build-tutorial-fixtures-artifact
@@ -266,6 +304,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: python-dist
+          path: release-assets
+
+      - name: Download R CRAN source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: r-cran-source
           path: release-assets
 
       - name: Download MATLAB artifact

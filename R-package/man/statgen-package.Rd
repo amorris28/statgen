@@ -27,9 +27,11 @@ for canonical chromosome subsetting, and cache helpers for repeated analyses.
 
 LD distributions are directory-based runtime artifacts discovered through
 \code{ld_manifest.json}; they are loaded with \code{\link{load_ld}} rather than
-as individual shard files. R-native caches and LD shards use RDS files, while
-portable source inputs such as PLINK BIM/BED/FAM, BED annotations, and
-summary-statistics TSV files remain external inputs.
+as individual shard files. R reads the Python \code{.npz} LD shard format
+directly after \code{\link{prepare_ld_npz_for_r}} adds an R reference-cache
+sidecar. R-native object caches use RDS files, while portable source inputs
+such as PLINK BIM/BED/FAM, BED annotations, and summary-statistics TSV files
+remain external inputs.
 }
 \seealso{
 \code{\link{load_reference}}, \code{\link{load_ld}},

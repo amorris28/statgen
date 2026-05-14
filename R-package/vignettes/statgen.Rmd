@@ -1,0 +1,112 @@
+---
+title: "Using statgen in R"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Using statgen in R}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+`statgen` stores each analysis object on a shared reference SNP axis. The R
+package loads reference panels, summary statistics, annotations, genotypes, and
+LD panels into those coordinates.
+
+```{r}
+library(statgen)
+set_verbosity("quiet")
+```
+
+## Reference, Sumstats, And Annotations
+
+The bundled package fixtures are intentionally tiny so that examples and CRAN
+checks do not require external tools or large data.
+
+This vignette reads those installed fixtures with
+`system.file(..., package = "statgen")`. They are demonstration inputs only. In
+real analyses, replace these paths with post-harmonization reference, summary
+statistics, annotation, genotype, and LD files prepared for one analysis input
+set. For an end-to-end repository workflow that prepares source inputs and then
+runs the same R analysis pattern on those files, see
+`docs/TUTORIAL_1_PREPARE_DATA.md` and `docs/TUTORIAL_4_R.md`.
+
+```{r}
+reference_template <- file.path(
+  dirname(system.file("extdata", "reference_chr1.bim", package = "statgen")),
+  "reference_chr@.bim"
+)
+reference <- load_reference(reference_template)
+
+sumstats_path <- system.file("extdata", "traits.tsv.gz", package = "statgen")
+sumstats <- suppressWarnings(load_sumstats(sumstats_path, reference))
+
+annotation_paths <- system.file(
+  "extdata",
+  c("anno1.bed", "anno2.bed"),
+  package = "statgen"
+)
+annotations <- load_annotations(annotation_paths, reference)
+
+num_snp(reference)
+head(logpvec(sumstats))
+colnames(annomat(annotations))
+```
+
+R-native object caches are RDS files. They are useful for repeated analyses in
+the same R runtime.
+
+```{r}
+sumstats_cache <- tempfile(fileext = ".rds")
+save_sumstats_cache(sumstats, sumstats_cache)
+sumstats_cached <- suppressWarnings(load_sumstats_cache(sumstats_cache))
+identical(is_present(sumstats_cached), is_present(sumstats))
+```
+
+## LD Panels
+
+Python builds the canonical LD `.npz` distribution. R prepares that directory
+in place by adding an R reference-cache sidecar. For repeated R loads,
+`extract_npz = TRUE` also creates sibling extracted-array caches.
+
+For package examples, `ld_src` points to a bundled toy `.npz` LD distribution.
+For real analyses, point `prepare_ld_npz_for_r()` and `load_ld()` at the
+Python-built `ld_npz/` directory for the same harmonized input set.
+
+```{r}
+ld_src <- system.file("extdata", "ld", "python", package = "statgen")
+ld_root <- tempfile("ld_npz_")
+dir.create(ld_root)
+file.copy(list.files(ld_src, full.names = TRUE), ld_root, recursive = TRUE)
+
+prepare_ld_npz_for_r(ld_root, extract_npz = TRUE)
+ld <- load_ld(ld_root)
+
+num_snp(ld)
+a1freq(ld)
+```
+
+`multiply_r2()` multiplies aligned vectors or matrices by LD `r^2`.
+`fast_prune()` applies greedy LD pruning to aligned scores.
+
+```{r}
+scores <- seq_len(num_snp(ld))
+multiply_r2(ld, scores)
+
+fast_prune(c(9, 9, 7, 1, 2, 6, 5, 4), ld, r2_threshold = 0.35)
+```
+
+## Genotype Metadata And Fetching
+
+Genotype panels keep PLINK metadata and fetch hardcalls on demand. The original
+BED files must remain available unless a replacement `bed_path` is supplied.
+
+```{r}
+ref_chr1 <- load_reference(system.file("extdata", "reference_chr1.bim", package = "statgen"))
+bed_chr1 <- system.file("extdata", "genotype_1.bed", package = "statgen")
+genotype <- load_genotype(sub("\\.bed$", "", bed_chr1), ref_chr1)
+
+fetch_genotypes_int8(genotype, c(1, 3))
+```

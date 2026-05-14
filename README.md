@@ -1,6 +1,6 @@
 # statgen
 
-`statgen` provides Python and MATLAB tools for working with
+`statgen` provides Python, MATLAB/Octave, and R tools for working with
 reference-aligned statistical genetics data: reference variants, genotypes, LD,
 annotations, and GWAS summary statistics.
 
@@ -19,6 +19,8 @@ allele orientation should be resolved upstream by
 - Running MATLAB analyses:
   [Tutorial 3](docs/TUTORIAL_3_MATLAB.md) runs the same analysis workflow in
   MATLAB.
+- Running R analyses:
+  [Tutorial 4](docs/TUTORIAL_4_R.md) runs the same workflow with the R package.
 - Looking up MATLAB API help interactively:
   `help statgen`.
 - Finding installation commands, core concepts, or the API map:

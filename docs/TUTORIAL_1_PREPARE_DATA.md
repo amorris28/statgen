@@ -1,7 +1,7 @@
 # Tutorial 1: Prepare LD and Object Caches
 
-This tutorial prepares the files used by the Python and MATLAB/Octave analysis
-tutorials:
+This tutorial prepares the files used by the Python, MATLAB/Octave, and R
+analysis tutorials:
 
 - build a sparse LD distribution from PLINK bfiles;
 - convert the LD distribution for MATLAB/Octave;
@@ -289,3 +289,4 @@ Continue with:
 
 - [Tutorial 2: Python Analysis from Caches](TUTORIAL_2_PYTHON.md)
 - [Tutorial 3: MATLAB Analysis from Caches](TUTORIAL_3_MATLAB.md)
+- [Tutorial 4: R Analysis](TUTORIAL_4_R.md)
