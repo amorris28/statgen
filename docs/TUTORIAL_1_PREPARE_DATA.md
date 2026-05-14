@@ -15,6 +15,20 @@ The repository includes small synthetic source fixtures under
 from `source/`, writes reusable artifacts to `derived/`, and uses `scratch/`
 for disposable LD build files.
 
+GitHub releases also attach a `statgen-tutorial-1-fixtures-<version>.zip`
+archive with the same `source/` directory. Extract that archive into an empty
+working directory and run the tutorial commands from that directory.
+
+For example, without cloning the repository:
+
+```bash
+VERSION="0.2.6"
+mkdir statgen-tutorial-1-fixtures
+cd statgen-tutorial-1-fixtures
+curl -LO "https://github.com/precimed/statgen/releases/download/v${VERSION}/statgen-tutorial-1-fixtures-${VERSION}.zip"
+unzip "statgen-tutorial-1-fixtures-${VERSION}.zip"
+```
+
 ## Contents
 
 - [Prerequisites](#prerequisites)

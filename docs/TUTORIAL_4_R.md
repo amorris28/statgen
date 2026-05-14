@@ -42,6 +42,13 @@ Install the R package from the repository root:
 install.packages("../../R-package", repos = NULL, type = "source")
 ```
 
+If you are working from GitHub release assets rather than a cloned repository,
+install the attached R source package tarball instead:
+
+```r
+install.packages("/path/to/statgen_<version>.tar.gz", repos = NULL, type = "source")
+```
+
 Then load it:
 
 ```r
@@ -179,4 +186,3 @@ trait_a_chr21 <- select_shards(trait_a, "21")
 ann_chr21 <- select_shards(annotations, "21")
 genotype_chr21 <- select_shards(genotype, "21")
 ```
-

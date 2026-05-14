@@ -233,8 +233,8 @@ jobs:
           set -euo pipefail
           version="${{ needs.verify-version.outputs.version }}"
           mkdir -p release
-          cd docs/tutorial_1_fixtures/source
-          zip -r "../../../release/statgen-tutorial-1-fixtures-${version}.zip" annotations genotypes ld_reference sumstats
+          cd docs/tutorial_1_fixtures
+          zip -r "../../release/statgen-tutorial-1-fixtures-${version}.zip" source
 
       - name: Upload tutorial fixtures artifact
         uses: actions/upload-artifact@v4
