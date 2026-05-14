@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added the R package runtime with reference, summary statistics, annotation,
+  genotype, and LD support. Release automation now checks the R package and
+  attaches a CRAN-style source tarball.
+
+### Changed
+- Python and MATLAB/Octave `create_sumstats(...)` now use argument names
+  `p`, `z`, `n`, `beta`, `se`, `eaf`, and `info`; `create_annotations(...)`
+  now uses `annotation_matrix` and `annotation_names`.
+- Python cache save helpers and panel `.save_cache(...)` methods no longer
+  accept the unused `format` argument.
+
+### Fixed
+- MATLAB/Octave summary-statistics loading now parses numeric TSV columns with
+  native numeric `textscan` formats instead of reading all fields as strings
+  first.
+
  ## [0.2.6] - 2026-05-11
 
 ### Added
