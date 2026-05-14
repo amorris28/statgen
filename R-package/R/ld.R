@@ -5,7 +5,7 @@ multiply_r2 <- function(ld_panel, M, chrX_sex = NULL, ...) UseMethod("multiply_r
 
 load_ld <- function(path, shards = NULL, default_chrX_sex = NULL, retain_ld_r = TRUE) {
   root <- .validate_ld_root(path, "load_ld")
-  manifest <- .read_ld_manifest(file.path(root, "ld_manifest.json"), expected_runtime = .ld_runtime_format)
+  manifest <- .read_ld_manifest(file.path(root, "ld_manifest.json"), require_r_reference = TRUE)
   default_chrX_sex <- .validate_chrx_sex(
     if (is.null(default_chrX_sex)) "female" else default_chrX_sex,
     "default_chrX_sex"
@@ -18,17 +18,22 @@ load_ld <- function(path, shards = NULL, default_chrX_sex = NULL, retain_ld_r = 
 
 load_ld_reference <- function(path, shards = NULL) {
   root <- .validate_ld_root(path, "load_ld_reference")
-  manifest <- .read_ld_manifest(file.path(root, "ld_manifest.json"), expected_runtime = .ld_runtime_format)
+  manifest <- .read_ld_manifest(file.path(root, "ld_manifest.json"), require_r_reference = TRUE)
   .load_ld_manifest_reference(root, manifest, shards)
 }
 
 validate_ld_distribution <- function(path, check_payload_structure = FALSE) {
   root <- .validate_ld_root(path, "validate_ld_distribution")
-  manifest <- .read_ld_manifest(file.path(root, "ld_manifest.json"), expected_runtime = .ld_runtime_format)
-  reference_cache_path <- file.path(root, manifest$reference_cache)
+  manifest <- .read_ld_manifest(file.path(root, "ld_manifest.json"), require_r_reference = TRUE)
+  python_reference_cache_path <- file.path(root, manifest$reference_cache)
+  .require_ld_file(python_reference_cache_path)
+  if (!identical(.md5_file(python_reference_cache_path), manifest$reference_cache_md5)) {
+    stop(sprintf("%s: reference_cache_md5 does not match manifest", python_reference_cache_path), call. = FALSE)
+  }
+  reference_cache_path <- .ld_r_reference_cache_path(root, manifest)
   .require_ld_file(reference_cache_path)
-  if (!identical(.md5_file(reference_cache_path), manifest$reference_cache_md5)) {
-    stop(sprintf("%s: reference_cache_md5 does not match manifest", reference_cache_path), call. = FALSE)
+  if (!identical(.md5_file(reference_cache_path), manifest$r_reference_cache_md5)) {
+    stop(sprintf("%s: r_reference_cache_md5 does not match manifest", reference_cache_path), call. = FALSE)
   }
   reference_panel <- load_reference_cache(reference_cache_path)
   ref_by_label <- stats::setNames(shards(reference_panel), vapply(shards(reference_panel), function(s) s$label, character(1)))
@@ -40,7 +45,12 @@ validate_ld_distribution <- function(path, check_payload_structure = FALSE) {
     if (!identical(.md5_file(shard_path), entry$file_md5)) {
       stop(sprintf("%s: file_md5 does not match manifest", shard_path), call. = FALSE)
     }
-    loaded <- .read_ld_rds_shard(shard_path, check_payload_structure = isTRUE(check_payload_structure), retain_ld_r = TRUE)
+    loaded <- .read_ld_npz_shard(
+      shard_path,
+      check_payload_structure = isTRUE(check_payload_structure),
+      retain_ld_r = TRUE,
+      expected_file_md5 = entry$file_md5
+    )
     .validate_manifest_entry_agreement(entry, loaded$metadata, shard_path)
     ref_shard <- ref_by_label[[entry$chr]]
     if (is.null(ref_shard)) {
@@ -57,97 +67,37 @@ validate_ld_distribution <- function(path, check_payload_structure = FALSE) {
   list(ok = TRUE)
 }
 
-convert_ld_npz_to_rds <- function(npz_root, rds_root, shard) {
-  npz_root <- .validate_ld_root(npz_root, "convert_ld_npz_to_rds")
-  rds_root <- .validate_path_scalar(rds_root, "rds_root")
-  shard <- .validate_char_scalar(shard, "shard")
-  .validate_requested_shards(shard, .canonical_chr_order, "convert_ld_npz_to_rds")
-  manifest <- .read_ld_manifest(file.path(npz_root, "ld_manifest.json"), expected_runtime = .ld_python_runtime_format)
-  entries <- .expected_ld_manifest_entries(manifest, shard, "convert_ld_npz_to_rds")
-  dir.create(rds_root, recursive = TRUE, showWarnings = FALSE)
-
-  out_files <- character(length(entries))
-  for (i in seq_along(entries)) {
-    entry <- entries[[i]]
-    rds_file <- .ld_rds_filename_for_entry(entry)
-    npz_path <- file.path(npz_root, entry$file)
-    .require_ld_file(npz_path)
-    payload <- .read_npz_ld_payload(npz_path, scratch_parent = rds_root)
-    meta <- payload$metadata
-    .validate_ld_shard_metadata(meta, npz_path, expected_format = .ld_npz_format)
-    .validate_npz_payload_dimensions(npz_path, payload, meta)
-    .validate_manifest_entry_agreement(entry, meta, npz_path)
-
-    reference_bim_src <- file.path(npz_root, meta$reference_bim)
-    .require_ld_file(reference_bim_src)
-    file.copy(reference_bim_src, file.path(rds_root, meta$reference_bim), overwrite = TRUE)
-
-    meta$format <- .ld_rds_format
-    rds_path <- file.path(rds_root, rds_file)
-    saveRDS(
-      list(
-        data = as.numeric(payload$data),
-        indices = as.integer(payload$indices),
-        indptr = as.integer(payload$indptr),
-        shape = as.integer(payload$shape),
-        a1freq = as.numeric(payload$a1freq),
-        metadata = meta
-      ),
-      rds_path
-    )
-    out_files[[i]] <- rds_path
+prepare_ld_npz_for_r <- function(npz_root, extract_npz = FALSE) {
+  npz_root <- .validate_ld_root(npz_root, "prepare_ld_npz_for_r")
+  if (!is.logical(extract_npz) || length(extract_npz) != 1L || is.na(extract_npz)) {
+    stop("extract_npz must be a scalar logical value", call. = FALSE)
   }
-  invisible(out_files)
-}
-
-create_ld_rds_manifest <- function(npz_root, rds_root, shards) {
-  npz_root <- .validate_ld_root(npz_root, "create_ld_rds_manifest")
-  rds_root <- .validate_path_scalar(rds_root, "rds_root")
-  dir.create(rds_root, recursive = TRUE, showWarnings = FALSE)
-  manifest <- .read_ld_manifest(file.path(npz_root, "ld_manifest.json"), expected_runtime = .ld_python_runtime_format)
-  available <- unique(vapply(manifest$shards, function(e) e$chr, character(1)))
-  selected <- .validate_requested_shards(shards, available, "create_ld_rds_manifest")
-
-  expected <- unlist(lapply(selected, function(label) .expected_ld_manifest_entries(manifest, label, "create_ld_rds_manifest")), recursive = FALSE)
-  out_entries <- vector("list", length(expected))
-  for (i in seq_along(expected)) {
-    py_entry <- expected[[i]]
-    rds_file <- .ld_rds_filename_for_entry(py_entry)
-    rds_path <- file.path(rds_root, rds_file)
-    .require_ld_file(rds_path)
-    payload <- readRDS(rds_path)
-    .validate_ld_rds_payload(payload, rds_path)
-    meta <- payload$metadata
-    .validate_ld_shard_metadata(meta, rds_path, expected_format = .ld_rds_format)
-    .validate_expected_converted_metadata(py_entry, meta, rds_file, rds_path)
-    .require_ld_file(file.path(rds_root, meta$reference_bim))
-    out_entries[[i]] <- list(
-      chr = meta$chr,
-      sex = meta$sex,
-      file = rds_file,
-      file_md5 = .md5_file(rds_path),
-      num_snp = as.integer(meta$num_snp),
-      nnz = as.integer(meta$nnz),
-      reference_checksum = meta$reference_checksum,
-      reference_bim = meta$reference_bim
-    )
+  manifest_path <- file.path(npz_root, "ld_manifest.json")
+  manifest <- .read_ld_manifest(manifest_path, require_r_reference = FALSE)
+  labels <- .canonical_chr_order[.canonical_chr_order %in% unique(vapply(manifest$shards, function(e) e$chr, character(1)))]
+  if (!length(labels)) {
+    stop("prepare_ld_npz_for_r: manifest has no supported LD shards", call. = FALSE)
   }
 
-  reference_panel <- .load_reference_from_ld_bims(rds_root, out_entries, selected)
-  reference_cache <- "reference_cache.rds"
-  reference_cache_path <- file.path(rds_root, reference_cache)
-  save_reference_cache(reference_panel, reference_cache_path)
+  reference_cache <- if (is.null(manifest$r_reference_cache)) {
+    "reference_cache.rds"
+  } else {
+    .validate_plain_relative_filename(manifest$r_reference_cache, sprintf("%s: r_reference_cache", manifest_path))
+  }
+  reference_panel <- .load_reference_from_ld_bims(npz_root, manifest$shards, labels)
+  .validate_ld_manifest_reference_panel(reference_panel, manifest$shards, npz_root)
+  reference_cache_path <- file.path(npz_root, reference_cache)
+  .save_reference_cache_atomic(reference_panel, reference_cache_path)
 
-  out_manifest <- list(
-    object_type = "ld_panel_manifest",
-    schema_version = .ld_manifest_schema,
-    runtime_format = .ld_runtime_format,
-    reference_cache = reference_cache,
-    reference_cache_md5 = .md5_file(reference_cache_path),
-    shards = out_entries
-  )
-  .write_ld_manifest(out_manifest, file.path(rds_root, "ld_manifest.json"))
-  invisible(out_manifest)
+  manifest$r_reference_cache <- reference_cache
+  manifest$r_reference_cache_md5 <- .md5_file(reference_cache_path)
+  if (isTRUE(extract_npz)) {
+    for (entry in manifest$shards) {
+      .extract_npz_ld_payload_cache(file.path(npz_root, entry$file), entry$file_md5)
+    }
+  }
+  .write_ld_manifest(manifest, manifest_path)
+  invisible(manifest)
 }
 
 num_snp.LDShard <- function(x, ...) x$num_snp
@@ -439,7 +389,12 @@ print.LDPanel <- function(x, ...) {
       shard_path <- file.path(root, entry$file)
       suffix <- if (is.null(entry$sex)) "" else sprintf(" (%s)", entry$sex)
       .ld_info(sprintf("statgen.load_ld: loading shard %s%s from %s", entry$chr, suffix, shard_path))
-      loaded <- .read_ld_rds_shard(shard_path, check_payload_structure = FALSE, retain_ld_r = retain_ld_r)
+      loaded <- .read_ld_npz_shard(
+        shard_path,
+        check_payload_structure = FALSE,
+        retain_ld_r = retain_ld_r,
+        expected_file_md5 = entry$file_md5
+      )
       .validate_manifest_entry_agreement(entry, loaded$metadata, shard_path)
       .validate_ld_reference_compatibility(loaded$shard, ref_shard, shard_path)
       key <- if (is.null(loaded$shard$sex)) "<null>" else loaded$shard$sex

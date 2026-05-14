@@ -28,8 +28,9 @@ directory.
   `ReferencePanel`, `AnnotationPanel`, `GenotypePanel`, `Sumstats`, and
   `LDPanel`.
 - R uses ordinary exported functions, not MATLAB package syntax. For example,
-  the R equivalent of MATLAB/Octave `statgen.convert_ld_npz_to_mat` is
-  `statgen::convert_ld_npz_to_rds()`.
+  R LD distribution preparation is exposed as
+  `statgen::prepare_ld_npz_for_r()`, with an optional `extract_npz` argument
+  for creating extracted LD shard caches.
 
 When MATLAB and Python naming conventions conflict, R should follow the logical
 API names from object specs and express them in idiomatic R `snake_case`. The R
@@ -176,8 +177,8 @@ return scalar logical values. They do not throw.
 CRAN tests live under `R-package/tests/testthat/`, use only tiny fixtures
 included in the built package under `R-package/inst/extdata/`, and cover
 ordinary R package behavior: package load, exported API availability, tiny
-source loading, non-LD cache round-trips, tiny R-native LD loading and
-operations, and tiny `.npz` to `.rds` LD conversion.
+source loading, non-LD cache round-trips, tiny `.npz` LD loading and
+operations, and R LD reference-cache sidecar preparation.
 
 Portable-format R extdata fixtures that duplicate canonical repository
 fixtures under `tests/fixtures/` should be prepared by repository tooling

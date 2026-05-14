@@ -1,0 +1,49 @@
+{
+  "object_type": "ld_panel_manifest",
+  "schema_version": "1.0",
+  "runtime_format": "python_npz_csc32",
+  "reference_cache": "reference_cache.npz",
+  "reference_cache_md5": "636977a7c893d16bbd247ec8a9be93ff",
+  "shards": [
+    {
+      "chr": "1",
+      "sex": null,
+      "file": "ld_chr1.npz",
+      "file_md5": "7da78cd8e6dd67b76e897a4871419118",
+      "num_snp": 5,
+      "nnz": 13,
+      "reference_checksum": "65836be1a96bd52932672255c8c95d73",
+      "reference_bim": "reference_chr1.bim"
+    },
+    {
+      "chr": "X",
+      "sex": "female",
+      "file": "ld_chrX_female.npz",
+      "file_md5": "215cf1b42fc4b9439cd29cc07a5cb11c",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b",
+      "reference_bim": "reference_chrX.bim"
+    },
+    {
+      "chr": "X",
+      "sex": "male",
+      "file": "ld_chrX_male.npz",
+      "file_md5": "fa7c07dd7d51247e57b192bd9aef40b8",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b",
+      "reference_bim": "reference_chrX.bim"
+    },
+    {
+      "chr": "X",
+      "sex": "combined",
+      "file": "ld_chrX_combined.npz",
+      "file_md5": "c4e750efc56bf4daabdf25e04b30d758",
+      "num_snp": 3,
+      "nnz": 7,
+      "reference_checksum": "f7ce56a624f7994ed297cb0cd10ae39b",
+      "reference_bim": "reference_chrX.bim"
+    }
+  ]
+}

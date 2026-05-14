@@ -24,6 +24,15 @@ prepare-r-fixtures:
 	cp tests/fixtures/genotype/sharded/X.bim R-package/inst/extdata/genotype_X.bim
 	cp tests/fixtures/genotype/sharded/X.fam R-package/inst/extdata/genotype_X.fam
 	cp tests/fixtures/genotype/sharded/X.ploidy R-package/inst/extdata/genotype_X.ploidy
+	mkdir -p R-package/inst/extdata/ld/python
+	cp tests/fixtures/ld/python/ld_manifest.json R-package/inst/extdata/ld/python/ld_manifest.json
+	cp tests/fixtures/ld/python/reference_cache.npz R-package/inst/extdata/ld/python/reference_cache.npz
+	cp tests/fixtures/ld/python/reference_chr1.bim R-package/inst/extdata/ld/python/reference_chr1.bim
+	cp tests/fixtures/ld/python/reference_chrX.bim R-package/inst/extdata/ld/python/reference_chrX.bim
+	cp tests/fixtures/ld/python/ld_chr1.npz R-package/inst/extdata/ld/python/ld_chr1.npz
+	cp tests/fixtures/ld/python/ld_chrX_female.npz R-package/inst/extdata/ld/python/ld_chrX_female.npz
+	cp tests/fixtures/ld/python/ld_chrX_male.npz R-package/inst/extdata/ld/python/ld_chrX_male.npz
+	cp tests/fixtures/ld/python/ld_chrX_combined.npz R-package/inst/extdata/ld/python/ld_chrX_combined.npz
 
 test: prepare-r-fixtures
 	pytest tests/

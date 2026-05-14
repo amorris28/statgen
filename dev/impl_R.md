@@ -167,19 +167,15 @@ Acceptance criteria:
 
 - R LD loading and operations match Python/MATLAB logical fixture outputs within
   documented tolerances.
-- R validation rejects non-R runtime manifests and malformed RDS distributions
-  clearly.
+- R validation rejects malformed Python `.npz` LD distributions and missing
+  R reference-cache sidecars clearly.
 
-## Phase 5: Python NPZ to RDS LD conversion
+## Phase 5: R preparation for direct Python NPZ LD loading
 
 Implementation tasks:
 
-- Implement `convert_ld_npz_to_rds(npz_root, rds_root, shard)` as a limited
-  handoff reader for documented LD `.npz` shard payloads only.
-- Implement `create_ld_rds_manifest(npz_root, rds_root, shards)`.
-- Convert one requested reference shard at a time so conversions can run as
-  independent parallel jobs without manifest write races. For chrX, requested
-  shard `X` converts every chrX sex-label shard present in the Python manifest.
+- Implement `prepare_ld_npz_for_r(npz_root)` to prepare an existing Python
+  `.npz` LD distribution for direct R loading.
 - A likely implementation path is base R `unzip()` plus `readBin()` for the
   limited `.npy` payload set (`<f4`, `<i4`, `<i8`, and `|u1`), with `bit64`
   conversion/type handling for signed 64-bit integer payloads. This is guidance,
@@ -188,36 +184,26 @@ Implementation tasks:
 - Reject object arrays, pickled payloads, unsupported dtypes, unsupported
   byte-order encodings, malformed shapes, and archives with missing required
   members.
-- Preserve the Python shard's logical signed-`r` CSC payload while using
-  R-native vector types where appropriate. Do not write a precomputed `ld_r2`
+- R `load_ld` constructs `Matrix::dgCMatrix` directly from Python `.npz` CSC
+  payloads. Do not write R-specific LD shard files or a precomputed `ld_r2`
   payload; `ld_r2` is derived by the R loader.
-- The manifest finalizer reads the Python `ld_manifest.json` only to determine
-  which shard files are expected for the requested reference shard labels. For
-  each requested label, absence from the Python manifest is an error.
-- For every expected R shard file, the finalizer should check that the `.rds`
-  file exists, read its metadata, verify that metadata agrees with the expected
-  `(chr, sex)` and corresponding `.rds` filename, compute `file_md5`, and write
-  a manifest entry from R shard metadata plus manifest-only `file` and
-  `file_md5`.
-- Missing expected `.rds` files or bundled `reference_bim` files are errors
-  before `ld_manifest.json` is written.
-- The finalizer builds a `ReferencePanel` from bundled reference BIM files for
-  requested labels, saves it with `ReferencePanel.save_cache(...)` under
-  `rds_root`, and records the cache filename and MD5 in the R manifest.
-- The converter may assume `.npz` shards were produced and validated by
-  `statgen_build_ld.py`; it validates metadata consistency before writing but
-  does not need to repeat expensive O(nnz) structure checks such as full
-  symmetry or diagonal scans.
-- Copy bundled reference `.bim` files named by each shard's `reference_bim`
-  metadata from the `.npz` panel root into the `.rds` output directory unchanged
-  and carry `reference_bim` values through to R shard metadata.
+- `prepare_ld_npz_for_r` reads the existing Python `ld_manifest.json`, validates
+  that it is a Python `.npz` LD distribution, builds a `ReferencePanel` from all
+  bundled reference BIM files named by manifest entries, saves it as an RDS
+  sidecar under `npz_root`, and updates the existing manifest in place with
+  `r_reference_cache` and `r_reference_cache_md5`.
+- The preparation step is idempotent. Reuse an existing valid
+  `r_reference_cache` filename, otherwise use `reference_cache.rds`; rebuild and
+  overwrite the cache, recompute MD5, and atomically replace the manifest.
+- `load_ld` and `load_ld_reference` must use `r_reference_cache`; default user
+  loading must not parse bundled BIM files.
 
 Acceptance criteria:
 
-- Converted RDS shard payloads preserve signed-`r` CSC values and metadata from
-  Python handoff artifacts.
-- Finalized R manifests include lowercase MD5 values, copied bundled BIM files,
-  and an R-native reference cache.
+- R loads Python `.npz` LD shard payloads directly and preserves signed-`r` CSC
+  values and metadata.
+- Prepared manifests include lowercase `r_reference_cache_md5` values and an
+  R-native reference cache sidecar.
 
 ## Phase 6: CRAN and repository test hardening
 
@@ -249,17 +235,16 @@ Suggested CRAN-facing coverage:
 - manifest filename validation and runtime-format rejection for non-R manifests
   on the R load path;
 - `validate_ld_distribution(..., check_payload_structure = FALSE)` on a valid
-  tiny RDS distribution;
+  tiny R-loadable `.npz` distribution;
 - one `check_payload_structure = TRUE` smoke test on a very small sparse LD
   matrix;
 - `a1freq`, `multiply_r2`, and `fast_prune` numerical smoke/regression tests;
-- `convert_ld_npz_to_rds` and `create_ld_rds_manifest` on a tiny committed
-  Python `.npz` fixture.
+- `prepare_ld_npz_for_r` on a tiny committed Python `.npz` fixture.
 
 Suggested repository-level coverage:
 
 - Python/MATLAB/R parity on shared portable fixtures;
-- Python `.npz` to RDS conversion parity at logical shard level;
+- R direct `.npz` loading parity at logical shard level;
 - chrX `female`, `male`, and optional `combined` selection semantics;
 - malformed handoff `.npz` and malformed source-input failure paths.
 

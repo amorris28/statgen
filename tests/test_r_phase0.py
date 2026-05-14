@@ -32,6 +32,7 @@ def test_r_package_skeleton_present():
         "man/version.Rd",
         "man/verbosity.Rd",
         "tests/testthat.R",
+        "tests/testthat/test-ld.R",
         "tests/testthat/test-smoke.R",
         "inst/extdata/README.md",
     ]
@@ -53,6 +54,14 @@ def test_r_extdata_reference_fixture_matches_canonical_source():
         "genotype_X.bim": "genotype/sharded/X.bim",
         "genotype_X.fam": "genotype/sharded/X.fam",
         "genotype_X.ploidy": "genotype/sharded/X.ploidy",
+        "ld/python/ld_manifest.json": "ld/python/ld_manifest.json",
+        "ld/python/reference_cache.npz": "ld/python/reference_cache.npz",
+        "ld/python/reference_chr1.bim": "ld/python/reference_chr1.bim",
+        "ld/python/reference_chrX.bim": "ld/python/reference_chrX.bim",
+        "ld/python/ld_chr1.npz": "ld/python/ld_chr1.npz",
+        "ld/python/ld_chrX_female.npz": "ld/python/ld_chrX_female.npz",
+        "ld/python/ld_chrX_male.npz": "ld/python/ld_chrX_male.npz",
+        "ld/python/ld_chrX_combined.npz": "ld/python/ld_chrX_combined.npz",
     }
     for r_name, canonical_rel in copies.items():
         r_fixture = R_PACKAGE_DIR / f"inst/extdata/{r_name}"

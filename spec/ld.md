@@ -82,18 +82,20 @@ upstream missingness QC or run separate diagnostics before building LD.
 
 - Python reads NumPy/SciPy `.npz` files with CSC sparse components.
 - MATLAB/Octave reads `.mat` files containing native sparse matrices.
-- R reads RDS files containing CSC sparse components and constructs
-  `Matrix::dgCMatrix` matrices in memory; R package layout and CRAN constraints
-  are specified in [R.md](R.md).
+- R reads the Python `.npz` files directly and constructs `Matrix::dgCMatrix`
+  matrices in memory; R package layout and CRAN constraints are specified in
+  [R.md](R.md).
 
 The Python `.npz` format is also the documented build handoff format from
-`statgen_build_ld.py` into runtime-native converters for MATLAB/Octave and R.
-MATLAB/Octave user loading reads `.mat`, not `.npz`; R user loading reads
-`.rds`, not `.npz`. Runtime validation follows the same boundary: Python
-validates Python `.npz` distributions, MATLAB/Octave validates MATLAB/Octave
-`.mat` distributions, and R validates R `.rds` distributions. A runtime
-validator must reject the other runtime's manifest format rather than acting as
-the authority for it.
+`statgen_build_ld.py` into runtime-native converters for MATLAB/Octave.
+MATLAB/Octave user loading reads `.mat`, not `.npz`. R user loading reads the
+Python `.npz` LD shard files and uses an R-native reference-cache sidecar
+recorded in the Python `.npz` manifest. Runtime
+validation follows this boundary: Python validates Python `.npz`
+distributions, MATLAB/Octave validates MATLAB/Octave `.mat` distributions, and
+R validates Python `.npz` distributions that carry the required R
+reference-cache sidecar. A runtime validator must otherwise reject another
+runtime's manifest format rather than acting as the authority for it.
 
 ### Python `.npz` shard format
 
@@ -176,22 +178,10 @@ Storage-layout fields that are specific to `.npz` CSC arrays, such as
 Unavailable optional metadata values, such as an unknown `plink_version`, may
 use the runtime's natural empty value.
 
-### R `.rds` shard format
-
-Each R `.rds` file represents one LD shard. It stores the same logical CSC
-component payload as the Python `.npz` shard format, serialized as an RDS list
-rather than a NumPy archive. R distribution files must not serialize
-`Matrix::dgCMatrix` objects directly; R loaders construct `Matrix::dgCMatrix`
-from the stored CSC payload after loading. R distribution files store only the
-signed `ld_r` CSC payload; they must not store a precomputed `ld_r2` matrix.
-
-The R metadata has the same logical fields as the `.npz` metadata, with
-`format: "statgen_ld_rds_csc32"`.
-
 ## Panel layout and manifest
 
 A panel root is a directory containing one or more LD shard files, one bundled
-reference `.bim` file per chromosome, one reference cache file, and
+reference `.bim` file per chromosome, runtime reference cache files, and
 `ld_manifest.json`. `path` passed to `load_ld` must always identify a panel
 root directory; single shard files are not a supported load target.
 
@@ -204,6 +194,7 @@ reference_chr2.bim
 reference_chr22.bim
 reference_chrX.bim
 reference_cache.npz
+reference_cache.rds
 ld_chr1.npz
 ld_chr2.npz
 ...
@@ -211,23 +202,32 @@ ld_chr22.npz
 ld_chrX_female.npz
 ld_chrX_male.npz
 ld_chrX_combined.npz
+ld_chr1.npz.d/
 ```
 
 MATLAB/Octave distributions use the same names with `.mat` for LD shard files
-and `reference_cache.mat` for the reference cache; R distributions use `.rds`
-for LD shard files and `reference_cache.rds` for the reference cache. Bundled
-`.bim` files are identical across runtimes. Autosomal LD shards use no sex
-suffix. chrX LD shards always use an explicit sex suffix. Not all chrX sex
-labels need to be present. `female` and `male` are the default sex-specific
-build outputs; `combined` is optional and assumption-dependent. Each chromosome
-has exactly one bundled reference `.bim` regardless of how many chrX sex labels
-are present.
+and `reference_cache.mat` for the reference cache. Python `.npz` distributions
+that are intended to be loaded by R keep the Python `reference_cache.npz` and
+additionally include an R `reference_cache.rds` sidecar named by
+`r_reference_cache`. Bundled `.bim` files are identical across runtimes.
+Autosomal LD shards use no sex suffix. chrX LD shards always use an explicit
+sex suffix. Not all chrX sex labels need to be present. `female` and `male`
+are the default sex-specific build outputs; `combined` is optional and
+assumption-dependent. Each chromosome has exactly one bundled reference `.bim`
+regardless of how many chrX sex labels are present.
 
 `ld_manifest.json` is authoritative for file discovery. Loaders must not infer
 panels by globbing arbitrary filenames. Files present in the directory but
 absent from the manifest are ignored.
 
-Required manifest fields:
+For R, a manifest-declared `.npz` shard may have an optional sibling extracted
+cache directory named by appending `.d` to the full shard filename, for example
+`ld_chr1.npz.d/`. The extracted directory is a cache of the corresponding
+`.npz` file, not a manifest target and not an independent LD shard format.
+When present and current, R may read the extracted `.npy` members directly;
+otherwise it must fall back to the manifest-declared `.npz` file.
+
+Required manifest fields for Python `.npz` distributions:
 
 ```json
 {
@@ -271,23 +271,43 @@ Required manifest fields:
 }
 ```
 
-`runtime_format` is `"python_npz_csc32"` for Python distributions,
-`"matlab_mat_sparse_double"` for MATLAB/Octave distributions, and
-`"r_rds_csc32"` for R distributions.
+Additional manifest fields required for R-loadable Python `.npz`
+distributions:
+
+```json
+{
+  "r_reference_cache": "reference_cache.rds",
+  "r_reference_cache_md5": "..."
+}
+```
+
+`runtime_format` is `"python_npz_csc32"` for Python/R `.npz` distributions and
+`"matlab_mat_sparse_double"` for MATLAB/Octave distributions.
 `runtime_format` is a manifest-level distribution identifier: it lets a loader
 reject a panel root that belongs to another runtime before opening shard files.
 The per-shard metadata `format` field is a shard payload identifier and must
 agree with the runtime distribution format. Validators use both fields so a
 manifest cannot silently point to shard files with the wrong internal schema.
 `reference_cache` is a plain relative filename with no path separators, no
-`..` components, and no absolute path prefix. It names the runtime-native
-reference cache loaded by `load_ld`. `reference_cache_md5` is manifest-only.
+`..` components, and no absolute path prefix. For Python/R `.npz`
+distributions, it names the Python reference cache and must not be repurposed
+for R. `reference_cache_md5` is manifest-only. Python/R `.npz` distributions
+that are freshly produced by the Python builder omit `r_reference_cache` and
+`r_reference_cache_md5` until R preparation is run. Python/R `.npz`
+distributions that are intended to be loaded by R must additionally contain
+those fields. `r_reference_cache` is a plain relative filename naming an R
+`ReferencePanel` cache in the same directory as `ld_manifest.json`, and
+`r_reference_cache_md5` is its manifest-only MD5. R `load_ld` must reject a
+Python `.npz` LD distribution that lacks these R-specific reference-cache
+fields rather than rebuilding the reference from bundled BIM files on the
+default load path. For MATLAB/Octave distributions, `reference_cache` names
+the MATLAB/Octave reference cache.
 Manifest MD5 fields (`reference_cache_md5` and per-shard `file_md5`) must be
 32-character lowercase hexadecimal strings. Producers must write lowercase
 hex, and validators should reject non-lowercase variants rather than accepting
 case-insensitive equivalents.
-Runtime loaders are not required to compute `file_md5` or `reference_cache_md5`
-on the default load path.
+Runtime loaders are not required to compute `file_md5`, `reference_cache_md5`,
+or `r_reference_cache_md5` on the default load path.
 
 Manifest entries and per-file metadata must agree on `chr`, `sex`, `num_snp`,
 `nnz`, `reference_checksum`, `reference_bim`, and runtime/storage format.
@@ -304,16 +324,19 @@ shard.
 required for the requested shards. It must not parse bundled reference `.bim`
 files on the default user load path. LD files and reference `.bim` files for
 other shards may be present in the directory and are ignored.
-`load_ld` must resolve the reference cache filename from the manifest's
-`reference_cache` field; hard-coded reference cache filenames and directory
-globbing are not permitted.
+`load_ld` must resolve the reference cache filename from the manifest rather
+than hard-coded filenames or directory globbing. Python uses `reference_cache`
+for `.npz` distributions, R uses `r_reference_cache` for `.npz` distributions,
+and MATLAB/Octave uses `reference_cache` for `.mat` distributions.
 
 ## Building and conversion
 
 LD construction and runtime conversion follow a hub-and-spoke pattern:
-Python builds the `.npz` handoff distribution, and MATLAB/Octave and R convert
-from that Python distribution into their own runtime-native formats. Direct
-R-to-MATLAB, MATLAB-to-R, or other runtime-to-runtime LD exchange is not a goal.
+Python builds the `.npz` handoff distribution, and MATLAB/Octave converts from
+that Python distribution into its runtime-native `.mat` format. R loads the
+Python `.npz` distribution directly after the R reference-cache sidecar has
+been prepared. Direct R-to-MATLAB, MATLAB-to-R, or other runtime-to-runtime LD
+exchange is not a goal.
 
 ### Python LD builder
 
@@ -368,7 +391,9 @@ After shard jobs finish, `statgen_create_ld_manifest.py --ld <root>` creates
 requires each shard's metadata to name its bundled `reference_bim`, validates
 the resulting panel, builds a `ReferencePanel` from the bundled reference BIM
 files, saves that reference with `ReferencePanel.save_cache(...)` under the LD
-root, and records the cache filename and MD5 in the manifest.
+root, and records the cache filename and MD5 in the manifest. The command must
+fail without modifying files if `ld_manifest.json` already exists, because
+runtime preparation steps may add fields to that manifest.
 
 Before publishing an `.npz` shard, the builder must validate at least:
 
@@ -452,26 +477,49 @@ named by each shard's `reference_bim` metadata from the `.npz` panel root into
 the `.mat` output directory unchanged and carries `reference_bim` values
 through to the MATLAB/Octave shard metadata.
 
-### R LD conversion
+### R LD preparation
 
-`statgen::convert_ld_npz_to_rds(npz_root, rds_root, shard)` writes RDS files
-containing the R `.rds` shard payload defined above.
+R `.npz` support is an LD shard reader, not a general NumPy archive API. It
+must support the documented LD shard payload dtypes (`float32`, `int32`,
+`int64`, `uint8`, and metadata UTF-8 JSON bytes), and reject object arrays,
+pickled payloads, unsupported dtypes, unsupported byte-order encodings,
+malformed shapes, and archives with missing required members. The R `.npz`
+reader must not require Python or external binaries. Signed 64-bit integer
+payloads must preserve integer precision and must not be coerced through
+double.
 
-R `.npz` support for this converter is a handoff reader, not a general NumPy
-archive API. It must support the documented LD shard payload dtypes
-(`float32`, `int32`, `int64`, `uint8`, and metadata UTF-8 JSON bytes), and
-reject object arrays, pickled payloads, unsupported dtypes, unsupported
-byte-order encodings, malformed shapes, and archives with missing required
-members.
-The R handoff reader must not require Python or external binaries. Signed
-64-bit integer payloads must preserve integer precision and must not be coerced
-through double.
+`statgen::prepare_ld_npz_for_r(npz_root, extract_npz = FALSE)` prepares a
+Python `.npz` LD distribution for direct R loading. It reads the existing
+`npz_root/ld_manifest.json`, validates that the manifest has
+`runtime_format: "python_npz_csc32"`, builds an R-native `ReferencePanel` cache
+from the bundled reference BIM files required by all shards described in that
+manifest, saves that cache under `npz_root` as an RDS file, and updates the
+existing Python manifest in place with `r_reference_cache` and
+`r_reference_cache_md5`. It must not accept a shard filter, rewrite LD shard
+files, copy LD shard files to another directory, create an R LD shard manifest,
+or write a precomputed `ld_r2` payload.
 
-`statgen::create_ld_rds_manifest(npz_root, rds_root, shards)` creates the R
-`ld_manifest.json`. The converter/finalizer preserves the Python shard's
-logical signed-`r` CSC payload, validates metadata consistency, copies bundled
-reference `.bim` files unchanged, writes an R-native reference cache, and writes
-an R manifest. It must not write a precomputed `ld_r2` payload.
+When `extract_npz = TRUE`, `prepare_ld_npz_for_r` also creates or refreshes an
+extracted cache directory next to each manifest-declared `.npz` shard. The
+directory name is the shard filename plus `.d`, such as `ld_chr1.npz.d`, and it
+contains the required `.npy` members plus a `.statgen-extracted-npz.json`
+marker. The marker records `format: "statgen_extracted_npz"`, `source_file`,
+and `source_file_md5`. R `load_ld` may use the extracted directory only when
+the marker's `source_file_md5` matches the manifest `file_md5` for that shard
+and all required `.npy` members are present. If the extracted directory is
+absent, stale, or incomplete, `load_ld` must read the `.npz` shard normally,
+using the scratch-directory behavior defined in `spec/performance-contract.md`.
+
+`prepare_ld_npz_for_r` is idempotent. If `r_reference_cache` is already present
+in the manifest, the function must validate that it is a plain relative
+filename with no path separators, no `..` components, and no absolute path
+prefix, then reuse that filename for the regenerated cache. If
+`r_reference_cache` is absent, the function uses the default
+`reference_cache.rds` filename. Each run rebuilds the R `ReferencePanel` cache
+from bundled BIM files, overwrites the R cache file atomically, recomputes
+`r_reference_cache_md5`, and updates the manifest in place. A stale or corrupt
+existing R cache is not an error by itself; an invalid cache filename or an
+unwritable destination is an error.
 
 ## In-memory objects
 
@@ -526,7 +574,7 @@ chrX-unrelated operations. For default sex-specific panels built by
 
 Python stores `ld_r` as a SciPy CSC matrix from the `.npz` CSC components.
 MATLAB/Octave stores `ld_r` as native sparse double loaded from `.mat`. R
-stores `ld_r` in memory as `Matrix::dgCMatrix` constructed from the `.rds` CSC
+stores `ld_r` in memory as `Matrix::dgCMatrix` constructed from the `.npz` CSC
 components. Python retains `a1freq` as `float32` from the `.npz` payload;
 MATLAB/Octave and R return `a1freq` as double.
 
@@ -569,19 +617,21 @@ default loading. It is self-contained: no external reference is required. It
 validates only the calling runtime's LD distribution format: Python validates
 `.npz` distributions with `runtime_format: "python_npz_csc32"`; MATLAB/Octave
 validates `.mat` distributions with `runtime_format:
-"matlab_mat_sparse_double"`; R validates RDS distributions with
-`runtime_format: "r_rds_csc32"`. In addition to manifest file MD5 checksums and
-manifest/per-file metadata agreement, the validator must confirm that the two
-bundled reference representations agree with each other and with all LD shard
-metadata: the manifest-declared reference cache must be present, every
-`reference_bim` file named in the manifest must be present, and each LD shard's
-`reference_checksum` and `num_snp` must match both the loaded reference cache
-and the corresponding bundled `.bim` file. This double-check is intentional:
-the cache is the default loading source, while the BIM files are portable build
-provenance. This explicit QA path may parse bundled BIM files; default
-`load_ld` must not. When `check_payload_structure` is true, it additionally
-performs expensive checks: sparse index bounds, explicit diagonal, and symmetry
-validation. For MATLAB/Octave `.mat`
+"matlab_mat_sparse_double"`; R validates `.npz` distributions with
+`runtime_format: "python_npz_csc32"` plus the required
+`r_reference_cache`/`r_reference_cache_md5` sidecar fields. In addition to
+manifest file MD5 checksums and manifest/per-file metadata agreement, the
+validator must confirm that the bundled reference representations agree with
+each other and with all LD shard metadata: the manifest-declared reference
+cache for the calling runtime must be present, every `reference_bim` file named
+in the manifest must be present, and each LD shard's `reference_checksum` and
+`num_snp` must match both the loaded reference cache and the corresponding
+bundled `.bim` file. This double-check is intentional: the cache is the default
+loading source, while the BIM files are portable build provenance. This
+explicit QA path may parse bundled BIM files; default `load_ld` must not. When
+`check_payload_structure` is true, it additionally performs expensive checks:
+sparse index bounds, explicit diagonal, and symmetry validation. For
+MATLAB/Octave `.mat`
 distributions, v5 MAT-files are accepted for validation but must produce a
 warning stating that they are fixture/local-test artifacts and not production
 distribution artifacts because of MAT-file size limits.

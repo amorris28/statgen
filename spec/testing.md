@@ -97,9 +97,10 @@ setup and package resolution work end-to-end before any real logic is added.
 ## Cross-language consistency
 
 Python, Octave, and R loaders should read the same portable source files where
-the object contract is portable. LD is runtime-native: Python reads `.npz`,
-Octave reads converted `.mat` files, and R reads converted `.rds` files derived
-from those `.npz` sources. Loaders should report matching:
+the object contract is portable. LD is runtime-native: Python and R read
+`.npz` files, while Octave reads converted `.mat` files derived from those
+`.npz` sources. R `.npz` distributions include an R reference-cache sidecar.
+Loaders should report matching:
 
 - dimensions;
 - vector values;
@@ -111,8 +112,8 @@ from those `.npz` sources. Loaders should report matching:
 
 Cache conversion tests should verify that native cache outputs match portable
 source files, not that caches match each other directly. LD converter tests
-should verify that MATLAB/Octave `.mat` and R `.rds` distributions match the
-Python `.npz` handoff files at the logical shard level.
+should verify that MATLAB/Octave `.mat` distributions and R direct `.npz`
+loading match the Python `.npz` handoff files at the logical shard level.
 
 ## End-to-end alignment invariants
 

@@ -252,6 +252,23 @@ def test_build_ld_distribution_python_api(tmp_path, monkeypatch):
     assert (out / "_statgen_build_ld_work" / "chr1.afreq").is_file()
 
 
+def test_create_ld_manifest_refuses_existing_manifest(tmp_path):
+    out = tmp_path / "ld"
+    _run_fake_build_for_shards(tmp_path, out, ["1"])
+    _create_manifest(out)
+    manifest_before = (out / "ld_manifest.json").read_text()
+
+    result = subprocess.run(
+        [sys.executable, str(MANIFEST_SCRIPT), "--ld", str(out)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Refusing to overwrite existing LD manifest" in result.stderr
+    assert (out / "ld_manifest.json").read_text() == manifest_before
+
+
 def test_build_ld_distribution_uses_explicit_scratch_directory(tmp_path, monkeypatch):
     mod = _load_build_module()
     fake = tmp_path / "fake_plink2.py"

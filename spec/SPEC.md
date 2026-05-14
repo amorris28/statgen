@@ -145,8 +145,8 @@ must be reproducible from portable source files.
 LD panels are the documented exception to this portable-storage policy: their
 distributed shard files are runtime-native sparse matrix artifacts, not caches.
 Python LD distributions use NumPy/SciPy `.npz`; MATLAB/Octave LD distributions
-use `.mat`; R LD distributions use `.rds`. See [ld.md](ld.md) for the
-LD-specific distribution contract.
+use `.mat`; R loads Python `.npz` LD shards with an R reference-cache sidecar.
+See [ld.md](ld.md) for the LD-specific distribution contract.
 
 ## Object scope and mutability
 

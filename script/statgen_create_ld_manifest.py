@@ -17,6 +17,13 @@ from statgen._ld_writer import create_ld_npz_manifest
 
 def main(argv=None) -> int:
     args = _parse_args(argv)
+    manifest_path = Path(args.ld) / "ld_manifest.json"
+    if manifest_path.exists():
+        print(
+            f"Refusing to overwrite existing LD manifest: {manifest_path}",
+            file=sys.stderr,
+        )
+        return 1
     create_ld_npz_manifest(args.ld, validate=not args.no_validate)
     return 0
 

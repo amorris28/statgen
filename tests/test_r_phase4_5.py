@@ -1,6 +1,7 @@
-"""R phase 4/5 acceptance tests: LD RDS loading and NPZ handoff conversion."""
+"""R phase 4/5 acceptance tests: direct LD NPZ loading and R sidecar preparation."""
 
 import json
+import shutil
 
 import numpy as np
 import pytest
@@ -60,7 +61,7 @@ def _source_phase5_script(expr: str) -> str:
         "reference.R",
         "ld_schema.R",
         "ld_reference.R",
-        "ld_rds.R",
+        "ld_csc.R",
         "ld_npz.R",
         "ld.R",
     ]
@@ -82,7 +83,7 @@ def _source_phase5_genotype_script(expr: str) -> str:
         "genotype.R",
         "ld_schema.R",
         "ld_reference.R",
-        "ld_rds.R",
+        "ld_csc.R",
         "ld_npz.R",
         "ld.R",
     ]
@@ -97,19 +98,32 @@ def _r_quote(path) -> str:
     return json.dumps(str(path))
 
 
+def _copy_ld_py(tmp_path):
+    root = tmp_path / "ld_npz"
+    shutil.copytree(LD_PY, root)
+    return root
+
+
+def _rewrite_npz_metadata(path, mutate):
+    with np.load(path) as loaded:
+        payload = {name: loaded[name] for name in loaded.files}
+    metadata = json.loads(payload["metadata"].tobytes().decode("utf-8"))
+    mutate(metadata)
+    payload["metadata"] = np.frombuffer(json.dumps(metadata).encode("utf-8"), dtype=np.uint8)
+    np.savez(path, **payload)
+
+
 @pytest.mark.r
 @skipif_no_rscript
-def test_r_ld_npz_to_rds_conversion_loads_and_operates(tmp_path):
-    out = tmp_path / "ld_rds"
+def test_r_ld_npz_preparation_loads_and_operates(tmp_path):
+    root = _copy_ld_py(tmp_path)
     result = run_rscript(
         _source_phase5_script(
             "set_verbosity('quiet'); "
-            f"convert_ld_npz_to_rds({json.dumps(str(LD_PY))}, {json.dumps(str(out))}, '1'); "
-            f"convert_ld_npz_to_rds({json.dumps(str(LD_PY))}, {json.dumps(str(out))}, 'X'); "
-            f"manifest <- create_ld_rds_manifest({json.dumps(str(LD_PY))}, {json.dumps(str(out))}, c('1', 'X')); "
-            f"report <- validate_ld_distribution({json.dumps(str(out))}, TRUE); "
-            f"report_default <- validate_ld_distribution({json.dumps(str(out))}); "
-            f"ld <- load_ld({json.dumps(str(out))}); "
+            f"manifest <- prepare_ld_npz_for_r({json.dumps(str(root))}); "
+            f"report <- validate_ld_distribution({json.dumps(str(root))}, TRUE); "
+            f"report_default <- validate_ld_distribution({json.dumps(str(root))}); "
+            f"ld <- load_ld({json.dumps(str(root))}); "
             "off <- shard_offsets(ld); "
             "cat(as.character(report$ok), as.character(report_default$ok), default_chrX_sex(ld), num_snp(ld), '\\n'); "
             "cat(paste(vapply(shards(ld), function(s) s$label, character(1)), collapse=','), '\\n'); "
@@ -129,7 +143,7 @@ def test_r_ld_npz_to_rds_conversion_loads_and_operates(tmp_path):
             "sparse_out <- multiply_r2(ld, Matrix::sparseMatrix(i=1:num_snp(ld), j=rep(1L, num_snp(ld)), x=seq_len(num_snp(ld)), dims=c(num_snp(ld), 1L))); "
             "dense_out <- multiply_r2(ld, Matrix::Matrix(matrix(seq_len(num_snp(ld)), ncol=1L), sparse=FALSE)); "
             "cat(as.character(inherits(sparse_out, 'sparseMatrix')), as.character(is.matrix(dense_out)), '\\n'); "
-            f"ld2 <- load_ld({json.dumps(str(out))}, retain_ld_r = FALSE); "
+            f"ld2 <- load_ld({json.dumps(str(root))}, retain_ld_r = FALSE); "
             "cat(as.character(is.null(ld2$shard_groups[[1]][[1]]$ld_r)), round(multiply_r2(ld2, seq_len(num_snp(ld2)))[1], 6), "
             "paste(round(fast_prune(c(9,9,7,1,2,6,5,4), ld2, 0.35, chrX_sex='combined'), 6), collapse=','), '\\n')"
         )
@@ -207,16 +221,14 @@ def test_r_ld_npz_to_rds_conversion_loads_and_operates(tmp_path):
 def test_r_preflight_chr1_a1freq_and_ld_r_match_fetched_genotypes(tmp_path):
     prefix, ld_root = _build_preflight_artifacts(tmp_path)
     expected = _python_preflight_outputs(prefix, ld_root)
-    r_root = tmp_path / "ld_rds"
     out_path = tmp_path / "r_preflight.tsv"
 
     result = run_rscript(
         _source_phase5_genotype_script(
             "set_verbosity('quiet'); "
-            f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, '1'); "
-            f"manifest <- create_ld_rds_manifest({_r_quote(ld_root)}, {_r_quote(r_root)}, '1'); "
-            f"report <- validate_ld_distribution({_r_quote(r_root)}, TRUE); "
-            f"ld <- load_ld({_r_quote(r_root)}); "
+            f"manifest <- prepare_ld_npz_for_r({_r_quote(ld_root)}); "
+            f"report <- validate_ld_distribution({_r_quote(ld_root)}, TRUE); "
+            f"ld <- load_ld({_r_quote(ld_root)}); "
             f"g <- load_genotype({_r_quote(prefix)}, reference(ld)); "
             "G <- fetch_genotypes(g, seq_len(num_snp(g))); "
             "obs <- is.finite(G); G0 <- G; G0[!obs] <- 0; "
@@ -273,16 +285,13 @@ def test_r_preflight_chr1_a1freq_and_ld_r_match_fetched_genotypes(tmp_path):
 def test_r_full_e2e_partial_overlap_a1freq_ld_r_and_chrx_subject_mapping(tmp_path):
     artifacts = _build_full_artifacts(tmp_path)
 
-    def run_case(ld_root, genotype_prefix, r_root, out_path):
+    def run_case(ld_root, genotype_prefix, out_path):
         script_path = out_path.with_suffix(".R")
         script_code = _source_phase5_genotype_script(
                 "set_verbosity('quiet'); "
-                f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, '1'); "
-                f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, '2'); "
-                f"convert_ld_npz_to_rds({_r_quote(ld_root)}, {_r_quote(r_root)}, 'X'); "
-                f"manifest <- create_ld_rds_manifest({_r_quote(ld_root)}, {_r_quote(r_root)}, c('1', '2', 'X')); "
-                f"report <- validate_ld_distribution({_r_quote(r_root)}, TRUE); "
-                f"ld <- load_ld({_r_quote(r_root)}); "
+                f"manifest <- prepare_ld_npz_for_r({_r_quote(ld_root)}); "
+                f"report <- validate_ld_distribution({_r_quote(ld_root)}, TRUE); "
+                f"ld <- load_ld({_r_quote(ld_root)}); "
                 f"g <- load_genotype({_r_quote(genotype_prefix)}, reference(ld)); "
                 "present_idx <- which(is_present(g)); "
                 "G <- fetch_genotypes(g, present_idx); "
@@ -348,13 +357,11 @@ def test_r_full_e2e_partial_overlap_a1freq_ld_r_and_chrx_subject_mapping(tmp_pat
     nonsharded = run_case(
         artifacts["ld_full_root"],
         artifacts["genotype_prefix"],
-        tmp_path / "ld_full_rds",
         tmp_path / "r_full_nonsharded.tsv",
     )
     sharded = run_case(
         artifacts["ld_sharded_root"],
         artifacts["genotype_sharded"],
-        tmp_path / "ld_sharded_rds",
         tmp_path / "r_full_sharded.tsv",
     )
 
@@ -369,87 +376,74 @@ def test_r_full_e2e_partial_overlap_a1freq_ld_r_and_chrx_subject_mapping(tmp_pat
 
 @pytest.mark.r
 @skipif_no_rscript
-def test_r_ld_rds_manifest_finalizer_writes_reference_cache_and_md5(tmp_path):
-    out = tmp_path / "ld_rds"
+def test_r_prepare_ld_npz_for_r_writes_reference_cache_and_md5(tmp_path):
+    root = _copy_ld_py(tmp_path)
     result = run_rscript(
         _source_phase5_script(
-            f"convert_ld_npz_to_rds({json.dumps(str(LD_PY))}, {json.dumps(str(out))}, '1'); "
-            f"manifest <- create_ld_rds_manifest({json.dumps(str(LD_PY))}, {json.dumps(str(out))}, '1'); "
-            "cat(manifest$runtime_format, manifest$reference_cache, grepl('^[0-9a-f]{32}$', manifest$reference_cache_md5), '\\n'); "
+            f"manifest <- prepare_ld_npz_for_r({json.dumps(str(root))}, extract_npz = TRUE); "
+            f"manifest2 <- prepare_ld_npz_for_r({json.dumps(str(root))}); "
+            "cat(manifest$runtime_format, manifest$r_reference_cache, grepl('^[0-9a-f]{32}$', manifest$r_reference_cache_md5), '\\n'); "
             "cat(file.exists(file.path("
-            f"{json.dumps(str(out))}, manifest$reference_cache)), "
+            f"{json.dumps(str(root))}, manifest$r_reference_cache)), "
             "file.exists(file.path("
-            f"{json.dumps(str(out))}, 'reference_chr1.bim')), "
-            "grepl('^[0-9a-f]{32}$', manifest$shards[[1]]$file_md5), "
-            "manifest$shards[[1]]$file, '\\n'); "
-            f"ref <- load_ld_reference({json.dumps(str(out))}); "
+            f"{json.dumps(str(root))}, manifest$reference_cache)), "
+            "identical(manifest$r_reference_cache, manifest2$r_reference_cache), "
+            "grepl('^[0-9a-f]{32}$', manifest2$r_reference_cache_md5), '\\n'); "
+            f"scratch_blocker <- file.path({json.dumps(str(root))}, 'scratch-blocker'); "
+            "invisible(file.create(scratch_blocker)); "
+            "old_scratch <- Sys.getenv('STATGEN_SCRATCH', unset = NA_character_); "
+            "Sys.setenv(STATGEN_SCRATCH = scratch_blocker); "
+            "on.exit(if (is.na(old_scratch)) Sys.unsetenv('STATGEN_SCRATCH') else Sys.setenv(STATGEN_SCRATCH = old_scratch), add = TRUE); "
+            "cache_dir <- file.path("
+            f"{json.dumps(str(root))}, paste0(manifest$shards[[1]]$file, '.d')); "
+            "marker <- jsonlite::fromJSON(file.path(cache_dir, '.statgen-extracted-npz.json')); "
+            "cat(dir.exists(cache_dir), file.exists(file.path(cache_dir, 'data.npy')), marker$source_file, marker$source_file_md5 == manifest$shards[[1]]$file_md5, '\\n'); "
+            f"ref <- load_ld_reference({json.dumps(str(root))}); "
+            f"ld <- load_ld({json.dumps(str(root))}); "
             "cat(num_snp(ref), paste(vapply(shards(ref), function(s) s$label, character(1)), collapse=','), '\\n')"
         )
     )
     assert result.returncode == 0, result.stderr
     lines = [line.strip() for line in result.stdout.strip().splitlines()]
-    assert lines[0] == "r_rds_csc32 reference_cache.rds TRUE"
-    assert lines[1] == "TRUE TRUE TRUE ld_chr1.rds"
-    assert lines[2] == "5 1"
+    assert lines[0] == "python_npz_csc32 reference_cache.rds TRUE"
+    assert lines[1] == "TRUE TRUE TRUE TRUE"
+    assert lines[2] == "TRUE TRUE ld_chr1.npz TRUE"
+    assert lines[3] == "8 1,X"
 
 
 @pytest.mark.r
 @skipif_no_rscript
-def test_r_ld_rds_conversion_rejects_python_manifest_subdirectories(tmp_path):
-    py_root = tmp_path / "ld_py"
-    py_root.mkdir()
-    manifest = {
-        "object_type": "ld_panel_manifest",
-        "schema_version": "1.0",
-        "runtime_format": "python_npz_csc32",
-        "reference_cache": "reference_cache.pkl",
-        "reference_cache_md5": "0" * 32,
-        "shards": [
-            {
-                "chr": "1",
-                "sex": None,
-                "file": "subdir/ld_chr1.npz",
-                "file_md5": "1" * 32,
-                "num_snp": 1,
-                "nnz": 1,
-                "reference_checksum": "checksum",
-                "reference_bim": "reference_chr1.bim",
-            }
-        ],
-    }
-    (py_root / "ld_manifest.json").write_text(json.dumps(manifest) + "\n")
-    out = tmp_path / "ld_rds"
+def test_r_prepare_ld_npz_for_r_rejects_invalid_existing_sidecar_filename(tmp_path):
+    root = _copy_ld_py(tmp_path)
+    manifest_path = root / "ld_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["r_reference_cache"] = "subdir/reference_cache.rds"
+    manifest["r_reference_cache_md5"] = "0" * 32
+    manifest_path.write_text(json.dumps(manifest) + "\n")
 
     result = run_rscript(
         _source_phase5_script(
-            "ok_convert <- FALSE; "
-            "ok_manifest <- FALSE; "
-            f"tryCatch(convert_ld_npz_to_rds({json.dumps(str(py_root))}, {json.dumps(str(out))}, '1'), "
-            "error = function(e) ok_convert <<- grepl('plain relative filename', e$message)); "
-            f"tryCatch(create_ld_rds_manifest({json.dumps(str(py_root))}, {json.dumps(str(out))}, '1'), "
-            "error = function(e) ok_manifest <<- grepl('plain relative filename', e$message)); "
-            "cat(as.character(ok_convert), as.character(ok_manifest), '\\n')"
+            "ok <- FALSE; "
+            f"tryCatch(prepare_ld_npz_for_r({json.dumps(str(root))}), "
+            "error = function(e) ok <<- grepl('plain relative filename', e$message)); "
+            "cat(as.character(ok), '\\n')"
         )
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "TRUE TRUE"
+    assert result.stdout.strip() == "TRUE"
 
 
 @pytest.mark.r
 @skipif_no_rscript
 def test_r_load_ld_emits_monomorphic_snp_warning(tmp_path):
-    out = tmp_path / "ld_rds"
+    root = _copy_ld_py(tmp_path)
+    _rewrite_npz_metadata(root / "ld_chr1.npz", lambda metadata: metadata.update(num_monomorphic_snps=1))
     result = run_rscript(
         _source_phase5_script(
-            f"convert_ld_npz_to_rds({json.dumps(str(LD_PY))}, {json.dumps(str(out))}, '1'); "
-            f"manifest <- create_ld_rds_manifest({json.dumps(str(LD_PY))}, {json.dumps(str(out))}, '1'); "
-            f"shard_path <- file.path({json.dumps(str(out))}, 'ld_chr1.rds'); "
-            "payload <- readRDS(shard_path); "
-            "payload$metadata$num_monomorphic_snps <- 1L; "
-            "saveRDS(payload, shard_path); "
+            f"prepare_ld_npz_for_r({json.dumps(str(root))}); "
             "warned <- FALSE; "
             "ld <- withCallingHandlers("
-            f"load_ld({json.dumps(str(out))}), "
+            f"load_ld({json.dumps(str(root))}), "
             "warning = function(w) { warned <<- grepl('monomorphic SNPs', w$message); invokeRestart('muffleWarning') }); "
             "cat(as.character(warned), '\\n')"
         )
@@ -501,11 +495,11 @@ def test_r_npz_reader_rejects_malformed_archives(tmp_path):
 
 @pytest.mark.r
 @skipif_no_rscript
-def test_r_load_ld_rejects_non_r_runtime_manifest():
+def test_r_load_ld_rejects_missing_r_reference_sidecar():
     result = run_rscript(
         _source_phase5_script(
             "ok <- FALSE; "
-            f"tryCatch(load_ld({json.dumps(str(LD_PY))}), error = function(e) ok <<- grepl('expected runtime_format', e$message)); "
+            f"tryCatch(load_ld({json.dumps(str(LD_PY))}), error = function(e) ok <<- grepl('missing r_reference_cache', e$message)); "
             "cat(as.character(ok), '\\n')"
         )
     )
@@ -519,13 +513,13 @@ def test_r_ld_metadata_rejects_csc32_nnz_upper_bound():
     result = run_rscript(
         _source_phase5_script(
             "meta <- list("
-            "object_type = 'ld_shard', schema_version = .ld_manifest_schema, format = .ld_rds_format, "
+            "object_type = 'ld_shard', schema_version = .ld_manifest_schema, format = .ld_npz_format, "
             "chr = '1', sex = NULL, num_snp = 1, nnz = 2^31, "
             "matrix = 'symmetric', diagonal = 'explicit_unit', value = 'r', "
             "reference_checksum = 'checksum', reference_bim = 'reference_chr1.bim', "
             "num_monomorphic_snps = 0, sparse_layout = 'csc', index_base = 0); "
             "ok <- FALSE; "
-            "tryCatch(.validate_ld_shard_metadata(meta, 'shard.rds', .ld_rds_format), "
+            "tryCatch(.validate_ld_shard_metadata(meta, 'shard.npz', .ld_npz_format), "
             "error = function(e) ok <<- grepl('CSC32 metadata nnz must be < 2\\\\^31', e$message)); "
             "cat(as.character(ok), '\\n')"
         )
@@ -540,14 +534,16 @@ def test_r_ld_manifest_rejects_chrx_reference_identity_mismatch(tmp_path):
     manifest = {
         "object_type": "ld_panel_manifest",
         "schema_version": "1.0",
-        "runtime_format": "r_rds_csc32",
-        "reference_cache": "reference_cache.rds",
+        "runtime_format": "python_npz_csc32",
+        "reference_cache": "reference_cache.npz",
         "reference_cache_md5": "0" * 32,
+        "r_reference_cache": "reference_cache.rds",
+        "r_reference_cache_md5": "0" * 32,
         "shards": [
             {
                 "chr": "X",
                 "sex": "female",
-                "file": "ld_chrX_female.rds",
+                "file": "ld_chrX_female.npz",
                 "file_md5": "1" * 32,
                 "num_snp": 3,
                 "nnz": 7,
@@ -557,7 +553,7 @@ def test_r_ld_manifest_rejects_chrx_reference_identity_mismatch(tmp_path):
             {
                 "chr": "X",
                 "sex": "male",
-                "file": "ld_chrX_male.rds",
+                "file": "ld_chrX_male.npz",
                 "file_md5": "2" * 32,
                 "num_snp": 4,
                 "nnz": 7,

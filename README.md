@@ -61,8 +61,11 @@ allele orientation should be resolved upstream by
   object cache.
 - LD should be built from an unrelated, single-ancestry genotype reference panel
   appropriate for the downstream analyses.
-- Python and MATLAB LD distributions live in separate directories; MATLAB LD
-  distributions are converted from Python-built LD shards.
+- Python builds the canonical `ld_npz/` distribution. R prepares that same
+  `.npz` distribution in place with an R reference-cache sidecar and optional
+  extracted shard caches. MATLAB/Octave uses a separate `ld_mat/` distribution
+  converted from the Python-built LD shards because it needs native sparse
+  `.mat` files.
 - LD panels preserve the full reference SNP axis. If a forced LD build contains
   monomorphic SNPs, LD involving those SNPs is undefined and represented by
   omitted sparse entries.
@@ -148,9 +151,27 @@ distributions. In Octave, the package overview is available with
 
 ### Building LD Distributions
 
+The LD workflow intentionally differs slightly by runtime:
+
+```text
+Python builds ld_npz/
+R prepares ld_npz/ in place
+MATLAB/Octave converts ld_npz/ to ld_mat/
+```
+
+`ld_npz/` is the canonical build and interchange format. R reads its `.npz`
+shards directly after adding `reference_cache.rds`; with `extract_npz = TRUE`,
+R can also create sibling `*.npz.d` extracted caches for faster repeated loads.
+MATLAB/Octave uses a separate `ld_mat/` directory because its runtime sparse
+matrix representation is stored in `.mat` files.
+
 - `python script/statgen_build_ld.py ... --shard SHARD` builds one LD shard.
 - `python script/statgen_create_ld_manifest.py --ld PATH` finalizes a Python LD
   distribution.
+- R loads the Python `.npz` LD distribution directly after one R-specific
+  preparation step: `statgen::prepare_ld_npz_for_r(npz_root)`. Use
+  `extract_npz = TRUE` to create sibling `*.npz.d` extracted caches for faster
+  repeated R loads.
 - `statgen.convert_ld_npz_to_mat(input_root, output_root, shard)` converts a
   Python LD shard for MATLAB.
 - `statgen.create_ld_mat_manifest(input_root, output_root, shards)` finalizes a

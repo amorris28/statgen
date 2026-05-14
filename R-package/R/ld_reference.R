@@ -1,7 +1,21 @@
 .load_ld_manifest_reference <- function(root, manifest, shards) {
-  reference_cache_path <- file.path(root, manifest$reference_cache)
+  reference_cache_path <- .ld_r_reference_cache_path(root, manifest)
   .require_ld_file(reference_cache_path)
   load_reference_cache(reference_cache_path, shards = shards)
+}
+
+.ld_r_reference_cache_path <- function(root, manifest) {
+  file.path(root, .validate_plain_relative_filename(manifest$r_reference_cache, "r_reference_cache"))
+}
+
+.save_reference_cache_atomic <- function(panel, path) {
+  tmp <- tempfile(".reference_cache_", tmpdir = dirname(path), fileext = ".rds")
+  on.exit(unlink(tmp), add = TRUE)
+  save_reference_cache(panel, tmp)
+  if (!file.rename(tmp, path)) {
+    stop(sprintf("Failed to replace reference cache: %s", path), call. = FALSE)
+  }
+  invisible(NULL)
 }
 
 .validate_ld_reference_compatibility <- function(shard, ref_shard, path) {
@@ -44,6 +58,23 @@
   }
   if (!identical(checksum, entry$reference_checksum)) {
     stop(sprintf("%s: bundled reference BIM checksum does not match manifest", path), call. = FALSE)
+  }
+  invisible(NULL)
+}
+
+.validate_ld_manifest_reference_panel <- function(reference_panel, entries, root) {
+  by_label <- stats::setNames(shards(reference_panel), vapply(shards(reference_panel), function(s) s$label, character(1)))
+  seen <- character()
+  for (entry in entries) {
+    ref_shard <- by_label[[entry$chr]]
+    if (is.null(ref_shard)) {
+      stop(sprintf("%s: reference cache missing shard %s", root, entry$chr), call. = FALSE)
+    }
+    .validate_ld_reference_entry(ref_shard, entry, root)
+    if (!(entry$chr %in% seen)) {
+      .require_ld_file(file.path(root, entry$reference_bim))
+      seen <- c(seen, entry$chr)
+    }
   }
   invisible(NULL)
 }

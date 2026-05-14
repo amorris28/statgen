@@ -1,12 +1,10 @@
 .ld_manifest_schema <- "1.0"
-.ld_runtime_format <- "r_rds_csc32"
-.ld_python_runtime_format <- "python_npz_csc32"
-.ld_rds_format <- "statgen_ld_rds_csc32"
+.ld_runtime_format <- "python_npz_csc32"
 .ld_npz_format <- "statgen_ld_npz_csc32"
 .ld_valid_chrx_sex <- c("female", "male", "combined")
 .ld_required_arrays <- c("data", "indices", "indptr", "shape", "a1freq", "metadata")
 
-.read_ld_manifest <- function(path, expected_runtime = NULL) {
+.read_ld_manifest <- function(path, require_r_reference = FALSE) {
   .require_ld_file(path)
   manifest <- jsonlite::fromJSON(path, simplifyVector = FALSE)
   if (!identical(manifest$object_type, "ld_panel_manifest")) {
@@ -15,14 +13,23 @@
   if (!identical(manifest$schema_version, .ld_manifest_schema)) {
     stop(sprintf("%s: unsupported LD manifest schema_version %s", path, sQuote(as.character(manifest$schema_version))), call. = FALSE)
   }
-  if (!(manifest$runtime_format %in% c(.ld_runtime_format, .ld_python_runtime_format))) {
+  if (!identical(manifest$runtime_format, .ld_runtime_format)) {
     stop(sprintf("%s: unsupported LD runtime_format %s", path, sQuote(as.character(manifest$runtime_format))), call. = FALSE)
-  }
-  if (!is.null(expected_runtime) && !identical(manifest$runtime_format, expected_runtime)) {
-    stop(sprintf("%s: expected runtime_format %s, got %s", path, sQuote(expected_runtime), sQuote(as.character(manifest$runtime_format))), call. = FALSE)
   }
   .validate_plain_relative_filename(manifest$reference_cache, sprintf("%s: reference_cache", path))
   .validate_md5_hex(manifest$reference_cache_md5, sprintf("%s: reference_cache_md5", path))
+  has_r_reference <- !is.null(manifest$r_reference_cache)
+  has_r_md5 <- !is.null(manifest$r_reference_cache_md5)
+  if (xor(has_r_reference, has_r_md5)) {
+    stop(sprintf("%s: r_reference_cache and r_reference_cache_md5 must be present together", path), call. = FALSE)
+  }
+  if (isTRUE(require_r_reference) && !has_r_reference) {
+    stop(sprintf("%s: missing r_reference_cache/r_reference_cache_md5 for R LD loading", path), call. = FALSE)
+  }
+  if (has_r_reference) {
+    .validate_plain_relative_filename(manifest$r_reference_cache, sprintf("%s: r_reference_cache", path))
+    .validate_md5_hex(manifest$r_reference_cache_md5, sprintf("%s: r_reference_cache_md5", path))
+  }
   if (!is.list(manifest$shards) || !length(manifest$shards)) {
     stop(sprintf("%s: shards must be a non-empty list", path), call. = FALSE)
   }
@@ -129,18 +136,6 @@
   invisible(NULL)
 }
 
-.validate_expected_converted_metadata <- function(py_entry, meta, rds_file, path) {
-  for (key in c("chr", "sex", "num_snp", "nnz", "reference_checksum", "reference_bim")) {
-    if (!identical(py_entry[[key]], meta[[key]])) {
-      stop(sprintf("%s: converted metadata mismatch for %s", path, key), call. = FALSE)
-    }
-  }
-  if (!identical(.ld_rds_filename_for_entry(py_entry), rds_file)) {
-    stop(sprintf("%s: converted RDS filename does not match expected shard filename", path), call. = FALSE)
-  }
-  invisible(NULL)
-}
-
 .validate_chr_sex <- function(chr_label, sex, where) {
   if (!is.character(chr_label) || length(chr_label) != 1L || !(chr_label %in% .canonical_chr_order)) {
     stop(sprintf("%s: chr must be one of 1-22 or X", where), call. = FALSE)
@@ -222,25 +217,13 @@
   digest::digest(path, algo = "md5", file = TRUE)
 }
 
-.expected_ld_manifest_entries <- function(manifest, label, where) {
-  entries <- if (identical(label, "X")) {
-    Filter(function(e) identical(e$chr, "X"), manifest$shards)
-  } else {
-    Filter(function(e) identical(e$chr, label) && is.null(e$sex), manifest$shards)
-  }
-  if (!length(entries)) {
-    stop(sprintf("%s: requested shard %s is absent from the Python LD manifest", where, sQuote(label)), call. = FALSE)
-  }
-  entries
-}
-
-.ld_rds_filename_for_entry <- function(entry) {
-  file <- .validate_plain_relative_filename(entry$file, "Python LD manifest file for RDS conversion")
-  sub("\\.npz$", ".rds", file)
-}
-
 .write_ld_manifest <- function(manifest, path) {
   text <- jsonlite::toJSON(manifest, auto_unbox = TRUE, null = "null", pretty = TRUE)
-  writeLines(text, path, useBytes = TRUE)
+  tmp <- tempfile(".ld_manifest_", tmpdir = dirname(path))
+  on.exit(unlink(tmp), add = TRUE)
+  writeLines(text, tmp, useBytes = TRUE)
+  if (!file.rename(tmp, path)) {
+    stop(sprintf("Failed to replace LD manifest: %s", path), call. = FALSE)
+  }
   invisible(NULL)
 }

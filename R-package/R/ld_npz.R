@@ -1,4 +1,9 @@
-.read_npz_ld_payload <- function(path, scratch_parent = tempdir()) {
+.read_npz_ld_payload <- function(path, scratch_parent = NULL, expected_file_md5 = NULL) {
+  extracted_dir <- .ld_npz_extracted_dir(path)
+  if (.is_valid_extracted_npz_cache(path, extracted_dir, expected_file_md5)) {
+    return(.read_extracted_npz_ld_payload(path, extracted_dir))
+  }
+
   listing <- utils::unzip(path, list = TRUE)
   names_in_zip <- listing$Name
   required_files <- paste0(.ld_required_arrays, ".npy")
@@ -6,12 +11,57 @@
   if (length(missing)) {
     stop(sprintf("%s: missing required arrays: %s", path, paste(sub("\\.npy$", "", missing), collapse = ", ")), call. = FALSE)
   }
+  if (is.null(scratch_parent)) {
+    scratch_parent <- .npz_scratch_parent(path)
+  }
   dir.create(scratch_parent, recursive = TRUE, showWarnings = FALSE)
   tmp <- tempfile("statgen_npz_", tmpdir = scratch_parent)
   dir.create(tmp)
   on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
   utils::unzip(path, files = required_files, exdir = tmp)
   arrays <- lapply(.ld_required_arrays, function(name) .read_npy_array(file.path(tmp, paste0(name, ".npy")), path, name))
+  .npz_arrays_to_payload(arrays, path)
+}
+
+.ld_npz_extracted_dir <- function(path) {
+  paste0(path, ".d")
+}
+
+.ld_npz_extracted_marker <- function(cache_dir) {
+  file.path(cache_dir, ".statgen-extracted-npz.json")
+}
+
+.is_valid_extracted_npz_cache <- function(path, cache_dir, expected_file_md5 = NULL) {
+  if (!dir.exists(cache_dir)) {
+    return(FALSE)
+  }
+  required_files <- file.path(cache_dir, paste0(.ld_required_arrays, ".npy"))
+  if (any(!file.exists(required_files) | dir.exists(required_files))) {
+    return(FALSE)
+  }
+  marker_path <- .ld_npz_extracted_marker(cache_dir)
+  if (!file.exists(marker_path) || dir.exists(marker_path)) {
+    return(FALSE)
+  }
+  marker <- tryCatch(
+    jsonlite::fromJSON(marker_path, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (!is.list(marker) ||
+      !identical(marker$format, "statgen_extracted_npz") ||
+      !identical(marker$source_file, basename(path))) {
+    return(FALSE)
+  }
+  source_md5 <- if (is.null(expected_file_md5)) .md5_file(path) else expected_file_md5
+  identical(marker$source_file_md5, source_md5)
+}
+
+.read_extracted_npz_ld_payload <- function(path, cache_dir) {
+  arrays <- lapply(.ld_required_arrays, function(name) .read_npy_array(file.path(cache_dir, paste0(name, ".npy")), path, name))
+  .npz_arrays_to_payload(arrays, path)
+}
+
+.npz_arrays_to_payload <- function(arrays, path) {
   names(arrays) <- .ld_required_arrays
   metadata_raw <- as.raw(arrays$metadata$data)
   metadata <- tryCatch(
@@ -26,6 +76,63 @@
     a1freq = arrays$a1freq$data,
     metadata = metadata
   )
+}
+
+.extract_npz_ld_payload_cache <- function(path, expected_file_md5) {
+  .require_ld_file(path)
+  source_md5 <- .md5_file(path)
+  if (!identical(source_md5, expected_file_md5)) {
+    stop(sprintf("%s: file_md5 does not match manifest", path), call. = FALSE)
+  }
+  listing <- utils::unzip(path, list = TRUE)
+  required_files <- paste0(.ld_required_arrays, ".npy")
+  missing <- setdiff(required_files, listing$Name)
+  if (length(missing)) {
+    stop(sprintf("%s: missing required arrays: %s", path, paste(sub("\\.npy$", "", missing), collapse = ", ")), call. = FALSE)
+  }
+
+  cache_dir <- .ld_npz_extracted_dir(path)
+  tmp <- tempfile(".statgen_npz_d_", tmpdir = dirname(path))
+  dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  utils::unzip(path, files = required_files, exdir = tmp)
+  extracted_files <- file.path(tmp, required_files)
+  if (any(!file.exists(extracted_files) | dir.exists(extracted_files))) {
+    stop(sprintf("%s: failed to extract required LD arrays", path), call. = FALSE)
+  }
+  marker <- list(
+    format = "statgen_extracted_npz",
+    schema_version = "1.0",
+    source_file = basename(path),
+    source_file_md5 = source_md5
+  )
+  marker_text <- jsonlite::toJSON(marker, auto_unbox = TRUE, pretty = TRUE)
+  writeLines(marker_text, .ld_npz_extracted_marker(tmp), useBytes = TRUE)
+
+  if (file.exists(cache_dir)) {
+    unlink(cache_dir, recursive = TRUE)
+  }
+  if (!file.rename(tmp, cache_dir)) {
+    stop(sprintf("Failed to replace extracted LD cache: %s", cache_dir), call. = FALSE)
+  }
+  invisible(cache_dir)
+}
+
+.npz_scratch_parent <- function(path) {
+  env_root <- Sys.getenv("STATGEN_SCRATCH", unset = "")
+  if (nzchar(env_root)) {
+    dir.create(env_root, recursive = TRUE, showWarnings = FALSE)
+    if (dir.exists(env_root)) {
+      return(env_root)
+    }
+    stop(sprintf("Cannot create STATGEN_SCRATCH directory: %s", env_root), call. = FALSE)
+  }
+  root <- dirname(path)
+  if (dir.exists(root) && file.access(root, 2L) == 0L) {
+    return(root)
+  }
+  warning("STATGEN_SCRATCH is unset and LD .npz directory is not writable; using system temporary directory for extraction", call. = FALSE)
+  tempdir()
 }
 
 .read_npy_array <- function(file, archive_path, array_name) {

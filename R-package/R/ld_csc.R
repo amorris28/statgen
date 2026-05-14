@@ -1,10 +1,9 @@
-.read_ld_rds_shard <- function(path, check_payload_structure = FALSE, retain_ld_r = TRUE) {
+.read_ld_npz_shard <- function(path, check_payload_structure = FALSE, retain_ld_r = TRUE, expected_file_md5 = NULL) {
   .require_ld_file(path)
-  payload <- readRDS(path)
-  .validate_ld_rds_payload(payload, path)
+  payload <- .read_npz_ld_payload(path, expected_file_md5 = expected_file_md5)
   meta <- payload$metadata
-  .validate_ld_shard_metadata(meta, path, expected_format = .ld_rds_format)
-  .validate_rds_payload_dimensions(path, payload, meta)
+  .validate_ld_shard_metadata(meta, path, expected_format = .ld_npz_format)
+  .validate_csc_payload_dimensions(path, payload, meta)
   if (isTRUE(check_payload_structure)) {
     .validate_csc_payload_structure(path, payload$data, payload$indices, payload$indptr, meta$num_snp, meta$nnz)
   }
@@ -56,18 +55,7 @@
   )
 }
 
-.validate_ld_rds_payload <- function(payload, path) {
-  if (!is.list(payload) || is.null(payload$metadata)) {
-    stop(sprintf("%s: expected an RDS list with metadata", path), call. = FALSE)
-  }
-  missing <- setdiff(.ld_required_arrays, names(payload))
-  if (length(missing)) {
-    stop(sprintf("%s: missing required fields: %s", path, paste(missing, collapse = ", ")), call. = FALSE)
-  }
-  invisible(NULL)
-}
-
-.validate_rds_payload_dimensions <- function(path, payload, meta) {
+.validate_csc_payload_dimensions <- function(path, payload, meta) {
   .validate_numeric_1d(payload$data, path, "data")
   .validate_integer_1d(payload$indices, path, "indices")
   .validate_integer_1d(payload$indptr, path, "indptr")
@@ -91,10 +79,6 @@
     stop(sprintf("%s: a1freq length must equal num_snp", path), call. = FALSE)
   }
   invisible(NULL)
-}
-
-.validate_npz_payload_dimensions <- function(path, payload, meta) {
-  .validate_rds_payload_dimensions(path, payload, meta)
 }
 
 .validate_csc_payload_structure <- function(path, data, indices, indptr, num_snp, nnz) {
