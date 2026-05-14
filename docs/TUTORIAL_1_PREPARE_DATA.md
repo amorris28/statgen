@@ -19,10 +19,11 @@ GitHub releases also attach a `statgen-tutorial-1-fixtures-<version>.zip`
 archive with the same `source/` directory. Extract that archive into an empty
 working directory and run the tutorial commands from that directory.
 
-For example, without cloning the repository:
+For example, without cloning the repository, set `VERSION` to the release
+version you want to use:
 
 ```bash
-VERSION="0.2.6"
+VERSION="<release-version>"
 mkdir statgen-tutorial-1-fixtures
 cd statgen-tutorial-1-fixtures
 curl -LO "https://github.com/precimed/statgen/releases/download/v${VERSION}/statgen-tutorial-1-fixtures-${VERSION}.zip"

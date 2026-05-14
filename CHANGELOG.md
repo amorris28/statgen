@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-14
+
 ### Added
 - Added the R package runtime with reference, summary statistics, annotation,
   genotype, and LD support. Release automation now checks the R package and

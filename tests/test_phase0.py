@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import tomllib
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,11 @@ import pytest
 from scipy.io import loadmat
 
 from tests.conftest import FIXTURES_DIR, matlab_data_lines, skipif_no_octave, run_octave
+
+
+def _python_project_version() -> str:
+    pyproject = Path(__file__).parents[1] / "python" / "pyproject.toml"
+    return tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +153,7 @@ def test_plink_bed_magic():
 
 def test_statgen_importable():
     import statgen
-    assert statgen.__version__ == "0.2.6"
+    assert statgen.__version__ == _python_project_version()
 
 
 def test_matlab_data_lines_skips_warning_stack_frames():
