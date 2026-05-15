@@ -4,8 +4,9 @@ Title: Statistical Genetics Data Objects and Loaders
 Version: 0.3.0
 Authors@R: person("Oleksandr", "Frei", role = c("aut", "cre", "cph"),
     email = "oleksandr.frei@gmail.com")
-Description: CRAN-compatible R runtime for statgen statistical genetics
-    reference, genotype, LD, annotation, and summary-statistic objects.
+Description: Loads and manages statistical genetics data objects including reference
+    panels, genotypes, LD matrices, annotations, and summary statistics. Implements the
+    language-agnostic statgen specifications for coordinated multi-runtime analysis.
 License: MIT + file LICENSE
 URL: https://github.com/precimed/statgen
 BugReports: https://github.com/precimed/statgen/issues
