@@ -334,39 +334,48 @@ print.AnnotationPanel <- function(x, ...) {
 }
 
 .parse_bed <- function(path) {
+  # First pass: scan line-by-line to validate structure and count header lines to
+  # skip. Avoids seek(), which R documents as unreliable on Windows text connections.
   con <- file(path, open = "rt")
   on.exit(close(con), add = TRUE)
+
+  skip_count <- 0L
   first_data <- NULL
-  first_pos <- 0
+  found_data <- FALSE
+
   repeat {
-    pos <- seek(con, where = NA)
     line <- readLines(con, n = 1L, warn = FALSE)
     if (!length(line)) {
-      stop(sprintf("%s: BED file is empty", path), call. = FALSE)
-    }
-    if (!identical(line, "") && !startsWith(line, "#")) {
-      first_data <- line
-      first_pos <- pos
+      if (!found_data) {
+        stop(sprintf("%s: BED file is empty", path), call. = FALSE)
+      }
       break
     }
+    if (!found_data) {
+      if (identical(line, "") || startsWith(line, "#")) {
+        skip_count <- skip_count + 1L
+      } else {
+        first_data <- line
+        found_data <- TRUE
+      }
+    } else {
+      if (identical(line, "") || startsWith(line, "#")) {
+        stop(sprintf("%s: blank or comment line after BED data row", path), call. = FALSE)
+      }
+    }
   }
+  close(con)
+  on.exit(NULL)
+
   if (length(strsplit(first_data, "\t", fixed = TRUE)[[1L]]) < 3L) {
     stop(sprintf("%s: BED must have at least 3 tab-separated columns", path), call. = FALSE)
   }
-  seek(con, where = first_pos)
-  repeat {
-    line <- readLines(con, n = 1L, warn = FALSE)
-    if (!length(line)) {
-      break
-    }
-    if (identical(line, "") || startsWith(line, "#")) {
-      stop(sprintf("%s: blank or comment line after BED data row", path), call. = FALSE)
-    }
-  }
-  seek(con, where = first_pos)
+
+  # Second pass: read.table opens the file fresh, no seek() needed.
   df <- tryCatch(
     utils::read.table(
-      file = con,
+      file = path,
+      skip = skip_count,
       header = FALSE,
       sep = "\t",
       quote = "",
