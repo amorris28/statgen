@@ -1,5 +1,5 @@
 R_PACKAGE_VERSION := $(shell awk '/^Version:/ {print $$2}' R-package/DESCRIPTION)
-R_PACKAGE_TARBALL := /tmp/statgen-r_$(R_PACKAGE_VERSION).tar.gz
+R_PACKAGE_TARBALL := /tmp/statgen_$(R_PACKAGE_VERSION).tar.gz
 R_DOCS_DIR := /tmp/statgen-docs
 R_DOCS_LIB := /tmp/statgen-r-lib
 
