@@ -26,6 +26,5 @@ install.packages("statgen")
 ## Documentation
 
 - [Main statgen repository](https://github.com/precimed/statgen)
-- [Specification documents](../spec/)
 - Package vignette: `vignette("statgen")`
 
