@@ -486,9 +486,10 @@ def _octave_script(expr: str) -> str:
 @pytest.mark.octave
 @skipif_no_octave
 def test_octave_allele_hash64_matches_python():
-    expected = [f"{int(x):016X}" for x in allele_hash64(["A", "C", "ACGT", "ATCGGCTA"])]
+    alleles = ["A", "C", "G", "T", "N", "-", "ACGT", "ATCGGCTA"]
+    expected = [f"{int(x):016X}" for x in allele_hash64(alleles)]
     script = _octave_script(
-        "h = statgen.internal.allele_hash64({'A','C','ACGT','ATCGGCTA'}); "
+        "h = statgen.internal.allele_hash64({'A','C','G','T','N','-','ACGT','ATCGGCTA'}); "
         "for i = 1:numel(h); fprintf('%s\\n', dec2hex(h(i), 16)); end"
     )
     result = run_octave(script)

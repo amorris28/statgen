@@ -25,20 +25,56 @@ function out = allele_hash64(alleles)
         lens = min(lens, max_chars);
     end
 
-    mat = uint8(char(alleles));
+    single_base = lens == 1;
+    if any(single_base)
+        bases = {'A'; 'C'; 'G'; 'T'};
+        base_x = double(uint8(char(bases))) + 1;
+        base_x = base_x(:);
+        base_h1 = mod(base1 + base_x, p);
+        base_h2 = mod(base2 + base_x, p);
+        base_hash = bitshift(uint64(base_h1), 32) + uint64(base_h2);
+
+        single_idx = find(single_base);
+        single_alleles = alleles(single_idx);
+        assigned = false(numel(single_idx), 1);
+        for k = 1:numel(bases)
+            matches = strcmp(single_alleles, bases{k});
+            if any(matches)
+                out(single_idx(matches)) = base_hash(k);
+                assigned(matches) = true;
+            end
+        end
+        if any(~assigned)
+            other_idx = single_idx(~assigned);
+            x = double(uint8(char(alleles(other_idx)))) + 1;
+            x = x(:);
+            h1 = mod(base1 + x, p);
+            h2 = mod(base2 + x, p);
+            out(other_idx) = bitshift(uint64(h1), 32) + uint64(h2);
+        end
+    end
+    if all(single_base)
+        return
+    end
+
+    multi_idx = find(~single_base);
+    multi_alleles = alleles(multi_idx);
+    multi_lens = lens(multi_idx);
+
+    mat = uint8(char(multi_alleles));
     L = size(mat, 2);
     cols = 1:L;
-    pad = bsxfun(@gt, cols, lens);
+    pad = bsxfun(@gt, cols, multi_lens);
     mat(pad) = uint8(0);
 
-    h1 = ones(n, 1);
-    h2 = ones(n, 1);
+    h1 = ones(numel(multi_idx), 1);
+    h2 = ones(numel(multi_idx), 1);
     for j = 1:L
-        active = j <= lens;
+        active = j <= multi_lens;
         x = double(mat(active, j)) + 1;
         h1(active) = mod(h1(active) .* base1 + x, p);
         h2(active) = mod(h2(active) .* base2 + x, p);
     end
 
-    out = bitshift(uint64(h1), 32) + uint64(h2);
+    out(multi_idx) = bitshift(uint64(h1), 32) + uint64(h2);
 end
