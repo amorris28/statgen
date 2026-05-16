@@ -242,6 +242,12 @@ def test_r_phase2_rejects_malformed_inputs(tmp_path):
     bad_sumstats.write_text("chr\tbp\ta1\ta2\tp\n1\t100\tA\tG\t1.5\n")
     bad_nan_sumstats = tmp_path / "bad_nan.tsv"
     bad_nan_sumstats.write_text("chr\tbp\ta1\ta2\tp\n1\t100\tA\tG\tNaN\n")
+    bad_allele_sumstats = tmp_path / "bad_allele.tsv"
+    bad_allele_sumstats.write_text("chr\tbp\ta1\ta2\tp\n1\t100\ta\tG\t0.1\n")
+    same_allele_sumstats = tmp_path / "same_allele.tsv"
+    same_allele_sumstats.write_text("chr\tbp\ta1\ta2\tp\n1\t100\tA\tA\t0.1\n")
+    ignored_chr_sumstats = tmp_path / "ignored_chr.tsv"
+    ignored_chr_sumstats.write_text("chr\tbp\ta1\ta2\tp\nY\t1\tN\tN\tNaN\nMT\t1\tN\tN\tNaN\n1\t100\tA\tG\t0.1\n")
     bad_bed = tmp_path / "bad.bed"
     bad_bed.write_text("1\t100\n")
     bad_cache = tmp_path / "bad_sumstats_cache.rds"
@@ -251,11 +257,14 @@ def test_r_phase2_rejects_malformed_inputs(tmp_path):
             f"saveRDS(list(metadata = list(schema = 'sumstats_cache/0.1', n_shards = 0L, shard_labels = character(), shard_checksums = character(), shard_start0 = numeric(), shard_stop0 = numeric()), logpvec = numeric()), {json.dumps(str(bad_cache))}); "
             f"ok1 <- FALSE; tryCatch(load_sumstats({json.dumps(str(bad_sumstats))}, ref), error = function(e) ok1 <<- grepl('p must be finite numeric', e$message)); "
             f"ok1_nan <- FALSE; tryCatch(load_sumstats({json.dumps(str(bad_nan_sumstats))}, ref), error = function(e) ok1_nan <<- grepl('p must be finite numeric', e$message)); "
+            f"ok1_allele <- FALSE; tryCatch(load_sumstats({json.dumps(str(bad_allele_sumstats))}, ref), error = function(e) ok1_allele <<- grepl('uppercase DNA bases', e$message)); "
+            f"ok1_same <- FALSE; tryCatch(load_sumstats({json.dumps(str(same_allele_sumstats))}, ref), error = function(e) ok1_same <<- grepl('a1 and a2 must differ', e$message)); "
+            f"ignored <- load_sumstats({json.dumps(str(ignored_chr_sumstats))}, ref); ok1_ignored <- sum(is_present(ignored)) == 1L; "
             f"ok2 <- FALSE; tryCatch(load_annotations({json.dumps(str(bad_bed))}, ref), error = function(e) ok2 <<- grepl('at least 3', e$message)); "
             "ok3 <- FALSE; tryCatch(load_annotations('', ref), error = function(e) ok3 <<- grepl('bed_paths must be a non-empty character vector', e$message)); "
             "ok4 <- FALSE; tryCatch(load_annotations(NA_character_, ref), error = function(e) ok4 <<- grepl('bed_paths must be a non-empty character vector', e$message)); "
             f"ok5 <- FALSE; tryCatch(load_sumstats_cache({json.dumps(str(bad_cache))}), error = function(e) ok5 <<- grepl('n_shards must be at least 1', e$message)); "
-            "stopifnot(ok1, ok1_nan, ok2, ok3, ok4, ok5)"
+            "stopifnot(ok1, ok1_nan, ok1_allele, ok1_same, ok1_ignored, ok2, ok3, ok4, ok5)"
         )
     )
     assert result.returncode == 0, result.stderr

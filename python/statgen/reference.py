@@ -39,17 +39,6 @@ def _is_strand_ambiguous(a1_hash64, a2_hash64) -> np.ndarray:
     )
 
 
-def _validate_distinct_alleles(label: str, a1_arr: np.ndarray, a2_arr: np.ndarray) -> None:
-    same = np.asarray(a1_arr, dtype=object).reshape(-1) == np.asarray(
-        a2_arr, dtype=object
-    ).reshape(-1)
-    if np.any(same):
-        idx0 = int(np.flatnonzero(same)[0])
-        raise ValueError(
-            f"Reference shard {label} variant {idx0 + 1}: a1 and a2 must differ"
-        )
-
-
 def _checksum_from_arrays(
     chr_arr: np.ndarray, bp_arr: np.ndarray, a1_arr: np.ndarray, a2_arr: np.ndarray
 ) -> str:
@@ -92,7 +81,6 @@ class ReferenceShard:
             raise ValueError("ReferenceShard vector lengths must match")
         if self._chr.size and not np.all(self._chr == self._label):
             raise ValueError(f"Reference shard {self._label} contains multiple chr labels")
-        _validate_distinct_alleles(self._label, self._a1, self._a2)
         self._a1_hash64 = allele_hash64(self._a1)
         self._a2_hash64 = allele_hash64(self._a2)
         self._checksum = _checksum_from_arrays(self._chr, self._bp, self._a1, self._a2)
@@ -175,7 +163,6 @@ class ReferenceShard:
             raise ValueError("Invalid reference cache: panel-wide vector lengths mismatch")
         if obj._chr.size and not np.all(obj._chr == obj._label):
             raise ValueError(f"Invalid reference cache: shard {obj._label} contains multiple chr labels")
-        _validate_distinct_alleles(obj._label, obj._a1, obj._a2)
         obj._a1_hash64 = (
             allele_hash64(obj._a1)
             if a1_hash64 is None

@@ -271,7 +271,6 @@ print.ReferencePanel <- function(x, ...) {
   if (length(chr) && any(chr != label)) {
     stop(sprintf("Reference shard %s contains multiple chr labels", label), call. = FALSE)
   }
-  .validate_distinct_alleles(label, a1, a2)
   if (is.null(a1_hash64)) {
     a1_hash64 <- .allele_hash64(a1)
   } else {
@@ -374,13 +373,6 @@ print.ReferencePanel <- function(x, ...) {
 .checksum_from_arrays <- function(chr, bp, a1, a2) {
   text <- paste0(chr, ":", as.integer(bp), ":", a1, ":", a2, "\n", collapse = "")
   digest::digest(enc2utf8(text), algo = "md5", serialize = FALSE)
-}
-
-.validate_distinct_alleles <- function(label, a1, a2) {
-  same <- a1 == a2
-  if (any(same)) {
-    stop(sprintf("Reference shard %s variant %d: a1 and a2 must differ", label, which(same)[[1]]), call. = FALSE)
-  }
 }
 
 .encode_text_payload <- function(values) {

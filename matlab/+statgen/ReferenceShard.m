@@ -45,7 +45,6 @@ classdef ReferenceShard
             if any(bad)
                 error('statgen:reference', 'Reference shard %s contains multiple chr labels', obj.label);
             end
-            validate_distinct_alleles_(obj.label, obj.a1_data, obj.a2_data);
             obj.a1_hash64 = statgen.internal.allele_hash64(obj.a1_data);
             obj.a2_hash64 = statgen.internal.allele_hash64(obj.a2_data);
             if ~isempty(checksum)
@@ -191,14 +190,6 @@ function out = decode_text_vector_(payload, expected_n, field_name, label)
     if any(empty)
         idx = find(empty, 1, 'first');
         error('statgen:cache', 'Invalid reference cache: shard %s field %s row %d is empty', label, field_name, idx);
-    end
-end
-
-function validate_distinct_alleles_(label, a1, a2)
-    same = strcmp(a1, a2);
-    if any(same)
-        idx = find(same, 1, 'first');
-        error('statgen:reference', 'Reference shard %s variant %d: a1 and a2 must differ', label, idx);
     end
 end
 

@@ -1,4 +1,5 @@
 import json
+import re
 import warnings
 from pathlib import Path
 
@@ -6,10 +7,12 @@ import numpy as np
 import pandas as pd
 from pandas.errors import ParserError
 
-from ._utils import allele_hash64, validate_requested_shards
+from ._utils import CANONICAL_CHR_ORDER, allele_hash64, validate_requested_shards
 from ._variant_match import match_shard_numeric, numeric_variant_keys
 
 _CACHE_SCHEMA = "sumstats_cache/0.1"
+_IGNORED_CHR = {"Y", "MT"}
+_DNA_ALLELE_RE = re.compile(r"^[ACGT]+$")
 _REQUIRED_COLS = ("chr", "bp", "a1", "a2", "p")
 _OPTIONAL_COLS = ("z", "n", "beta", "se", "eaf", "info")
 _OPTIONAL_VECTOR_FIELDS = ("z", "n", "beta", "se", "eaf", "info")
@@ -50,25 +53,55 @@ def _parse_sumstats(path: Path) -> pd.DataFrame:
         raise ValueError(f"{path}: missing required columns: {', '.join(missing)}")
 
     out = df.copy()
-    bp_num = pd.to_numeric(out["bp"], errors="coerce")
-    bad_bp = bp_num.isna() | (np.floor(bp_num) != bp_num)
-    if bad_bp.any():
-        idx = int(bad_bp.idxmax())
-        raise ValueError(f"{path}: row {idx + 2}: bp is not an integer: {out['bp'].iat[idx]!r}")
-    out["bp"] = bp_num.astype(np.int64)
-
     for col in ("chr", "a1", "a2"):
         bad_empty = out[col].eq("")
         if bad_empty.any():
             idx = int(bad_empty.idxmax())
             raise ValueError(f"{path}: row {idx + 2}: {col} must be non-empty")
 
+    chr_col = out["chr"]
+    chr_style = chr_col.str.lower().str.startswith("chr")
+    if chr_style.any():
+        idx = int(chr_style.idxmax())
+        raise ValueError(f"{path}: row {idx + 2}: chr-style labels (e.g., chr1/chrX) are not allowed")
+    known_chr = chr_col.isin(CANONICAL_CHR_ORDER) | chr_col.isin(_IGNORED_CHR)
+    if not known_chr.all():
+        idx = int((~known_chr).idxmax())
+        raise ValueError(
+            f"{path}: row {idx + 2}: unsupported chr label {chr_col.iat[idx]!r}; expected 1-22, X (Y/MT are ignored)"
+        )
+    out = out.loc[chr_col.isin(CANONICAL_CHR_ORDER)].copy()
+
+    bad_a1_syntax = ~out["a1"].str.fullmatch(_DNA_ALLELE_RE.pattern)
+    if bad_a1_syntax.any():
+        idx = int(bad_a1_syntax.idxmax())
+        raise ValueError(
+            f"{path}: row {idx + 2}: a1 must be uppercase DNA bases (A/C/G/T): {out.loc[idx, 'a1']!r}"
+        )
+    bad_a2_syntax = ~out["a2"].str.fullmatch(_DNA_ALLELE_RE.pattern)
+    if bad_a2_syntax.any():
+        idx = int(bad_a2_syntax.idxmax())
+        raise ValueError(
+            f"{path}: row {idx + 2}: a2 must be uppercase DNA bases (A/C/G/T): {out.loc[idx, 'a2']!r}"
+        )
+    same_allele = out["a1"].eq(out["a2"])
+    if same_allele.any():
+        idx = int(same_allele.idxmax())
+        raise ValueError(f"{path}: row {idx + 2}: a1 and a2 must differ")
+
+    bp_num = pd.to_numeric(out["bp"], errors="coerce")
+    bad_bp = bp_num.isna() | (np.floor(bp_num) != bp_num)
+    if bad_bp.any():
+        idx = int(bad_bp.idxmax())
+        raise ValueError(f"{path}: row {idx + 2}: bp is not an integer: {out.loc[idx, 'bp']!r}")
+    out["bp"] = bp_num.astype(np.int64)
+
     p_vals = pd.to_numeric(out["p"], errors="coerce")
     p_arr = p_vals.to_numpy(dtype=float)
     bad_p = p_vals.isna() | ~np.isfinite(p_arr) | (p_arr < 0.0) | (p_arr > 1.0)
     if bad_p.any():
         idx = int(bad_p.idxmax())
-        raise ValueError(f"{path}: row {idx + 2}: p must be finite numeric in [0, 1]: {out['p'].iat[idx]!r}")
+        raise ValueError(f"{path}: row {idx + 2}: p must be finite numeric in [0, 1]: {out.loc[idx, 'p']!r}")
     out["p"] = p_vals.astype(float)
 
     for opt in _OPTIONAL_COLS:

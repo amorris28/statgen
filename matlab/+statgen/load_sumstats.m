@@ -55,24 +55,46 @@ function sumstats = build_sumstats_(tbl, reference, path)
     a1_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a1'));
     a2_col  = ensure_cellstr_col_(get_col_(tbl, var_names, 'a2'));
     p_num   = require_numeric_col_(get_col_(tbl, var_names, 'p'));
+    source_line = (2:(numel(chr_col) + 1))';
 
-    bad_chr = cellfun('isempty', chr_col);
-    if any(bad_chr), error('statgen:sumstats', '%s: row %d: chr must be non-empty', path, find(bad_chr, 1, 'first') + 1); end
+    keep_chr = statgen.internal.validate_variant_chr_labels(chr_col, path, 1, 'statgen:sumstats');
+    chr_col = chr_col(keep_chr);
+    bp_num = bp_num(keep_chr);
+    a1_col = a1_col(keep_chr);
+    a2_col = a2_col(keep_chr);
+    p_num = p_num(keep_chr);
+    source_line = source_line(keep_chr);
+
     bad_a1 = cellfun('isempty', a1_col);
-    if any(bad_a1), error('statgen:sumstats', '%s: row %d: a1 must be non-empty', path, find(bad_a1, 1, 'first') + 1); end
+    if any(bad_a1), error('statgen:sumstats', '%s: row %d: a1 must be non-empty', path, source_line(find(bad_a1, 1, 'first'))); end
     bad_a2 = cellfun('isempty', a2_col);
-    if any(bad_a2), error('statgen:sumstats', '%s: row %d: a2 must be non-empty', path, find(bad_a2, 1, 'first') + 1); end
+    if any(bad_a2), error('statgen:sumstats', '%s: row %d: a2 must be non-empty', path, source_line(find(bad_a2, 1, 'first'))); end
+    bad_a1_syntax = statgen.internal.invalid_dna_allele(a1_col);
+    if any(bad_a1_syntax)
+        i = find(bad_a1_syntax, 1, 'first');
+        error('statgen:sumstats', '%s: row %d: a1 must be uppercase DNA bases (A/C/G/T): %s', path, source_line(i), a1_col{i});
+    end
+    bad_a2_syntax = statgen.internal.invalid_dna_allele(a2_col);
+    if any(bad_a2_syntax)
+        i = find(bad_a2_syntax, 1, 'first');
+        error('statgen:sumstats', '%s: row %d: a2 must be uppercase DNA bases (A/C/G/T): %s', path, source_line(i), a2_col{i});
+    end
+    same_allele = strcmp(a1_col, a2_col);
+    if any(same_allele)
+        i = find(same_allele, 1, 'first');
+        error('statgen:sumstats', '%s: row %d: a1 and a2 must differ', path, source_line(i));
+    end
 
     bad_bp = isnan(bp_num) | (bp_num ~= floor(bp_num));
     if any(bad_bp)
         i = find(bad_bp, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: bp is not an integer', path, i + 1);
+        error('statgen:sumstats', '%s: row %d: bp is not an integer', path, source_line(i));
     end
 
     bad_p = ~isfinite(p_num) | p_num < 0 | p_num > 1;
     if any(bad_p)
         i = find(bad_p, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: p must be finite numeric in [0, 1]', path, i + 1);
+        error('statgen:sumstats', '%s: row %d: p must be finite numeric in [0, 1]', path, source_line(i));
     end
 
     optional_map = struct('z', [], 'n', [], 'beta', [], 'se', [], 'eaf', [], 'info', []);
@@ -81,6 +103,7 @@ function sumstats = build_sumstats_(tbl, reference, path)
         nm = optional_names{i};
         if any(strcmp(var_names, nm))
             vals = require_numeric_col_(get_col_(tbl, var_names, nm));
+            vals = vals(keep_chr);
             vals(~isfinite(vals)) = NaN;
             optional_map.(nm) = vals;
         end

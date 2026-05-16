@@ -32,6 +32,20 @@ time and SHOULD avoid full source-style revalidation on the default load path.
 At minimum, cache loaders MUST enforce lightweight compatibility gates (for
 example schema/version checks and reference checksum checks where applicable).
 
+External source parsers/loaders are responsible for validating the external
+data contract at the I/O boundary. This includes domain rules such as supported
+contig labels, allele syntax, allele distinctness, required fields, and
+coordinate validity. They should fail with source-aware diagnostics while file
+path, row number, and raw field values are still available.
+
+Internal constructors and downstream functions should trust already-validated
+inputs. They should enforce only structural invariants needed to keep in-memory
+objects well formed, such as matching vector lengths, shard label consistency,
+array shape/class compatibility, and cache schema/checksum gates. Minimal
+structural checks in internal code are not violations of this contract, but
+duplicating source-level domain validation in every downstream object or helper
+is not required and should be avoided on hot paths.
+
 For this contract, "native binary storage" means all SNP-axis numeric payloads
 are persisted as language-native array variables in binary container formats,
 loaded without text parsing of array values.

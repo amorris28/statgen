@@ -135,6 +135,10 @@ def _parse_bim(path: Path) -> pd.DataFrame:
         raise ValueError(
             f"{path}:{idx + 1}: a2 must be uppercase DNA bases (A/C/G/T): {df['a2'].iat[idx]!r}"
         )
+    same_allele = df["a1"].eq(df["a2"])
+    if same_allele.any():
+        idx = int(same_allele.idxmax())
+        raise ValueError(f"{path}:{idx + 1}: a1 and a2 must differ")
 
     cm_num = pd.to_numeric(df["cm"], errors="coerce")
     bad_cm = cm_num.isna()

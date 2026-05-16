@@ -18,26 +18,8 @@ function bim = bfile_parse_bim(path)
     bim.a1  = raw_cols{5};
     bim.a2  = raw_cols{6};
 
-    bad_chr = cellfun('isempty', bim.chr);
-    if any(bad_chr)
-        lineno = find(bad_chr, 1, 'first');
-        error('statgen:bim', '%s:%d: chr must be non-empty', path, lineno);
-    end
-
-    chr_style = cellfun(@(c) strncmpi(c, 'chr', 3), bim.chr);
-    if any(chr_style)
-        lineno = find(chr_style, 1, 'first');
-        error('statgen:bim', '%s:%d: chr-style labels (e.g., chr1/chrX) are not allowed', path, lineno);
-    end
-
     canonical = statgen.internal.canonical_labels();
-    known = ismember(bim.chr, canonical) | ismember(bim.chr, {'Y', 'MT'});
-    if ~all(known)
-        lineno = find(~known, 1, 'first');
-        error('statgen:bim', ...
-            '%s:%d: unsupported chr label %s; expected 1-22, X (Y/MT are ignored)', ...
-            path, lineno, bim.chr{lineno});
-    end
+    statgen.internal.validate_variant_chr_labels(bim.chr, path, 0, 'statgen:bim');
 
     bad_allele = cellfun('isempty', bim.a1) | cellfun('isempty', bim.a2);
     if any(bad_allele)
@@ -45,17 +27,22 @@ function bim = bfile_parse_bim(path)
         error('statgen:bim', '%s:%d: a1 and a2 must be non-empty', path, lineno);
     end
 
-    bad_a1 = invalid_dna_allele_(bim.a1);
+    bad_a1 = statgen.internal.invalid_dna_allele(bim.a1);
     if any(bad_a1)
         lineno = find(bad_a1, 1, 'first');
         error('statgen:bim', ...
             '%s:%d: a1 must be uppercase DNA bases (A/C/G/T): %s', path, lineno, bim.a1{lineno});
     end
-    bad_a2 = invalid_dna_allele_(bim.a2);
+    bad_a2 = statgen.internal.invalid_dna_allele(bim.a2);
     if any(bad_a2)
         lineno = find(bad_a2, 1, 'first');
         error('statgen:bim', ...
             '%s:%d: a2 must be uppercase DNA bases (A/C/G/T): %s', path, lineno, bim.a2{lineno});
+    end
+    same_allele = strcmp(bim.a1, bim.a2);
+    if any(same_allele)
+        lineno = find(same_allele, 1, 'first');
+        error('statgen:bim', '%s:%d: a1 and a2 must differ', path, lineno);
     end
 
     bad_cm = isnan(bim.cm);
@@ -81,16 +68,6 @@ function out = subset_bim_(bim, mask)
     out.bp = bim.bp(mask);
     out.a1 = bim.a1(mask);
     out.a2 = bim.a2(mask);
-end
-
-function bad = invalid_dna_allele_(alleles)
-    alleles = statgen.internal.ensure_cell_col(alleles);
-    lens = cellfun('length', alleles);
-    chars = char(alleles);
-    cols = 1:size(chars, 2);
-    padding = bsxfun(@gt, cols, lens);
-    invalid = chars ~= 'A' & chars ~= 'C' & chars ~= 'G' & chars ~= 'T';
-    bad = any(invalid & ~padding, 2);
 end
 
 function [cols, n_rows] = read_bim_tabular_(path)

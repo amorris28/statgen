@@ -48,6 +48,10 @@
     idx <- which(bad_a2)[[1]]
     stop(sprintf("%s:%d: a2 must be uppercase DNA bases (A/C/G/T): %s", path, idx, sQuote(df$a2[[idx]])), call. = FALSE)
   }
+  same_allele <- df$a1 == df$a2
+  if (any(same_allele)) {
+    stop(sprintf("%s:%d: a1 and a2 must differ", path, which(same_allele)[[1]]), call. = FALSE)
+  }
   cm <- suppressWarnings(as.numeric(df$cm))
   if (any(is.na(cm) | !is.finite(cm))) {
     idx <- which(is.na(cm) | !is.finite(cm))[[1]]

@@ -578,11 +578,13 @@ def test_octave_reference_variant_type_accessors():
 
 @pytest.mark.octave
 @skipif_no_octave
-def test_octave_reference_equal_a1_a2_fails():
+def test_octave_reference_loader_equal_a1_a2_fails(tmp_path):
+    bad = tmp_path / "same_alleles.bim"
+    bad.write_text("1\trs1\t0\t100\tA\tA\n")
     script = _octave_script(
         "ok = 0; "
         "try; "
-        "  statgen.ReferenceShard('1', {'1'}, {'rs1'}, 100, {'A'}, {'A'}); "
+        f"  statgen.load_reference('{bad}'); "
         "catch ME; "
         "  ok = ~isempty(strfind(ME.message, 'a1 and a2 must differ')); "
         "end; "

@@ -244,6 +244,38 @@ def test_missing_required_column_fails(tmp_path, missing_col):
         load_sumstats(path, reference)
 
 
+@pytest.mark.parametrize(
+    ("text", "pattern"),
+    [
+        ("chr\tbp\ta1\ta2\tp\nchr1\t100\tA\tG\t0.1\n", "chr-style labels"),
+        ("chr\tbp\ta1\ta2\tp\n1\t100\ta\tG\t0.1\n", "uppercase DNA bases"),
+        ("chr\tbp\ta1\ta2\tp\n1\t100\tN\tG\t0.1\n", "uppercase DNA bases"),
+        ("chr\tbp\ta1\ta2\tp\n1\t100\tA\tA\t0.1\n", "a1 and a2 must differ"),
+    ],
+)
+def test_sumstats_rejects_invalid_chr_and_alleles(tmp_path, text, pattern):
+    path = tmp_path / "bad_sumstats.tsv.gz"
+    _write_gz_tsv(path, text)
+    reference = load_reference(SHARDED_REF)
+    with pytest.raises(ValueError, match=pattern):
+        load_sumstats(path, reference)
+
+
+def test_sumstats_ignores_y_mt_before_field_validation(tmp_path):
+    path = tmp_path / "ignored_y_mt.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tp\n"
+        "Y\t1\tN\tN\tNaN\n"
+        "MT\t1\tN\tN\tNaN\n"
+        "1\t100\tA\tG\t0.1\n",
+    )
+    reference = load_reference(SHARDED_REF).select_shards(["1"])
+    s = load_sumstats(path, reference)
+    assert s.num_snp == 5
+    assert int(np.count_nonzero(s.is_present)) == 1
+
+
 def test_optional_z_n_missing_values_warn(tmp_path):
     path = tmp_path / "missing_zn_values.tsv.gz"
     _write_gz_tsv(
@@ -641,6 +673,77 @@ def test_octave_missing_required_columns_fail(tmp_path):
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().splitlines()[-1] == "1 1 1 1 1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_sumstats_rejects_invalid_chr_and_alleles(tmp_path):
+    cases = {
+        "chr_style": (
+            "chr\tbp\ta1\ta2\tp\nchr1\t100\tA\tG\t0.1\n",
+            "chr-style labels",
+        ),
+        "lowercase": (
+            "chr\tbp\ta1\ta2\tp\n1\t100\ta\tG\t0.1\n",
+            "uppercase DNA bases",
+        ),
+        "non_dna": (
+            "chr\tbp\ta1\ta2\tp\n1\t100\tN\tG\t0.1\n",
+            "uppercase DNA bases",
+        ),
+        "same_alleles": (
+            "chr\tbp\ta1\ta2\tp\n1\t100\tA\tA\t0.1\n",
+            "a1 and a2 must differ",
+        ),
+    }
+    paths = []
+    expected = []
+    for name, (text, msg) in cases.items():
+        path = tmp_path / f"{name}.tsv.gz"
+        _write_gz_tsv(path, text)
+        paths.append(str(path))
+        expected.append(msg)
+
+    paths_expr = "{" + ", ".join(f"'{p}'" for p in paths) + "}"
+    expected_expr = "{" + ", ".join(f"'{m}'" for m in expected) + "}"
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"paths = {paths_expr}; "
+        f"expected = {expected_expr}; "
+        "ok = zeros(1, numel(paths)); "
+        "for i = 1:numel(paths); "
+        "  try; "
+        "    statgen.load_sumstats(paths{i}, ref); "
+        "  catch ME; "
+        "    ok(i) = ~isempty(strfind(ME.message, expected{i})); "
+        "  end; "
+        "end; "
+        "fprintf('%d %d %d %d\\n', ok);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "1 1 1 1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_sumstats_ignores_y_mt_before_field_validation(tmp_path):
+    path = tmp_path / "ignored_y_mt.tsv.gz"
+    _write_gz_tsv(
+        path,
+        "chr\tbp\ta1\ta2\tp\n"
+        "Y\t1\tN\tN\tNaN\n"
+        "MT\t1\tN\tN\tNaN\n"
+        "1\t100\tA\tG\t0.1\n",
+    )
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim'], {'1'}); "
+        f"s = statgen.load_sumstats('{path}', ref); "
+        "fprintf('%d %d\\n', s.num_snp, sum(s.is_present));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "5 1"
 
 
 @pytest.mark.octave

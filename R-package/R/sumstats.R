@@ -240,18 +240,44 @@ print.Sumstats <- function(x, ...) {
   }
   df <- df[, intersect(names(df), .sumstats_allowed_cols), drop = FALSE]
 
-  for (field in c("chr", "a1", "a2")) {
-    bad <- is.na(df[[field]]) | df[[field]] == ""
-    if (any(bad)) {
-      stop(sprintf("%s: row %d: %s must be non-empty", path, which(bad)[[1]] + 1L, field), call. = FALSE)
-    }
+  bad_chr <- is.na(df$chr) | df$chr == ""
+  if (any(bad_chr)) {
+    stop(sprintf("%s: row %d: chr must be non-empty", path, which(bad_chr)[[1]] + 1L), call. = FALSE)
   }
   .validate_source_chr_labels(df$chr, path)
+  df <- df[df$chr %in% .canonical_chr_order, , drop = FALSE]
+
+  for (field in c("a1", "a2")) {
+    bad <- is.na(df[[field]]) | df[[field]] == ""
+    if (any(bad)) {
+      row <- as.integer(rownames(df)[which(bad)[[1]]]) + 1L
+      stop(sprintf("%s: row %d: %s must be non-empty", path, row, field), call. = FALSE)
+    }
+  }
+  bad_a1 <- !grepl("^[ACGT]+$", df$a1)
+  if (any(bad_a1)) {
+    idx <- which(bad_a1)[[1]]
+    row <- as.integer(rownames(df)[idx]) + 1L
+    stop(sprintf("%s: row %d: a1 must be uppercase DNA bases (A/C/G/T): %s", path, row, sQuote(df$a1[[idx]])), call. = FALSE)
+  }
+  bad_a2 <- !grepl("^[ACGT]+$", df$a2)
+  if (any(bad_a2)) {
+    idx <- which(bad_a2)[[1]]
+    row <- as.integer(rownames(df)[idx]) + 1L
+    stop(sprintf("%s: row %d: a2 must be uppercase DNA bases (A/C/G/T): %s", path, row, sQuote(df$a2[[idx]])), call. = FALSE)
+  }
+  same_allele <- df$a1 == df$a2
+  if (any(same_allele)) {
+    row <- as.integer(rownames(df)[which(same_allele)[[1]]]) + 1L
+    stop(sprintf("%s: row %d: a1 and a2 must differ", path, row), call. = FALSE)
+  }
 
   bp <- suppressWarnings(as.numeric(df$bp))
   bad_bp <- is.na(bp) | !is.finite(bp) | floor(bp) != bp
   if (any(bad_bp)) {
-    stop(sprintf("%s: row %d: bp is not an integer: %s", path, which(bad_bp)[[1]] + 1L, sQuote(df$bp[[which(bad_bp)[[1]]]])), call. = FALSE)
+    idx <- which(bad_bp)[[1]]
+    row <- as.integer(rownames(df)[idx]) + 1L
+    stop(sprintf("%s: row %d: bp is not an integer: %s", path, row, sQuote(df$bp[[idx]])), call. = FALSE)
   }
   df$bp <- as.integer(bp)
 
@@ -259,7 +285,8 @@ print.Sumstats <- function(x, ...) {
   bad_p <- is.na(p) | !is.finite(p) | p < 0 | p > 1
   if (any(bad_p)) {
     idx <- which(bad_p)[[1]]
-    stop(sprintf("%s: row %d: p must be finite numeric in [0, 1]: %s", path, idx + 1L, sQuote(df$p[[idx]])), call. = FALSE)
+    row <- as.integer(rownames(df)[idx]) + 1L
+    stop(sprintf("%s: row %d: p must be finite numeric in [0, 1]: %s", path, row, sQuote(df$p[[idx]])), call. = FALSE)
   }
   df$p <- p
 
