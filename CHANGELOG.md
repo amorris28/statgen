@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-16
+
+### Changed
+- The R package now imports `data.table` and `R.utils` for faster source-file
+  parsing, including `.gz` summary-statistics inputs.
+
+### Fixed
+- Improved `load_sumstats(...)` performance in Python, MATLAB/Octave, and R,
+  especially for large summary-statistics files with mostly single-base
+  alleles.
+
 ## [0.3.0] - 2026-05-14
 
 ### Added
