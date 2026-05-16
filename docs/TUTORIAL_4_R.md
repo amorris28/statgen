@@ -29,25 +29,41 @@ R reference-cache sidecar. With `extract_npz = TRUE`, R also creates sibling
 
 ## Prerequisites
 
-Start from `docs/tutorial_1_fixtures/` after Tutorial 1 has built at least
-`derived/ld_npz/`:
+Start from the Tutorial 1 working directory after Tutorial 1 has built at least
+`derived/ld_npz/`.
+
+If you cloned the repository and used the checked-in fixtures, that directory
+is:
 
 ```bash
 cd docs/tutorial_1_fixtures
 ```
 
-Install the R package from the repository root:
+If you are using GitHub release assets instead, extract
+`statgen-tutorial-1-fixtures-<version>.zip`, run Tutorial 1 from the extracted
+directory, then run this tutorial from that same directory.
+
+Install the R package. After `statgen` is available on CRAN, use:
+
+```r
+install.packages("statgen")
+```
+
+When working from a cloned repository, install the local source tree instead:
 
 ```r
 install.packages("../../R-package", repos = NULL, type = "source")
 ```
 
-If you are working from GitHub release assets rather than a cloned repository,
-install the attached R source package tarball instead:
+When working from GitHub release assets before the CRAN package is available,
+install the attached R source package tarball:
 
 ```r
-install.packages("/path/to/statgen_<version>.tar.gz", repos = NULL, type = "source")
+install.packages("/path/to/statgen_<version>.RENAME_TO_CRAN_FILENAME.tar.gz", repos = NULL, type = "source")
 ```
+
+The `RENAME_TO_CRAN_FILENAME` marker is only for CRAN submission safety; local
+installation reads the package metadata from inside the tarball.
 
 Then load it:
 

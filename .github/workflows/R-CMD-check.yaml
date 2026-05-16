@@ -1,16 +1,10 @@
 # Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
 # Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
 on:
+  workflow_dispatch:
   push:
-    branches: [main, master]
-    paths:
-      - 'R-package/**'
-      - '.github/workflows/R-CMD-check.yaml'
-  pull_request:
-    branches: [main, master]
-    paths:
-      - 'R-package/**'
-      - '.github/workflows/R-CMD-check.yaml'
+    tags:
+      - "v*"
 
 name: R-CMD-check
 

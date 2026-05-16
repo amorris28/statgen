@@ -49,6 +49,8 @@ return ordinary R vectors, with \code{NULL} for absent optional fields.
 Rows are projected onto the supplied reference by exact chromosome, position,
 and allele-hash matching. Missing reference variants are represented by
 \code{NaN} in \code{logpvec(x)} and by \code{is_present(x) == FALSE}.
+Gzipped TSV input requires the suggested \pkg{R.utils} package so
+\code{data.table::fread()} can read compressed files portably.
 }
 \examples{
 ref_path <- system.file("extdata", "reference_chr1.bim", package = "statgen")

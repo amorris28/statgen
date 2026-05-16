@@ -327,10 +327,24 @@ jobs:
           name: tutorial-fixtures-release
           path: release-assets
 
+      - name: Rename R CRAN source release asset
+        run: |
+          set -euo pipefail
+          version="${{ needs.verify-version.outputs.version }}"
+          mv "release-assets/statgen_${version}.tar.gz" "release-assets/statgen_${version}.RENAME_TO_CRAN_FILENAME.tar.gz"
+
       - name: Create GitHub release and upload assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          generate_release_notes: true
+          append_body: true
+          body: |
+            ## R / CRAN source package
+
+            The R source package release asset is named `statgen_${{ needs.verify-version.outputs.version }}.RENAME_TO_CRAN_FILENAME.tar.gz` to distinguish it from the Python source distribution.
+
+            Before submitting to CRAN, rename it to `statgen_${{ needs.verify-version.outputs.version }}.tar.gz`.
           files: |
             release-assets/*

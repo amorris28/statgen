@@ -19,9 +19,9 @@ Imports:
     digest,
     bit64,
     methods,
-    data.table,
-    R.utils
+    data.table
 Suggests:
+    R.utils,
     testthat (>= 3.0.0),
     knitr,
     rmarkdown
