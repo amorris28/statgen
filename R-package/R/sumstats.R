@@ -214,31 +214,39 @@ print.Sumstats <- function(x, ...) {
   if (!file.exists(path)) {
     stop(sprintf("File not found: %s", path), call. = FALSE)
   }
-  con <- if (grepl("\\.gz$", path, ignore.case = TRUE)) gzfile(path, "rt") else file(path, "rt")
-  on.exit(close(con), add = TRUE)
+  raw_names <- .read_sumstats_header(path)
+  canonical_names <- .canonicalize_sumstats_columns(raw_names, path)
+  missing <- setdiff(.sumstats_required_cols, canonical_names)
+  if (length(missing)) {
+    stop(sprintf("%s: missing required columns: %s", path, paste(missing, collapse = ", ")), call. = FALSE)
+  }
+  selected <- canonical_names %in% c(.sumstats_required_cols, .sumstats_optional_cols)
+  selected_raw <- raw_names[selected]
+  selected_names <- canonical_names[selected]
+  char_cols <- selected_raw[selected_names %in% c("chr", "a1", "a2")]
+  numeric_cols <- selected_raw[!(selected_names %in% c("chr", "a1", "a2"))]
+
+  fread_args <- c(
+    .sumstats_fread_input(path),
+    list(
+      select = selected_raw,
+      colClasses = list(character = char_cols, numeric = numeric_cols),
+      data.table = FALSE,
+      showProgress = FALSE
+    )
+  )
   df <- tryCatch(
-    utils::read.delim(
-      con,
-      header = TRUE,
-      sep = "\t",
-      quote = "",
-      comment.char = "",
-      stringsAsFactors = FALSE,
-      check.names = FALSE,
-      colClasses = "character",
-      na.strings = character(),
-      fill = FALSE
-    ),
+    do.call(data.table::fread, fread_args),
     error = function(e) {
       stop(sprintf("%s: malformed TSV", path), call. = FALSE)
     }
   )
-  names(df) <- .canonicalize_sumstats_columns(names(df), path)
+  names(df) <- selected_names
+
   missing <- setdiff(.sumstats_required_cols, names(df))
   if (length(missing)) {
     stop(sprintf("%s: missing required columns: %s", path, paste(missing, collapse = ", ")), call. = FALSE)
   }
-  df <- df[, intersect(names(df), .sumstats_allowed_cols), drop = FALSE]
 
   bad_chr <- is.na(df$chr) | df$chr == ""
   if (any(bad_chr)) {
@@ -298,6 +306,28 @@ print.Sumstats <- function(x, ...) {
     }
   }
   df
+}
+
+.read_sumstats_header <- function(path) {
+  con <- if (grepl("\\.gz$", path, ignore.case = TRUE)) gzfile(path, "rt") else file(path, "rt")
+  on.exit(close(con), add = TRUE)
+  header <- tryCatch(readLines(con, n = 1L, warn = FALSE), error = function(e) character())
+  if (!length(header)) {
+    stop(sprintf("%s: malformed TSV", path), call. = FALSE)
+  }
+  strsplit(header[[1]], "\t", fixed = TRUE)[[1]]
+}
+
+.sumstats_fread_input <- function(path) {
+  if (!grepl("\\.gz$", path, ignore.case = TRUE) || requireNamespace("R.utils", quietly = TRUE)) {
+    return(list(input = path))
+  }
+  gzip <- Sys.which("gzip")
+  if (!nzchar(gzip)) {
+    stop(sprintf("%s: gzip input requires R.utils or a gzip executable", path), call. = FALSE)
+  }
+  cmd <- paste(shQuote(gzip), "-dc", shQuote(path))
+  list(cmd = cmd)
 }
 
 .canonicalize_sumstats_columns <- function(columns, path) {

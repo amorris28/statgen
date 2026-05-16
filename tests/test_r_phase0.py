@@ -84,7 +84,7 @@ def test_rscript_phase0_source_smoke():
 @skipif_no_rscript
 def test_r_package_install_and_library_smoke(tmp_path):
     deps = run_rscript(
-        "pkgs <- c('Matrix', 'jsonlite', 'digest', 'bit64', 'testthat'); "
+        "pkgs <- c('Matrix', 'jsonlite', 'digest', 'bit64', 'data.table', 'R.utils', 'testthat'); "
         "missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]; "
         "cat(paste(missing, collapse = ','))"
     )

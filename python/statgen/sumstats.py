@@ -1,11 +1,12 @@
 import json
 import re
 import warnings
+import gzip
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pandas.errors import ParserError
+from pandas.errors import EmptyDataError, ParserError
 
 from ._utils import CANONICAL_CHR_ORDER, allele_hash64, validate_requested_shards
 from ._variant_match import match_shard_numeric, numeric_variant_keys
@@ -21,38 +22,77 @@ _SUMSTATS_COL_MAP = {
     "effectallele": "a1",
     "otherallele": "a2",
 }
+_NUMERIC_NA_VALUES = ["", "NaN", "nan", "NA", "N/A", "na", "NULL", "null"]
 
 
-def _canonicalize_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
-    columns = [_SUMSTATS_COL_MAP.get(str(c).lower(), str(c).lower()) for c in df.columns]
+def _canonicalize_column_names(columns, path: Path) -> list[str]:
+    columns = [_SUMSTATS_COL_MAP.get(str(c).lower(), str(c).lower()) for c in columns]
     duplicates = sorted({c for c in columns if columns.count(c) > 1})
     if duplicates:
         raise ValueError(f"{path}: duplicate columns after column normalization: {', '.join(duplicates)}")
+    return columns
+
+
+def _canonicalize_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
     out = df.copy()
-    out.columns = columns
+    out.columns = _canonicalize_column_names(df.columns, path)
     return out
 
 
+def _read_sumstats_header(path: Path) -> list[str]:
+    opener = gzip.open if str(path).lower().endswith(".gz") else open
+    try:
+        with opener(path, "rt", newline="") as f:
+            header = f.readline()
+    except OSError as exc:
+        raise ValueError(f"{path}: malformed TSV") from exc
+    if header == "":
+        raise ValueError(f"{path}: malformed TSV")
+    return header.rstrip("\r\n").split("\t")
+
+
 def _parse_sumstats(path: Path) -> pd.DataFrame:
+    raw_columns = _read_sumstats_header(path)
+    columns = _canonicalize_column_names(raw_columns, path)
+    missing = [c for c in _REQUIRED_COLS if c not in columns]
+    if missing:
+        raise ValueError(f"{path}: missing required columns: {', '.join(missing)}")
+
+    selected = [c in (*_REQUIRED_COLS, *_OPTIONAL_COLS) for c in columns]
+    selected_raw = [c for c, keep in zip(raw_columns, selected) if keep]
+    selected_names = [c for c, keep in zip(columns, selected) if keep]
+    char_cols = {
+        raw: str
+        for raw, canonical in zip(selected_raw, selected_names)
+        if canonical in {"chr", "a1", "a2"}
+    }
+    numeric_cols = {
+        raw: float
+        for raw, canonical in zip(selected_raw, selected_names)
+        if canonical not in {"chr", "a1", "a2"}
+    }
+    numeric_na_values = {raw: _NUMERIC_NA_VALUES for raw in numeric_cols}
+
     try:
         df = pd.read_csv(
             path,
             sep="\t",
             compression="infer",
-            dtype=str,
+            usecols=selected_raw,
+            dtype={**char_cols, **numeric_cols},
             keep_default_na=False,
-            na_filter=False,
+            na_values=numeric_na_values,
         )
-    except ParserError as exc:
+    except (EmptyDataError, ParserError, ValueError) as exc:
         raise ValueError(f"{path}: malformed TSV") from exc
 
-    df = _canonicalize_columns(df, path)
+    df.columns = selected_names
 
     missing = [c for c in _REQUIRED_COLS if c not in df.columns]
     if missing:
         raise ValueError(f"{path}: missing required columns: {', '.join(missing)}")
 
-    out = df.copy()
+    out = df
     for col in ("chr", "a1", "a2"):
         bad_empty = out[col].eq("")
         if bad_empty.any():
@@ -89,26 +129,21 @@ def _parse_sumstats(path: Path) -> pd.DataFrame:
         idx = int(same_allele.idxmax())
         raise ValueError(f"{path}: row {idx + 2}: a1 and a2 must differ")
 
-    bp_num = pd.to_numeric(out["bp"], errors="coerce")
-    bad_bp = bp_num.isna() | (np.floor(bp_num) != bp_num)
+    bad_bp = out["bp"].isna() | (np.floor(out["bp"]) != out["bp"])
     if bad_bp.any():
         idx = int(bad_bp.idxmax())
         raise ValueError(f"{path}: row {idx + 2}: bp is not an integer: {out.loc[idx, 'bp']!r}")
-    out["bp"] = bp_num.astype(np.int64)
+    out["bp"] = out["bp"].astype(np.int64)
 
-    p_vals = pd.to_numeric(out["p"], errors="coerce")
-    p_arr = p_vals.to_numpy(dtype=float)
-    bad_p = p_vals.isna() | ~np.isfinite(p_arr) | (p_arr < 0.0) | (p_arr > 1.0)
+    p_arr = out["p"].to_numpy(dtype=float)
+    bad_p = out["p"].isna() | ~np.isfinite(p_arr) | (p_arr < 0.0) | (p_arr > 1.0)
     if bad_p.any():
         idx = int(bad_p.idxmax())
         raise ValueError(f"{path}: row {idx + 2}: p must be finite numeric in [0, 1]: {out.loc[idx, 'p']!r}")
-    out["p"] = p_vals.astype(float)
 
     for opt in _OPTIONAL_COLS:
         if opt in out.columns:
-            vals = pd.to_numeric(out[opt], errors="coerce").astype(float)
-            vals = vals.mask(~np.isfinite(vals.to_numpy(dtype=float)))
-            out[opt] = vals
+            out[opt] = out[opt].mask(~np.isfinite(out[opt].to_numpy(dtype=float)))
 
     return out
 
