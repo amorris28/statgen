@@ -104,11 +104,15 @@ def test_load_sumstats_alignment_and_accessors(tmp_path):
 
 
 def test_allele_hash64_known_values():
-    hashes = allele_hash64(["A", "C", "ACGT", "ATCGGCTA"])
+    hashes = allele_hash64(["A", "C", "G", "T", "N", "-", "ACGT", "ATCGGCTA"])
     assert hashes.dtype == np.uint64
     assert [f"{int(x):016X}" for x in hashes] == [
         "0000014300000149",
         "000001450000014B",
+        "000001490000014F",
+        "000001560000015C",
+        "0000015000000156",
+        "0000012F00000135",
         "47119B266503B322",
         "1A8AE73A00B4D922",
     ]

@@ -65,24 +65,20 @@ function sumstats = build_sumstats_(tbl, reference, path)
     p_num = p_num(keep_chr);
     source_line = source_line(keep_chr);
 
-    bad_a1 = cellfun('isempty', a1_col);
+    [bad_a1_syntax, a1_lens] = statgen.internal.invalid_dna_allele(a1_col);
+    [bad_a2_syntax, a2_lens] = statgen.internal.invalid_dna_allele(a2_col);
+
+    bad_a1 = a1_lens == 0;
     if any(bad_a1), error('statgen:sumstats', '%s: row %d: a1 must be non-empty', path, source_line(find(bad_a1, 1, 'first'))); end
-    bad_a2 = cellfun('isempty', a2_col);
+    bad_a2 = a2_lens == 0;
     if any(bad_a2), error('statgen:sumstats', '%s: row %d: a2 must be non-empty', path, source_line(find(bad_a2, 1, 'first'))); end
-    bad_a1_syntax = statgen.internal.invalid_dna_allele(a1_col);
     if any(bad_a1_syntax)
         i = find(bad_a1_syntax, 1, 'first');
         error('statgen:sumstats', '%s: row %d: a1 must be uppercase DNA bases (A/C/G/T): %s', path, source_line(i), a1_col{i});
     end
-    bad_a2_syntax = statgen.internal.invalid_dna_allele(a2_col);
     if any(bad_a2_syntax)
         i = find(bad_a2_syntax, 1, 'first');
         error('statgen:sumstats', '%s: row %d: a2 must be uppercase DNA bases (A/C/G/T): %s', path, source_line(i), a2_col{i});
-    end
-    same_allele = strcmp(a1_col, a2_col);
-    if any(same_allele)
-        i = find(same_allele, 1, 'first');
-        error('statgen:sumstats', '%s: row %d: a1 and a2 must differ', path, source_line(i));
     end
 
     bad_bp = isnan(bp_num) | (bp_num ~= floor(bp_num));
@@ -112,6 +108,15 @@ function sumstats = build_sumstats_(tbl, reference, path)
     n_ref = double(reference.num_snp);
     src_a1_hash64 = statgen.internal.allele_hash64(a1_col);
     src_a2_hash64 = statgen.internal.allele_hash64(a2_col);
+    same_hash = src_a1_hash64 == src_a2_hash64;
+    if any(same_hash)
+        same_idx = find(same_hash);
+        same_exact = strcmp(a1_col(same_idx), a2_col(same_idx));
+        if any(same_exact)
+            i = same_idx(find(same_exact, 1, 'first'));
+            error('statgen:sumstats', '%s: row %d: a1 and a2 must differ', path, source_line(i));
+        end
+    end
 
     p_aligned = nan(n_ref, 1);
 

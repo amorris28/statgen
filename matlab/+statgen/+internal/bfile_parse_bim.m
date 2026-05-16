@@ -21,19 +21,20 @@ function bim = bfile_parse_bim(path)
     canonical = statgen.internal.canonical_labels();
     statgen.internal.validate_variant_chr_labels(bim.chr, path, 0, 'statgen:bim');
 
-    bad_allele = cellfun('isempty', bim.a1) | cellfun('isempty', bim.a2);
+    [bad_a1, a1_lens] = statgen.internal.invalid_dna_allele(bim.a1);
+    [bad_a2, a2_lens] = statgen.internal.invalid_dna_allele(bim.a2);
+
+    bad_allele = (a1_lens == 0) | (a2_lens == 0);
     if any(bad_allele)
         lineno = find(bad_allele, 1, 'first');
         error('statgen:bim', '%s:%d: a1 and a2 must be non-empty', path, lineno);
     end
 
-    bad_a1 = statgen.internal.invalid_dna_allele(bim.a1);
     if any(bad_a1)
         lineno = find(bad_a1, 1, 'first');
         error('statgen:bim', ...
             '%s:%d: a1 must be uppercase DNA bases (A/C/G/T): %s', path, lineno, bim.a1{lineno});
     end
-    bad_a2 = statgen.internal.invalid_dna_allele(bim.a2);
     if any(bad_a2)
         lineno = find(bad_a2, 1, 'first');
         error('statgen:bim', ...

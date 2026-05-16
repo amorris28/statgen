@@ -91,18 +91,15 @@ defined by the shared source-to-reference matching contract in
 unmatched source rows. Validated source rows outside the supplied reference
 shard set are ignored for alignment only when they are canonical contigs that
 were not selected in the supplied reference, such as `X` rows loaded against a
-chr1-only reference. Recognized non-supported contigs and invalid labels follow
-the shared rules in [contigs-and-shards.md](contigs-and-shards.md): `Y` and
-`MT` are dropped before validation, while labels such as `chr1`/`chrX`,
-scaffolds, or otherwise unrecognized contigs are validation errors. The allele
-hashes are computed from each source row's exact `a1` and `a2` strings. This is
-semantically an exact `chr:bp:a1:a2` join; the hashes are only fixed-width
-implementation keys for sumstats-to-reference matching. The result is split
-into `SumstatsShard`s matching the reference shards, and variants absent from
-the TSV are represented as missing values. If a supplied reference shard has no
-matching source rows at all, the loader warns and represents that shard as all
-missing. The loader does not normalize or alias contig labels; matched sumstats
-`chr` values must already match the reference labels.
+chr1-only reference. Recognized non-supported contigs, invalid contig labels,
+and allele syntax follow the shared rules in
+[contigs-and-shards.md](contigs-and-shards.md) and [SPEC.md](SPEC.md). The
+result is split into `SumstatsShard`s matching the reference shards, and
+variants absent from the TSV are represented as missing values. If a supplied
+reference shard has no matching source rows at all, the loader warns and
+represents that shard as all missing. The loader does not normalize or alias
+contig labels; matched sumstats `chr` values must already match the reference
+labels.
 
 ## In-memory objects
 

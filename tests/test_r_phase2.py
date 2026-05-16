@@ -7,6 +7,7 @@ import math
 import numpy as np
 import pytest
 
+from statgen._utils import allele_hash64
 from statgen.annotations import load_annotations
 from statgen.reference import load_reference
 from statgen.sumstats import load_sumstats
@@ -45,6 +46,35 @@ def _parse_float_csv(text: str) -> list[float]:
         else:
             out.append(float(token))
     return out
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_allele_hash64_matches_python_known_values():
+    alleles = ["A", "C", "G", "T", "N", "-", "ACGT", "ATCGGCTA"]
+    expected = ",".join(str(int(x)) for x in allele_hash64(alleles))
+    result = run_rscript(
+        _source_phase2_script(
+            "h <- .allele_hash64(c('A', 'C', 'G', 'T', 'N', '-', 'ACGT', 'ATCGGCTA')); "
+            "cat(paste(as.character(h), collapse=','), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_allele_hash64_warns_and_truncates_long_alleles():
+    expected = str(int(allele_hash64(["A" * 150])[0]))
+    result = run_rscript(
+        _source_phase2_script(
+            "h <- suppressWarnings(.allele_hash64(paste(rep('A', 151), collapse=''))); "
+            "cat(as.character(h), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
 
 
 @pytest.mark.r

@@ -93,7 +93,12 @@ Both are non-empty strings of uppercase DNA bases (`A`, `C`,
 `T`, `G`); either may be multi-base for indels. Loaders validate allele syntax
 and preserve values as-is without normalization or case conversion. They do not
 validate whether either allele matches the reference genome sequence at that
-position.
+position. Allele syntax validation is independent of supported-contig
+projection: every variant row retained in the source table used by a loader
+must satisfy this allele contract, including recognized non-supported contigs
+such as `Y` and `MT`. An implementation that drops `Y`/`MT` rows before
+constructing the source table used for allele validation is not required to
+validate alleles on those dropped rows.
 
 Signed quantities must already be oriented to `a1`:
 

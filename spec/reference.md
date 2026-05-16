@@ -77,8 +77,10 @@ variable-length allele strings need compact hashed representations.
 `a1_hash64` and `a2_hash64` are `uint64` vectors, length `num_snp`, computed
 from allele strings as loaded. If any allele exceeds 150 characters,
 implementations must warn and compute the hash from only the first 150
-characters. The hash algorithm is a deterministic two-lane polynomial hash over
-the UTF-8 bytes of the allele string prefix, chosen so all intermediate
+characters. Hash inputs are assumed to be allele strings that already satisfy
+the source allele contract in [SPEC.md](SPEC.md). The hash algorithm is a
+deterministic two-lane polynomial hash over the UTF-8 bytes of the allele
+string prefix, chosen so all intermediate
 arithmetic is exactly representable in MATLAB/Octave `double` without relying
 on unsigned integer overflow:
 
