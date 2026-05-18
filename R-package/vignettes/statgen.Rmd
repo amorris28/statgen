@@ -40,8 +40,8 @@ reference_template <- file.path(
 )
 reference <- load_reference(reference_template)
 
-sumstats_path <- system.file("extdata", "traits.tsv.gz", package = "statgen")
-sumstats <- suppressWarnings(load_sumstats(sumstats_path, reference))
+sumstats_path <- system.file("extdata", "traits_complete.tsv.gz", package = "statgen")
+sumstats <- load_sumstats(sumstats_path, reference)
 
 annotation_paths <- system.file(
   "extdata",
@@ -61,27 +61,20 @@ the same R runtime.
 ```{r}
 sumstats_cache <- tempfile(fileext = ".rds")
 save_sumstats_cache(sumstats, sumstats_cache)
-sumstats_cached <- suppressWarnings(load_sumstats_cache(sumstats_cache))
+sumstats_cached <- load_sumstats_cache(sumstats_cache)
 identical(is_present(sumstats_cached), is_present(sumstats))
 ```
 
 ## LD Panels
 
-Python builds the canonical LD `.npz` distribution. R prepares that directory
-in place by adding an R reference-cache sidecar. For repeated R loads,
-`extract_npz = TRUE` also creates sibling extracted-array caches.
-
-For package examples, `ld_src` points to a bundled toy `.npz` LD distribution.
-For real analyses, point `prepare_ld_npz_for_r()` and `load_ld()` at the
-Python-built `ld_npz/` directory for the same harmonized input set.
+Python builds the canonical LD `.npz` distribution. For package examples,
+`ld_root` points to a bundled toy distribution that already includes the R
+reference-cache sidecar. For real analyses, run `prepare_ld_npz_for_r()` once
+on the Python-built `ld_npz/` directory for the same harmonized input set, then
+load that directory with `load_ld()`.
 
 ```{r}
-ld_src <- system.file("extdata", "ld", "python", package = "statgen")
-ld_root <- tempfile("ld_npz_")
-dir.create(ld_root)
-file.copy(list.files(ld_src, full.names = TRUE), ld_root, recursive = TRUE)
-
-prepare_ld_npz_for_r(ld_root, extract_npz = TRUE)
+ld_root <- system.file("extdata", "ld", package = "statgen")
 ld <- load_ld(ld_root)
 
 num_snp(ld)
@@ -95,7 +88,8 @@ a1freq(ld)
 scores <- seq_len(num_snp(ld))
 multiply_r2(ld, scores)
 
-fast_prune(c(9, 9, 7, 1, 2, 6, 5, 4), ld, r2_threshold = 0.35)
+logp <- rev(seq_len(num_snp(ld)))
+fast_prune(logp, ld, r2_threshold = 0.35)
 ```
 
 ## Genotype Metadata And Fetching
@@ -108,5 +102,7 @@ ref_chr1 <- load_reference(system.file("extdata", "reference_chr1.bim", package 
 bed_chr1 <- system.file("extdata", "genotype_1.bed", package = "statgen")
 genotype <- load_genotype(sub("\\.bed$", "", bed_chr1), ref_chr1)
 
-fetch_genotypes_int8(genotype, c(1, 3))
+geno <- fetch_genotypes_int8(genotype, c(1, 3))
+dim(geno)
+head(geno)
 ```

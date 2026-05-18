@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ R_EXTDATA_COPIES = {
     "reference_chr1.bim": "reference/sharded/1.bim",
     "reference_chrX.bim": "reference/sharded/X.bim",
     "traits.tsv.gz": "sumstats/traits.tsv.gz",
+    "traits_complete.tsv.gz": "sumstats/traits_complete.tsv.gz",
     "anno1.bed": "annotations/anno1.bed",
     "anno2.bed": "annotations/anno2.bed",
     "genotype_1.bed": "genotype/sharded/1.bed",
@@ -23,14 +25,13 @@ R_EXTDATA_COPIES = {
     "genotype_X.bim": "genotype/sharded/X.bim",
     "genotype_X.fam": "genotype/sharded/X.fam",
     "genotype_X.ploidy": "genotype/sharded/X.ploidy",
-    "ld/python/ld_manifest.json": "ld/python/ld_manifest.json",
-    "ld/python/reference_cache.npz": "ld/python/reference_cache.npz",
-    "ld/python/reference_chr1.bim": "ld/python/reference_chr1.bim",
-    "ld/python/reference_chrX.bim": "ld/python/reference_chrX.bim",
-    "ld/python/ld_chr1.npz": "ld/python/ld_chr1.npz",
-    "ld/python/ld_chrX_female.npz": "ld/python/ld_chrX_female.npz",
-    "ld/python/ld_chrX_male.npz": "ld/python/ld_chrX_male.npz",
-    "ld/python/ld_chrX_combined.npz": "ld/python/ld_chrX_combined.npz",
+    "ld/reference_cache.npz": "ld/python/reference_cache.npz",
+    "ld/reference_chr1.bim": "ld/python/reference_chr1.bim",
+    "ld/reference_chrX.bim": "ld/python/reference_chrX.bim",
+    "ld/ld_chr1.npz": "ld/python/ld_chr1.npz",
+    "ld/ld_chrX_female.npz": "ld/python/ld_chrX_female.npz",
+    "ld/ld_chrX_male.npz": "ld/python/ld_chrX_male.npz",
+    "ld/ld_chrX_combined.npz": "ld/python/ld_chrX_combined.npz",
 }
 
 # Set STATGEN_MATLAB=1 to run octave-marked tests via native MATLAB instead.
@@ -97,6 +98,24 @@ def _get_matlab_engine():
         return None
 
 
+def _r_ld_fixture_is_prepared() -> bool:
+    r_manifest_path = R_PACKAGE_DIR / "inst/extdata/ld/ld_manifest.json"
+    r_reference_cache = R_PACKAGE_DIR / "inst/extdata/ld/reference_cache.rds"
+    canonical_manifest_path = FIXTURES_DIR / "ld/python/ld_manifest.json"
+    if not r_manifest_path.is_file() or not r_reference_cache.is_file():
+        return False
+    try:
+        r_manifest = json.loads(r_manifest_path.read_text())
+        canonical_manifest = json.loads(canonical_manifest_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    return (
+        r_manifest.pop("r_reference_cache", None) == "reference_cache.rds"
+        and isinstance(r_manifest.pop("r_reference_cache_md5", None), str)
+        and r_manifest == canonical_manifest
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _close_matlab_engine_at_end():
     yield
@@ -111,19 +130,24 @@ def _close_matlab_engine_at_end():
 
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_r_extdata_fixtures():
+    needs_prepare = False
     for r_name, canonical_rel in R_EXTDATA_COPIES.items():
         r_fixture = R_PACKAGE_DIR / f"inst/extdata/{r_name}"
         canonical = FIXTURES_DIR / canonical_rel
         if not r_fixture.is_file() or r_fixture.read_bytes() != canonical.read_bytes():
-            result = subprocess.run(
-                ["make", "prepare-r-fixtures"],
-                cwd=REPO_ROOT,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            assert result.returncode == 0, result.stderr
+            needs_prepare = True
             break
+    if not _r_ld_fixture_is_prepared():
+        needs_prepare = True
+    if needs_prepare:
+        result = subprocess.run(
+            ["make", "prepare-r-fixtures"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr
 
 
 def run_octave(expr: str, timeout: int = 30) -> subprocess.CompletedProcess:

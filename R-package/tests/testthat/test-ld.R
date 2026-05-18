@@ -1,11 +1,32 @@
 copy_ld_fixture <- function() {
-  src <- system.file("extdata", "ld", "python", package = "statgen", mustWork = TRUE)
+  src <- system.file("extdata", "ld", package = "statgen", mustWork = TRUE)
   dst <- tempfile("ld_npz_")
   dir.create(dst)
   ok <- file.copy(list.files(src, full.names = TRUE), dst, recursive = TRUE)
   stopifnot(all(ok))
+  unlink(file.path(dst, "reference_cache.rds"))
+  manifest_path <- file.path(dst, "ld_manifest.json")
+  manifest <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+  manifest$r_reference_cache <- NULL
+  manifest$r_reference_cache_md5 <- NULL
+  writeLines(jsonlite::toJSON(manifest, auto_unbox = TRUE, pretty = TRUE, null = "null"), manifest_path, useBytes = TRUE)
   dst
 }
+
+test_that("bundled prepared LD fixture loads without in-place preparation", {
+  ld_root <- system.file("extdata", "ld", package = "statgen", mustWork = TRUE)
+
+  report <- validate_ld_distribution(ld_root)
+  expect_true(report$ok)
+
+  ld <- load_ld(ld_root)
+  expect_s3_class(ld, "LDPanel")
+  expect_equal(num_snp(ld), 8L)
+  expect_equal(
+    round(a1freq(ld), 6),
+    c(0.30, 0.40, 0.20, 0.35, 0.15, 0.28, 0.32, 0.22)
+  )
+})
 
 test_that("prepare_ld_npz_for_r enables LD loading and operations", {
   old_verbosity <- get_verbosity()

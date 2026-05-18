@@ -69,22 +69,16 @@ returns a numeric vector or one-dimensional matrix with pruned entries set to
 \code{NaN}.
 }
 \examples{
-ld_src <- system.file("extdata", "ld", "python", package = "statgen")
-if (nzchar(ld_src)) {
-  ld_root <- tempfile("ld_npz_")
-  dir.create(ld_root)
-  file.copy(list.files(ld_src, full.names = TRUE), ld_root, recursive = TRUE)
+ld_root <- system.file("extdata", "ld", package = "statgen")
+ld <- load_ld(ld_root)
 
-  prepare_ld_npz_for_r(ld_root)
-  ld <- load_ld(ld_root)
+num_snp(ld)
+head(a1freq(ld))
 
-  num_snp(ld)
-  head(a1freq(ld))
+scores <- seq_len(num_snp(ld))
+multiply_r2(ld, scores)
 
-  scores <- seq_len(num_snp(ld))
-  multiply_r2(ld, scores)
-
-  fast_prune(c(9, 9, 7, 1, 2, 6, 5, 4), ld, r2_threshold = 0.35)
-}
+logp <- rev(seq_len(num_snp(ld)))
+fast_prune(logp, ld, r2_threshold = 0.35)
 }
 \keyword{datasets}

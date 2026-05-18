@@ -49,6 +49,21 @@ def test_r_extdata_reference_fixture_matches_canonical_source():
         assert r_fixture.read_bytes() == canonical.read_bytes()
 
 
+def test_r_extdata_ld_manifest_is_prepared_for_r():
+    r_manifest_path = R_PACKAGE_DIR / "inst/extdata/ld/ld_manifest.json"
+    r_reference_cache = R_PACKAGE_DIR / "inst/extdata/ld/reference_cache.rds"
+    canonical_manifest_path = FIXTURES_DIR / "ld/python/ld_manifest.json"
+
+    assert r_manifest_path.is_file()
+    assert r_reference_cache.is_file()
+
+    r_manifest = json.loads(r_manifest_path.read_text())
+    canonical_manifest = json.loads(canonical_manifest_path.read_text())
+    assert r_manifest.pop("r_reference_cache") == "reference_cache.rds"
+    assert len(r_manifest.pop("r_reference_cache_md5")) == 32
+    assert r_manifest == canonical_manifest
+
+
 def test_r_and_python_versions_match():
     import statgen
 

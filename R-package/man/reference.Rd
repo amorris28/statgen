@@ -83,9 +83,15 @@ frames; allele hashes are \code{bit64::integer64} vectors.
 }
 \examples{
 path <- system.file("extdata", "reference_chr1.bim", package = "statgen")
-if (nzchar(path)) {
-  ref <- load_reference(path)
-  num_snp(ref)
-  head(snp(ref))
-}
+ref <- load_reference(path)
+num_snp(ref)
+head(snp(ref))
+sum(is_strand_ambiguous(ref))
+
+cache <- tempfile(fileext = ".rds")
+save_reference_cache(ref, cache)
+ref_cached <- load_reference_cache(cache)
+num_snp(ref_cached)
+
+save_cache(ref, cache)
 }

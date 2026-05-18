@@ -454,6 +454,19 @@ X\t200\tC\tT\t0.5\t500\t0.6
 9\t999\tA\tG\t1.0\t1000\t0.3
 """
 
+# Complete, warning-free toy sumstats for package examples and vignettes.
+SUMSTATS_EXAMPLE_ROWS = """\
+chr\tbp\ta1\ta2\tz\tn\tp
+1\t100\tA\tG\t2.5\t1000\t0.012
+1\t200\tC\tT\t1.0\t1000\t0.5
+1\t300\tA\tC\t1.8\t1000\t0.05
+1\t400\tG\tA\t-1.2\t1000\t0.2
+1\t500\tT\tC\t0.7\t1000\t0.4
+X\t100\tA\tG\t3.0\t500\t0.003
+X\t200\tC\tT\t0.5\t500\t0.6
+X\t300\tG\tA\t-0.8\t500\t0.7
+"""
+
 
 # ---------------------------------------------------------------------------
 # Main
@@ -470,12 +483,16 @@ def main() -> None:
     write_bed_annotation(ROOT / "annotations/anno2.bed", ANNO2_BED)
 
     # --- sumstats ---
-    sumstats_path = ROOT / "sumstats/traits.tsv.gz"
-    sumstats_path.parent.mkdir(parents=True, exist_ok=True)
-    # mtime=0 makes the gzip header deterministic (no embedded timestamp).
-    with open(sumstats_path, "wb") as raw:
-        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
-            gz.write(SUMSTATS_ROWS.encode())
+    for name, rows in [
+        ("traits.tsv.gz", SUMSTATS_ROWS),
+        ("traits_complete.tsv.gz", SUMSTATS_EXAMPLE_ROWS),
+    ]:
+        sumstats_path = ROOT / f"sumstats/{name}"
+        sumstats_path.parent.mkdir(parents=True, exist_ok=True)
+        # mtime=0 makes the gzip header deterministic (no embedded timestamp).
+        with open(sumstats_path, "wb") as raw:
+            with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
+                gz.write(rows.encode())
 
     # --- LD runtime distributions ---
     shutil.rmtree(ROOT / "ld", ignore_errors=True)

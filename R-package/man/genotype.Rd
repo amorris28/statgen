@@ -76,10 +76,16 @@ and map BED rows.
 \examples{
 ref_path <- system.file("extdata", "reference_chr1.bim", package = "statgen")
 geno_bed <- system.file("extdata", "genotype_1.bed", package = "statgen")
-if (nzchar(ref_path) && nzchar(geno_bed)) {
-  geno_prefix <- sub("\\\\.bed$", "", geno_bed)
-  ref <- load_reference(ref_path)
-  g <- load_genotype(geno_prefix, ref)
-  fetch_genotypes(g, c(1, 2))
-}
+geno_prefix <- sub("\\\\.bed$", "", geno_bed)
+ref <- load_reference(ref_path)
+g <- load_genotype(geno_prefix, ref)
+geno <- fetch_genotypes(g, c(1, 2))
+dim(geno)
+head(geno)
+
+cache <- tempfile(fileext = ".rds")
+save_genotype_cache(g, cache)
+g_cached <- load_genotype_cache(cache)
+num_sample(g_cached)
+sum(is_present(g_cached))
 }

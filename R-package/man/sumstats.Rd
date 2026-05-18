@@ -54,10 +54,13 @@ Gzipped TSV input requires the suggested \pkg{R.utils} package so
 }
 \examples{
 ref_path <- system.file("extdata", "reference_chr1.bim", package = "statgen")
-sum_path <- system.file("extdata", "traits.tsv.gz", package = "statgen")
-if (nzchar(ref_path) && nzchar(sum_path)) {
-  ref <- load_reference(ref_path)
-  s <- suppressWarnings(load_sumstats(sum_path, ref))
-  head(logpvec(s))
-}
+sum_path <- system.file("extdata", "traits_complete.tsv.gz", package = "statgen")
+ref <- load_reference(ref_path)
+s <- load_sumstats(sum_path, ref)
+head(logpvec(s))
+
+cache <- tempfile(fileext = ".rds")
+save_sumstats_cache(s, cache)
+s_cached <- load_sumstats_cache(cache)
+head(logpvec(s_cached))
 }

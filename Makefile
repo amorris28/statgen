@@ -17,6 +17,7 @@ prepare-r-fixtures:
 	cp tests/fixtures/reference/sharded/1.bim R-package/inst/extdata/reference_chr1.bim
 	cp tests/fixtures/reference/sharded/X.bim R-package/inst/extdata/reference_chrX.bim
 	cp tests/fixtures/sumstats/traits.tsv.gz R-package/inst/extdata/traits.tsv.gz
+	cp tests/fixtures/sumstats/traits_complete.tsv.gz R-package/inst/extdata/traits_complete.tsv.gz
 	cp tests/fixtures/annotations/anno1.bed R-package/inst/extdata/anno1.bed
 	cp tests/fixtures/annotations/anno2.bed R-package/inst/extdata/anno2.bed
 	cp tests/fixtures/genotype/sharded/1.bed R-package/inst/extdata/genotype_1.bed
@@ -26,15 +27,17 @@ prepare-r-fixtures:
 	cp tests/fixtures/genotype/sharded/X.bim R-package/inst/extdata/genotype_X.bim
 	cp tests/fixtures/genotype/sharded/X.fam R-package/inst/extdata/genotype_X.fam
 	cp tests/fixtures/genotype/sharded/X.ploidy R-package/inst/extdata/genotype_X.ploidy
-	mkdir -p R-package/inst/extdata/ld/python
-	cp tests/fixtures/ld/python/ld_manifest.json R-package/inst/extdata/ld/python/ld_manifest.json
-	cp tests/fixtures/ld/python/reference_cache.npz R-package/inst/extdata/ld/python/reference_cache.npz
-	cp tests/fixtures/ld/python/reference_chr1.bim R-package/inst/extdata/ld/python/reference_chr1.bim
-	cp tests/fixtures/ld/python/reference_chrX.bim R-package/inst/extdata/ld/python/reference_chrX.bim
-	cp tests/fixtures/ld/python/ld_chr1.npz R-package/inst/extdata/ld/python/ld_chr1.npz
-	cp tests/fixtures/ld/python/ld_chrX_female.npz R-package/inst/extdata/ld/python/ld_chrX_female.npz
-	cp tests/fixtures/ld/python/ld_chrX_male.npz R-package/inst/extdata/ld/python/ld_chrX_male.npz
-	cp tests/fixtures/ld/python/ld_chrX_combined.npz R-package/inst/extdata/ld/python/ld_chrX_combined.npz
+	$(RM) -r R-package/inst/extdata/ld
+	mkdir -p R-package/inst/extdata/ld
+	cp tests/fixtures/ld/python/ld_manifest.json R-package/inst/extdata/ld/ld_manifest.json
+	cp tests/fixtures/ld/python/reference_cache.npz R-package/inst/extdata/ld/reference_cache.npz
+	cp tests/fixtures/ld/python/reference_chr1.bim R-package/inst/extdata/ld/reference_chr1.bim
+	cp tests/fixtures/ld/python/reference_chrX.bim R-package/inst/extdata/ld/reference_chrX.bim
+	cp tests/fixtures/ld/python/ld_chr1.npz R-package/inst/extdata/ld/ld_chr1.npz
+	cp tests/fixtures/ld/python/ld_chrX_female.npz R-package/inst/extdata/ld/ld_chrX_female.npz
+	cp tests/fixtures/ld/python/ld_chrX_male.npz R-package/inst/extdata/ld/ld_chrX_male.npz
+	cp tests/fixtures/ld/python/ld_chrX_combined.npz R-package/inst/extdata/ld/ld_chrX_combined.npz
+	Rscript -e "local({ for (f in list.files('R-package/R', pattern = '[.]R$$', full.names = TRUE)) source(f); prepare_ld_npz_for_r('R-package/inst/extdata/ld') })"
 
 test: prepare-r-fixtures
 	pytest tests/

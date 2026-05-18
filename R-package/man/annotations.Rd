@@ -54,9 +54,12 @@ reference-aligned.
 \examples{
 ref_path <- system.file("extdata", "reference_chr1.bim", package = "statgen")
 bed_path <- system.file("extdata", "anno1.bed", package = "statgen")
-if (nzchar(ref_path) && nzchar(bed_path)) {
-  ref <- load_reference(ref_path)
-  ann <- load_annotations(bed_path, ref)
-  dim(annomat(ann))
-}
+ref <- load_reference(ref_path)
+ann <- load_annotations(bed_path, ref)
+dim(annomat(ann))
+
+cache <- tempfile(fileext = ".rds")
+save_annotations_cache(ann, cache)
+ann_cached <- load_annotations_cache(cache)
+dim(annomat(ann_cached))
 }

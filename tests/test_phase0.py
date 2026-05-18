@@ -28,6 +28,7 @@ def _python_project_version() -> str:
     "annotations/anno1.bed",
     "annotations/anno2.bed",
     "sumstats/traits.tsv.gz",
+    "sumstats/traits_complete.tsv.gz",
     "ld/python/ld_manifest.json",
     "ld/python/reference_chr1.bim",
     "ld/python/reference_chrX.bim",
