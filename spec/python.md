@@ -29,6 +29,7 @@ python/
   `ReferencePanel`, `LDPanel`, etc.).
 - Public loader functions are module-level free functions: `load_reference`,
   `load_ld`, `load_ld_reference`, `load_sumstats`, `load_annotations`,
+  `load_annotation`,
   `load_genotype`.
 - Private helpers are prefixed with a single underscore.
 
@@ -36,6 +37,10 @@ python/
 
 - Per-SNP vectors are `numpy.ndarray` with shape `(num_snp,)`.
 - Matrices are `numpy.ndarray` with shape `(num_snp, num_col)`.
+- `AnnotationPanel.annomat` is a `scipy.sparse.csr_matrix` with `float64`
+  dtype. Binary annotations are stored in the same numeric dtype as continuous
+  annotations; callers that need boolean or narrower storage can convert the
+  returned matrix explicitly.
 - Missing numeric values use `numpy.nan` (float arrays) or masked arrays where
   the spec requires distinguishing "absent" from "zero".
 - Optional arguments default to `None`; implementations test with

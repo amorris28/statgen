@@ -108,7 +108,8 @@ Loaders should report matching:
 - sparse LD matrices and aligned `a1freq` vectors;
 - genotype metadata and selected genotype slices through the public on-demand
   accessor;
-- annotation masks and LD-weighted annotation arrays within numeric tolerance.
+- binary and continuous annotation matrices, annotation metadata fields, and
+  LD-weighted annotation arrays within numeric tolerance.
 
 Cache conversion tests should verify that native cache outputs match portable
 source files, not that caches match each other directly. LD converter tests
@@ -202,7 +203,12 @@ Tests should also cover:
 - malformed source files with missing required columns;
 - summary-statistic `p` handling for missing values, `0`, negative values, and
   values greater than `1`;
-- exact BED/reference chromosome matching and interval boundary behavior;
+- exact BED/reference chromosome matching, interval boundary behavior,
+  continuous annotation value painting, multi-column annotation loading,
+  numeric overlap rejection, binary overlap union behavior, loader-declared
+  binary status, language-native `value_columns` indexing, generated annotation
+  metadata, direct annotation metadata, and metadata sidecar handling including
+  mixed sidecar/generated metadata batches;
 - mismatch fixtures proving that `statgen` does not normalize aliases such as
   `chr1` to `1` or `23` to `X`;
 - genotype metadata alignment, cache round-trips, missing-source masks, ploidy

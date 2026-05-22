@@ -70,9 +70,9 @@ Cache loaders that operate without a required reference
 (`load_reference_cache`, `load_annotations_cache`, `load_sumstats_cache`,
 `load_genotype_cache`) accept an optional `shards` parameter.
 Source loaders with an explicit `reference` argument
-(`load_annotations`, `load_sumstats`, `load_genotype`) use the supplied
-reference shard structure; subsetting is done via `select_shards` on the
-reference before passing it in. Such loaders do not accept an additional
+(`load_annotations`, `load_annotation`, `load_sumstats`, `load_genotype`) use
+the supplied reference shard structure; subsetting is done via `select_shards`
+on the reference before passing it in. Such loaders do not accept an additional
 `shards` parameter.
 `load_ld` follows the cache-loader pattern because the LD distribution includes
 its own manifest-declared reference cache. The `shards` argument is honored as

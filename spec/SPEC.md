@@ -139,7 +139,7 @@ Portable object files should be language-agnostic. Use:
 
 - PLINK `.bim` for reference shards and PLINK `.bed/.bim/.fam` for genotype
   shards;
-- BED for canonical annotation interval inputs;
+- BED and BED-like tab-separated interval files for canonical annotation inputs;
 - `.tsv.gz` for portable non-sharded GWAS summary statistics;
 - JSON for manifests and small metadata.
 

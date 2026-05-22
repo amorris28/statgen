@@ -136,7 +136,7 @@ mirrors the MATLAB/Octave reference-cache strategy.
   vectors or numeric matrices.
 - Missing numeric values use `NaN` for aligned numeric vectors where parity
   with other runtimes is required. Optional absent fields use `NULL`.
-- `AnnotationPanel.annomat` is exposed as a sparse `Matrix::lgCMatrix` with
+- `AnnotationPanel.annomat` is exposed as a `Matrix::dgCMatrix` with
   column names set to `annonames(annotation_panel)`. This is an R-native
   enrichment for ergonomic subsetting such as `annomat(panel)[, "coding"]`;
   annotation order and the authoritative annotation-name accessor remain the

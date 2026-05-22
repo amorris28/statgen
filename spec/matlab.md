@@ -22,6 +22,7 @@ matlab/
     load_ld_reference.m
     load_sumstats.m
     load_annotations.m
+    load_annotation.m
     load_genotype.m
     fast_prune.m
     ReferenceShard.m
@@ -40,6 +41,7 @@ matlab/
   statgen_load_ld_reference.m
   statgen_load_sumstats.m
   statgen_load_annotations.m
+  statgen_load_annotation.m
   statgen_load_genotype.m
   statgen_fast_prune.m
 ```
@@ -66,7 +68,8 @@ for all argument validation and logic; wrappers contain no other code.
 
 Wrappers exist only for: `statgen_load_reference`, `statgen_load_ld`,
 `statgen_load_ld_reference`, `statgen_load_sumstats`,
-`statgen_load_annotations`, `statgen_load_genotype`, `statgen_fast_prune`.
+`statgen_load_annotations`, `statgen_load_annotation`,
+`statgen_load_genotype`, `statgen_fast_prune`.
 No wrappers are created for classes or internal helpers.
 
 Interactive `help` text conventions are specified in
@@ -170,8 +173,10 @@ They return a scalar logical and do not throw.
     with `%f` for numeric columns and `%s` for string columns. `textscan`
     requires an exact column count with tab delimiter; a fixed under-count
     confuses the parser. For BED, `#`-prefixed lines are not permitted after the
-    first data row so `CommentStyle` is not needed. See
-    `load_annotations.m:read_bed_tabular_`, `load_sumstats.m`.
+    first data row so `CommentStyle` is not needed. Numeric annotation TSV
+    loading follows the same dynamic-column pattern, with selected value columns
+    parsed as numeric fields. See `load_annotations.m:read_bed_tabular_`,
+    `load_annotation.m`, `load_sumstats.m`.
 - Internal struct metadata keys must be valid MATLAB identifiers (for example
   `statgen_var_names__`), not names that rely on permissive dynamic-field
   behavior (for example leading-underscore keys such as `_var_names`), because
