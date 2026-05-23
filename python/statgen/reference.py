@@ -55,6 +55,89 @@ def _checksum_from_arrays(
     return hashlib.md5(text.encode()).hexdigest()
 
 
+def _reference_checksum_from_shard(shard):
+    checksum = getattr(shard, "reference_checksum", None)
+    if checksum is None:
+        checksum = getattr(shard, "checksum", None)
+    return checksum
+
+
+def _reference_shard_compatibility_messages(
+    reference_shards,
+    object_shards,
+    *,
+    where: str,
+    require_checksum: bool,
+) -> list[str]:
+    ref_shards = list(reference_shards)
+    obj_shards = list(object_shards)
+    if len(obj_shards) != len(ref_shards):
+        return [
+            f"{where}: shard count mismatch: "
+            f"left has {len(ref_shards)}, right has {len(obj_shards)}"
+        ]
+
+    messages = []
+    for ref_s, obj_s in zip(ref_shards, obj_shards):
+        ref_label = getattr(ref_s, "label", None)
+        obj_label = getattr(obj_s, "label", None)
+        if ref_label is None:
+            messages.append(f"{where}: left shard has no label")
+            continue
+        if obj_label is None:
+            messages.append(f"{where}: shard {ref_label}: right shard has no label")
+            continue
+        if obj_label != ref_label:
+            messages.append(
+                f"{where}: shard label mismatch: left {ref_label}, right {obj_label}"
+            )
+            continue
+
+        ref_num = getattr(ref_s, "num_snp", None)
+        obj_num = getattr(obj_s, "num_snp", None)
+        if ref_num is None:
+            messages.append(f"{where}: shard {ref_label}: left shard has no num_snp")
+            continue
+        if obj_num is None:
+            messages.append(f"{where}: shard {ref_label}: right shard has no num_snp")
+            continue
+        if obj_num != ref_num:
+            messages.append(
+                f"{where}: shard {ref_label}: row count mismatch: "
+                f"left {ref_num}, right {obj_num}"
+            )
+            continue
+
+        ref_chk = _reference_checksum_from_shard(ref_s)
+        obj_chk = _reference_checksum_from_shard(obj_s)
+        if require_checksum and ref_chk is None:
+            messages.append(f"{where}: shard {ref_label}: left shard has no reference_checksum")
+            continue
+        if require_checksum and obj_chk is None:
+            messages.append(f"{where}: shard {ref_label}: right shard has no reference_checksum")
+            continue
+        if ref_chk is not None and obj_chk is not None and obj_chk != ref_chk:
+            messages.append(f"{where}: shard {ref_label}: reference_checksum mismatch")
+    return messages
+
+
+def _raise_if_reference_shards_incompatible(
+    reference_shards,
+    object_shards,
+    *,
+    where: str,
+    require_checksum: bool = True,
+) -> None:
+    messages = _reference_shard_compatibility_messages(
+        reference_shards,
+        object_shards,
+        where=where,
+        require_checksum=require_checksum,
+    )
+    if messages:
+        raise ValueError(messages[0])
+
+
 class ReferenceShard:
     def __init__(
         self,
@@ -279,54 +362,15 @@ class ReferencePanel:
             log_fn("statgen: is_object_compatible: object has no shards attribute")
             return False
 
-        obj_shards = list(obj_shards)
-        if len(obj_shards) != len(self._shards):
-            log_fn(
-                "statgen: is_object_compatible: shard count mismatch: "
-                f"reference has {len(self._shards)}, object has {len(obj_shards)}"
-            )
-            return False
-
-        ok = True
-        for ref_s, obj_s in zip(self._shards, obj_shards):
-            obj_label = getattr(obj_s, "label", None)
-            if obj_label is None:
-                log_fn(
-                    f"statgen: is_object_compatible: shard {ref_s.label}: object shard has no label"
-                )
-                ok = False
-                continue
-            if obj_label != ref_s.label:
-                log_fn(
-                    "statgen: is_object_compatible: shard label mismatch: "
-                    f"reference {ref_s.label}, object {obj_label}"
-                )
-                ok = False
-                continue
-            obj_num = getattr(obj_s, "num_snp", None)
-            if obj_num is None:
-                log_fn(
-                    f"statgen: is_object_compatible: shard {ref_s.label}: "
-                    "object shard has no num_snp"
-                )
-                ok = False
-                continue
-            if obj_num != ref_s.num_snp:
-                log_fn(
-                    f"statgen: is_object_compatible: shard {ref_s.label}: "
-                    f"row count mismatch: reference {ref_s.num_snp}, object {obj_num}"
-                )
-                ok = False
-                continue
-            obj_chk = getattr(obj_s, "reference_checksum", None)
-            if obj_chk is None:
-                obj_chk = getattr(obj_s, "checksum", None)
-            if obj_chk is not None and obj_chk != ref_s.checksum:
-                log_fn(
-                    f"statgen: is_object_compatible: shard {ref_s.label}: reference_checksum mismatch"
-                )
-                ok = False
-        return ok
+        messages = _reference_shard_compatibility_messages(
+            self._shards,
+            obj_shards,
+            where="statgen: is_object_compatible",
+            require_checksum=False,
+        )
+        for message in messages:
+            log_fn(message)
+        return not messages
 
     def save_cache(self, path) -> None:
         save_reference_cache(self, path)

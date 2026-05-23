@@ -55,14 +55,13 @@ binary BED inputs, metadata sidecars are file-level metadata and the entire
 sidecar content is used as the annotation metadata string, preserving the text
 content exactly.
 
-BED comment lines are skipped before parsing columns 1–3:
+BED comment and blank lines are skipped before parsing columns 1–3:
 
 - empty lines;
 - lines starting with `#`.
 
-Comment and blank lines are only valid before the first data row. A `#`-prefixed
-or blank line after a data row has begun is not supported and will be treated as
-a parse error.
+This applies anywhere in the file. In Python, this is intentionally compatible
+with `pandas.read_csv(..., comment="#", skip_blank_lines=True)`.
 
 `track` and `browser` metadata lines are not supported. If present in a file,
 they must be prefixed with `#` before loading.
@@ -117,7 +116,11 @@ naming.
 1. **Exact chromosome matching**: compare the annotation chromosome field to the
    BIM `chr` column exactly as loaded. Do not strip `chr`, map `23` to `X`, or
    apply any other alias conversion. Inputs with inconsistent contig naming must
-   be fixed upstream before annotation loading.
+   be fixed upstream before annotation loading. Annotation loaders follow
+   [contigs-and-shards.md](contigs-and-shards.md): canonical labels outside
+   the supplied reference shard set may paint all zeros, recognized
+   non-supported labels such as `Y` and `MT` are ignored, and ambiguous or
+   non-canonical labels such as `chr1`/`chrX` are errors.
 
 2. **Interval validation**: within each annotation column and chromosome, sort
    intervals by start position. For binary 3-column BED input, overlapping and
@@ -354,11 +357,14 @@ Expected behavior:
   empty string. This scalar shortcut is specific to `create_annotation`.
 - `AnnotationPanel.select_annotations(names)` preserves requested name order and
   fails on unknown names or duplicate requested names (no silent drops).
-- `AnnotationPanel.union_annotations(other, optional mode)` requires
-  `ReferencePanel.is_object_compatible(other) == true`. `mode` defaults to
-  `by_name`; name collisions are errors. It column-binds `annomat` and
-  concatenates `annonames`, `is_binary`, and `annotation_metadata` without
-  coercing numeric values to binary.
+- `AnnotationPanel.union_annotations(other, optional mode)` requires strict
+  reference-alignment compatibility between the two annotation panels: same
+  shard count, same shard labels in the same order, same per-shard row counts,
+  and present, equal per-shard reference checksums. Missing or mismatched
+  reference checksum metadata is an error. `mode` defaults to `by_name`; name
+  collisions are errors. It column-binds `annomat` and concatenates
+  `annonames`, `is_binary`, and `annotation_metadata` without coercing numeric
+  values to binary.
 - `AnnotationPanel.save_cache(...)` is a thin convenience method equivalent to
   `save_annotations_cache(panel, ...)`.
 - cache payloads store per-shard reference checksums so compatibility with a

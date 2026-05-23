@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -8,6 +9,7 @@ from scipy import sparse
 from statgen.annotations import (
     create_annotation,
     create_annotations,
+    load_annotation,
     load_annotations,
     load_annotations_cache,
     save_annotations_cache,
@@ -60,6 +62,8 @@ def test_load_annotations_fixture_masks_and_names():
     assert a.num_snp == 8
     assert a.num_annot == 2
     assert list(a.annonames) == ["anno1", "anno2"]
+    np.testing.assert_array_equal(a.is_binary, np.array([True, True]))
+    assert all(json.loads(x)["source_file"] for x in a.annotation_metadata)
     assert sparse.isspmatrix_csr(a.annomat)
     np.testing.assert_array_equal(a.annomat.toarray(), EXPECTED_MASK)
 
@@ -103,6 +107,23 @@ def test_bed_metadata_and_comment_lines_are_ignored(tmp_path):
     )
     a = load_annotations(bed, reference)
     np.testing.assert_array_equal(a.annomat.toarray().reshape(-1), np.array([1, 1, 1, 1, 0, 0, 0, 0], dtype=np.uint8))
+
+
+def test_bed_comment_or_blank_lines_are_skipped_anywhere(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    bed = tmp_path / "comments_anywhere.bed"
+    _write_text(
+        bed,
+        "1\t99\t100\n"
+        "# late comment skipped by pandas comment handling\n"
+        "\n"
+        "1\t399\t400\n",
+    )
+    a = load_annotations(bed, reference)
+    np.testing.assert_array_equal(
+        a.annomat.toarray().reshape(-1),
+        np.array([1, 0, 0, 1, 0, 0, 0, 0], dtype=np.uint8),
+    )
 
 
 def test_metadata_only_bed_file_fails(tmp_path):
@@ -156,6 +177,26 @@ def test_adjacent_interval_merge_matches_premerged_intervals(tmp_path):
     np.testing.assert_array_equal(a_merged.annomat.toarray(), a_split.annomat.toarray())
 
 
+def test_overlapping_binary_bed_intervals_paint_union(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    bed = tmp_path / "overlap.bed"
+    _write_bed(
+        bed,
+        [
+            ("1", 99, 150),
+            ("1", 120, 200),
+            ("1", 299, 350),
+        ],
+    )
+
+    a = load_annotations(bed, reference)
+
+    np.testing.assert_array_equal(
+        a.annomat.toarray().reshape(-1),
+        np.array([1, 1, 1, 0, 0, 0, 0, 0], dtype=np.uint8),
+    )
+
+
 def test_chromosome_absent_in_bed_yields_zero_mask(tmp_path):
     reference = load_reference(SHARDED_REF)
     bed = tmp_path / "chr2_only.bed"
@@ -165,16 +206,207 @@ def test_chromosome_absent_in_bed_yields_zero_mask(tmp_path):
     np.testing.assert_array_equal(a.annomat.toarray(), np.zeros((reference.num_snp, 1), dtype=np.uint8))
 
 
+def test_annotation_rejects_ambiguous_chr_labels(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    bed = tmp_path / "chr_prefixed.bed"
+    _write_text(bed, "chr1\t99\t100\n")
+
+    with pytest.raises(ValueError, match="chr-style labels"):
+        load_annotations(bed, reference)
+
+
+def test_load_annotations_metadata_sidecars_and_direct_metadata(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    sidecar = tmp_path / "anno1.meta"
+    sidecar.write_text('{"name":"anno1"}\nsecond line', encoding="utf-8")
+
+    a = load_annotations(
+        [ANNO1, ANNO2],
+        reference,
+        annotation_metadata_paths=[sidecar, None],
+    )
+    assert a.annotation_metadata[0] == '{"name":"anno1"}\nsecond line'
+    assert json.loads(a.annotation_metadata[1])["source_file"] == str(ANNO2)
+
+    b = load_annotations([ANNO1, ANNO2], reference, annotation_metadata=["m1", "m2"])
+    assert b.annotation_metadata.tolist() == ["m1", "m2"]
+
+    with pytest.raises(ValueError, match="at most one"):
+        load_annotations(
+            ANNO1,
+            reference,
+            annotation_metadata=["m"],
+            annotation_metadata_paths=[sidecar],
+        )
+
+
+def test_load_annotation_numeric_headerless_single_column(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    path = tmp_path / "score.annot"
+    _write_text(
+        path,
+        "1\t99\t200\t0.5\n"
+        "1\t299\t400\t-1.25\n"
+        "X\t99\t101\t2.0\n",
+    )
+
+    a = load_annotation(path, reference)
+
+    assert list(a.annonames) == ["score"]
+    np.testing.assert_array_equal(a.is_binary, np.array([False]))
+    dense = a.annomat.toarray().reshape(-1)
+    np.testing.assert_allclose(dense, np.array([0.5, 0.5, -1.25, -1.25, 0.0, 2.0, 0.0, 0.0]))
+    meta = json.loads(a.annotation_metadata[0])
+    assert meta["source_column0"] == 3
+    assert meta["source_column_name"] is None
+
+
+def test_load_annotation_headered_multi_column_selection_and_sidecar(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    path = tmp_path / "wide.annot"
+    _write_text(
+        path,
+        "chrom\tstart0\tend0\tscore\tweight\n"
+        "1\t99\t200\t0.5\t10\n"
+        "1\t299\t400\t1.5\t20\n"
+        "X\t99\t301\t2.5\t30\n",
+    )
+    sidecar = tmp_path / "wide.meta"
+    sidecar.write_text("chrom meta\nstart meta\nend meta\nscore meta\nweight meta", encoding="utf-8")
+
+    a = load_annotation(
+        path,
+        reference,
+        header=True,
+        value_columns=["weight", "score"],
+        annotation_metadata_path=sidecar,
+    )
+
+    assert list(a.annonames) == ["weight", "score"]
+    assert a.annotation_metadata.tolist() == ["weight meta", "score meta"]
+    np.testing.assert_array_equal(a.is_binary, np.array([False, False]))
+    np.testing.assert_allclose(
+        a.annomat.toarray(),
+        np.array(
+            [
+                [10.0, 0.5],
+                [10.0, 0.5],
+                [20.0, 1.5],
+                [20.0, 1.5],
+                [0.0, 0.0],
+                [30.0, 2.5],
+                [30.0, 2.5],
+                [30.0, 2.5],
+            ]
+        ),
+    )
+
+
+def test_load_annotation_integer_value_columns_python_zero_based(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    path = tmp_path / "integer_columns.annot"
+    _write_text(
+        path,
+        "1\t99\t200\t0.5\t10\n"
+        "1\t299\t400\t1.5\t20\n"
+        "X\t99\t301\t2.5\t30\n",
+    )
+
+    a = load_annotation(
+        path,
+        reference,
+        value_columns=[4, 3],
+        annotation_names=["weight", "score"],
+    )
+
+    assert list(a.annonames) == ["weight", "score"]
+    np.testing.assert_array_equal(a.is_binary, np.array([False, False]))
+    np.testing.assert_allclose(
+        a.annomat.toarray(),
+        np.array(
+            [
+                [10.0, 0.5],
+                [10.0, 0.5],
+                [20.0, 1.5],
+                [20.0, 1.5],
+                [0.0, 0.0],
+                [30.0, 2.5],
+                [30.0, 2.5],
+                [30.0, 2.5],
+            ]
+        ),
+    )
+    assert json.loads(a.annotation_metadata[0])["source_column0"] == 4
+    assert json.loads(a.annotation_metadata[1])["source_column0"] == 3
+
+
+def test_load_annotation_binary_sidecar_and_name_override(tmp_path):
+    reference = load_reference(SHARDED_REF)
+    bed = tmp_path / "raw.bed"
+    meta = tmp_path / "raw.meta"
+    _write_text(bed, "1\t99\t200\n")
+    meta.write_text("opaque\nmetadata\n", encoding="utf-8")
+
+    a = load_annotation(
+        bed,
+        reference,
+        annotation_names=["renamed"],
+        annotation_metadata_path=meta,
+    )
+
+    assert list(a.annonames) == ["renamed"]
+    np.testing.assert_array_equal(a.is_binary, np.array([True]))
+    assert a.annotation_metadata.tolist() == ["opaque\nmetadata\n"]
+    np.testing.assert_array_equal(a.annomat.toarray().reshape(-1), np.array([1, 1, 0, 0, 0, 0, 0, 0]))
+
+
+def test_load_annotation_validation_errors(tmp_path):
+    reference = load_reference(SHARDED_REF)
+
+    overlap = tmp_path / "overlap.annot"
+    _write_text(overlap, "1\t99\t200\t1\n1\t150\t250\t2\n")
+    with pytest.raises(ValueError, match="numeric annotation intervals overlap"):
+        load_annotation(overlap, reference)
+
+    nonfinite = tmp_path / "nonfinite.annot"
+    _write_text(nonfinite, "1\t99\t200\tNaN\n")
+    with pytest.raises(ValueError, match="finite numeric"):
+        load_annotation(nonfinite, reference)
+
+    wide = tmp_path / "wide.annot"
+    _write_text(wide, "1\t99\t200\t1\t2\n")
+    with pytest.raises(ValueError, match="requires explicit value_columns"):
+        load_annotation(wide, reference)
+    with pytest.raises(ValueError, match="requires annotation_names"):
+        load_annotation(wide, reference, value_columns=[3])
+
+    with pytest.raises(ValueError, match="named value_columns are invalid"):
+        load_annotation(wide, reference, value_columns=["score"], annotation_names=["score"])
+
+    one = tmp_path / "one.annot"
+    _write_text(one, "1\t99\t200\t1\n")
+    with pytest.raises(ValueError, match="string vector"):
+        load_annotation(one, reference, annotation_metadata="scalar")
+
+    bad_sidecar = tmp_path / "bad.meta"
+    bad_sidecar.write_text("c1\nc2\nc3", encoding="utf-8")
+    with pytest.raises(ValueError, match="line count mismatch"):
+        load_annotation(one, reference, annotation_metadata_path=bad_sidecar)
+
+
 def test_select_annotations_preserves_order_and_rejects_unknown():
     reference = load_reference(SHARDED_REF)
     a = load_annotations([ANNO1, ANNO2], reference)
 
     sel = a.select_annotations(["anno2", "anno1"])
     assert list(sel.annonames) == ["anno2", "anno1"]
+    np.testing.assert_array_equal(sel.is_binary, np.array([True, True]))
     np.testing.assert_array_equal(sel.annomat.toarray(), EXPECTED_MASK[:, [1, 0]])
 
     with pytest.raises(ValueError, match="unknown annotation"):
         a.select_annotations(["anno3"])
+    with pytest.raises(ValueError, match="names must be unique"):
+        a.select_annotations(["anno1", "anno1"])
 
 
 def test_union_annotations_enforces_compatibility_and_name_collisions():
@@ -184,6 +416,7 @@ def test_union_annotations_enforces_compatibility_and_name_collisions():
 
     u = a.union_annotations(b)
     assert list(u.annonames) == ["anno1", "anno2"]
+    np.testing.assert_array_equal(u.is_binary, np.array([True, True]))
     np.testing.assert_array_equal(u.annomat.toarray(), EXPECTED_MASK)
 
     with pytest.raises(ValueError, match="name collision"):
@@ -191,31 +424,86 @@ def test_union_annotations_enforces_compatibility_and_name_collisions():
 
     x_ref = reference.select_shards(["X"])
     x_only = create_annotation(x_ref, np.ones(x_ref.num_snp), "xonly")
-    with pytest.raises(ValueError, match="matching shard structure"):
+    with pytest.raises(ValueError, match="shard count mismatch"):
         a.union_annotations(x_only)
+
+    other_missing_checksum = SimpleNamespace(
+        annonames=np.array(["other"], dtype=object),
+        is_binary=np.array([True]),
+        annotation_metadata=np.array([""], dtype=object),
+        shards=[
+            SimpleNamespace(label=s.label, num_snp=s.num_snp, annomat=s.annomat[:, :1])
+            for s in a.shards
+        ],
+    )
+    with pytest.raises(ValueError, match="reference_checksum"):
+        a.union_annotations(other_missing_checksum)
+
+    other_bad_checksum = SimpleNamespace(
+        annonames=np.array(["other"], dtype=object),
+        is_binary=np.array([True]),
+        annotation_metadata=np.array([""], dtype=object),
+        shards=[
+            SimpleNamespace(
+                label=s.label,
+                num_snp=s.num_snp,
+                reference_checksum="deadbeef" * 4,
+                annomat=s.annomat[:, :1],
+            )
+            for s in a.shards
+        ],
+    )
+    with pytest.raises(ValueError, match="reference_checksum mismatch"):
+        a.union_annotations(other_bad_checksum)
 
 
 def test_create_annotations_and_create_annotation_validation():
     reference = load_reference(SHARDED_REF)
 
-    panel = create_annotations(reference, EXPECTED_MASK, ["anno1", "anno2"])
+    panel = create_annotations(
+        reference,
+        EXPECTED_MASK,
+        ["anno1", "anno2"],
+        annotation_metadata=["m1", "m2"],
+    )
     np.testing.assert_array_equal(panel.annomat.toarray(), EXPECTED_MASK)
+    np.testing.assert_array_equal(panel.is_binary, np.array([True, True]))
+    assert panel.annotation_metadata.tolist() == ["m1", "m2"]
+
+    continuous = EXPECTED_MASK.astype(float)
+    continuous[0, 0] = 2.5
+    cont_panel = create_annotations(
+        reference,
+        continuous,
+        ["cont1", "cont2"],
+        is_binary=[False, True],
+    )
+    np.testing.assert_array_equal(cont_panel.is_binary, np.array([False, True]))
+    np.testing.assert_allclose(cont_panel.annomat.toarray(), continuous)
 
     with pytest.raises(ValueError, match="shape mismatch"):
         create_annotations(reference, EXPECTED_MASK[:, :1], ["anno1", "anno2"])
     with pytest.raises(ValueError, match="non-binary"):
-        create_annotations(reference, np.where(EXPECTED_MASK == 1, 2, 0), ["anno1", "anno2"])
+        create_annotations(
+            reference,
+            np.where(EXPECTED_MASK == 1, 2, 0),
+            ["anno1", "anno2"],
+            is_binary=[True, True],
+        )
     with pytest.raises(ValueError, match="must be unique"):
         create_annotations(reference, EXPECTED_MASK, ["dup", "dup"])
+    with pytest.raises(ValueError, match="annotation_metadata length mismatch"):
+        create_annotations(reference, EXPECTED_MASK, ["anno1", "anno2"], annotation_metadata=["one"])
 
     col = EXPECTED_MASK[:, 0]
-    single = create_annotation(reference, col, "anno1")
+    single = create_annotation(reference, col, "anno1", annotation_metadata="single meta")
     np.testing.assert_array_equal(single.annomat.toarray(), col.reshape(-1, 1))
+    assert single.annotation_metadata.tolist() == ["single meta"]
 
     with pytest.raises(ValueError, match="annovec length mismatch"):
         create_annotation(reference, np.array([1, 0], dtype=np.uint8), "bad")
     with pytest.raises(ValueError, match="must be binary"):
-        create_annotation(reference, np.r_[2, np.zeros(reference.num_snp - 1)], "bad")
+        create_annotation(reference, np.r_[2, np.zeros(reference.num_snp - 1)], "bad", is_binary=True)
 
 
 def test_create_annotation_can_represent_all_snps():
@@ -259,6 +547,8 @@ def test_cache_roundtrip_subset_and_compatibility(tmp_path):
 
     assert sparse.isspmatrix_csr(loaded.annomat)
     np.testing.assert_array_equal(loaded.annomat.toarray(), EXPECTED_MASK)
+    np.testing.assert_array_equal(loaded.is_binary, np.array([True, True]))
+    assert all(json.loads(x)["source_file"] for x in loaded.annotation_metadata)
     assert reference.is_object_compatible(loaded) is True
 
     x_only = load_annotations_cache(cache, shards=["X"])
@@ -274,6 +564,9 @@ def test_cache_validation_and_post_load_compatibility_check(tmp_path):
 
     arrays = _load_cache_arrays(cache)
     meta = json.loads(bytes(arrays["_meta"]).decode())
+    assert meta["schema"] == "annotations_cache/0.2"
+    assert meta["is_binary"] == [True, True]
+    assert len(meta["annotation_metadata"]) == 2
 
     meta["schema"] = "annotations_cache/bad"
     arrays["_meta"] = np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8)
@@ -299,6 +592,19 @@ def test_cache_validation_and_post_load_compatibility_check(tmp_path):
     np.savez_compressed(bad_chk, **arrays)
     loaded_bad = load_annotations_cache(bad_chk)
     assert reference.is_object_compatible(loaded_bad) is False
+
+    arrays = _load_cache_arrays(cache)
+    meta = json.loads(bytes(arrays["_meta"]).decode())
+    meta["schema"] = "annotations_cache/0.1"
+    meta.pop("is_binary")
+    meta.pop("annotation_metadata")
+    arrays["_meta"] = np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8)
+    old_cache = tmp_path / "old_cache.npz"
+    np.savez_compressed(old_cache, **arrays)
+    loaded_old = load_annotations_cache(old_cache)
+    np.testing.assert_array_equal(loaded_old.is_binary, np.array([True, True]))
+    assert loaded_old.annotation_metadata.tolist() == ["", ""]
+    assert loaded_old.annomat.dtype == np.float64
 
 
 def test_cross_language_cache_not_supported(tmp_path):

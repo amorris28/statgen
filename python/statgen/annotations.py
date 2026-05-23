@@ -6,13 +6,23 @@ import pandas as pd
 from pandas.errors import EmptyDataError, ParserError
 from scipy import sparse
 
-from ._utils import validate_requested_shards
+from ._annotation_painting import (
+    IGNORED_CHR,
+    binary_intervals_by_chr_from_arrays,
+    paint_binary_column,
+    paint_mask,
+    paint_numeric_values,
+    validate_numeric_non_overlapping,
+)
+from .reference import _raise_if_reference_shards_incompatible
+from ._utils import CANONICAL_CHR_ORDER, validate_requested_shards
 
-_CACHE_SCHEMA = "annotations_cache/0.1"
+_CACHE_SCHEMA = "annotations_cache/0.2"
+_OLD_CACHE_SCHEMA = "annotations_cache/0.1"
+_ALLOWED_CHR = set(CANONICAL_CHR_ORDER) | IGNORED_CHR
 
 
-
-def _as_sparse_binary(mat, name: str = "annomat") -> sparse.csr_matrix:
+def _as_sparse_numeric(mat, name: str = "annomat") -> sparse.csr_matrix:
     if sparse.issparse(mat):
         csr = mat.tocsr(copy=True)
     else:
@@ -21,34 +31,25 @@ def _as_sparse_binary(mat, name: str = "annomat") -> sparse.csr_matrix:
             raise ValueError(f"{name} must be a 2D matrix")
         csr = sparse.csr_matrix(arr)
 
-    # Guard against CSR matrices carrying explicit stored zeros in .data.
-    # These represent logical zeros and must not be flipped to ones.
+    csr = csr.astype(np.float64)
     csr.eliminate_zeros()
-
-    if csr.data.size:
-        data = np.asarray(csr.data)
-        bad = data != 1
-        if bad.any():
-            idx = int(np.flatnonzero(bad)[0])
-            raise ValueError(f"{name} contains non-binary value: {data[idx]!r}")
-
-    csr = csr.astype(np.uint8)
-    csr.data[:] = 1
+    if csr.data.size and not np.isfinite(csr.data).all():
+        idx = int(np.flatnonzero(~np.isfinite(csr.data))[0])
+        raise ValueError(f"{name} contains non-finite value: {csr.data[idx]!r}")
     return csr
 
 
 def _coerce_annovec(annovec, n: int) -> np.ndarray:
-    arr = np.asarray(annovec)
+    arr = np.asarray(annovec, dtype=np.float64)
     if arr.ndim > 2 or (arr.ndim == 2 and 1 not in arr.shape):
         raise ValueError(f"annovec must be a vector with length {n}")
     arr = arr.reshape(-1)
     if arr.size != n:
         raise ValueError(f"annovec length mismatch: expected {n}, got {arr.size}")
-    bad = (arr != 0) & (arr != 1)
-    if bad.any():
-        idx = int(np.flatnonzero(bad)[0])
-        raise ValueError(f"annovec[{idx}] must be binary (0/1)")
-    return arr.astype(np.uint8)
+    if not np.isfinite(arr).all():
+        idx = int(np.flatnonzero(~np.isfinite(arr))[0])
+        raise ValueError(f"annovec[{idx}] must be finite numeric")
+    return arr
 
 
 def _coerce_annonames(annonames) -> list[str]:
@@ -64,6 +65,78 @@ def _coerce_annonames(annonames) -> list[str]:
     return names
 
 
+def _coerce_string_vector(value, expected_len: int, name: str) -> np.ndarray:
+    if isinstance(value, str):
+        raise ValueError(f"{name} must be a string vector with length {expected_len}")
+    values = [str(x) for x in list(value)]
+    if len(values) != expected_len:
+        raise ValueError(f"{name} length mismatch: expected {expected_len}, got {len(values)}")
+    return np.asarray(values, dtype=object)
+
+
+def _coerce_is_binary(is_binary, mat: sparse.csr_matrix) -> np.ndarray:
+    n_annot = int(mat.shape[1])
+    if is_binary is None:
+        out = np.zeros(n_annot, dtype=bool)
+        csc = mat.tocsc(copy=False)
+        for j in range(n_annot):
+            start = int(csc.indptr[j])
+            stop = int(csc.indptr[j + 1])
+            data = csc.data[start:stop]
+            out[j] = bool(data.size == 0 or np.all(data == 1.0))
+        return out
+
+    arr = np.asarray(is_binary)
+    if arr.ndim == 0:
+        raise ValueError(f"is_binary must be a logical vector with length {n_annot}")
+    arr = arr.reshape(-1)
+    if arr.size != n_annot:
+        raise ValueError(f"is_binary length mismatch: expected {n_annot}, got {arr.size}")
+    if arr.dtype != np.bool_:
+        bad = ~np.isin(arr, [False, True, 0, 1])
+        if bad.any():
+            idx = int(np.flatnonzero(bad)[0])
+            raise ValueError(f"is_binary[{idx}] must be logical")
+    return arr.astype(bool)
+
+
+def _coerce_is_binary_vector(is_binary, n_annot: int) -> np.ndarray:
+    if is_binary is None:
+        raise ValueError("is_binary must be supplied")
+    arr = np.asarray(is_binary)
+    if arr.ndim == 0:
+        raise ValueError(f"is_binary must be a logical vector with length {n_annot}")
+    arr = arr.reshape(-1)
+    if arr.size != n_annot:
+        raise ValueError(f"is_binary length mismatch: expected {n_annot}, got {arr.size}")
+    if arr.dtype != np.bool_:
+        bad = ~np.isin(arr, [False, True, 0, 1])
+        if bad.any():
+            idx = int(np.flatnonzero(bad)[0])
+            raise ValueError(f"is_binary[{idx}] must be logical")
+    return arr.astype(bool)
+
+
+def _validate_declared_binary(mat: sparse.csr_matrix, is_binary: np.ndarray, name: str) -> None:
+    if not np.any(is_binary):
+        return
+    data = mat[:, is_binary].data
+    if data.size:
+        bad = data != 1.0
+        if bad.any():
+            idx = int(np.flatnonzero(bad)[0])
+            raise ValueError(
+                f"{name} declared binary must be binary (0/1); found non-binary value {data[idx]!r}"
+            )
+
+
+def _validate_declared_binary_shards(shards: list, is_binary: np.ndarray, name: str) -> None:
+    if not np.any(is_binary):
+        return
+    for shard in shards:
+        _validate_declared_binary(shard.annomat, is_binary, name)
+
+
 def _annotation_name_from_path(path: Path) -> str:
     name = path.stem
     if not name:
@@ -71,111 +144,129 @@ def _annotation_name_from_path(path: Path) -> str:
     return name
 
 
-def _parse_bed(path: Path) -> dict[str, np.ndarray]:
-    # Lines beginning with '#' and blank lines are skipped natively.
-    # 'track'/'browser' metadata lines are not supported; prefix with '#' if present.
+def _generated_metadata(path: Path, source_column0, source_column_name) -> str:
+    return json.dumps(
+        {
+            "source_file": str(path),
+            "source_column0": source_column0,
+            "source_column_name": source_column_name,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _read_sidecar_exact(path) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def _read_column_metadata_sidecar(path, num_columns: int) -> list[str]:
+    text = _read_sidecar_exact(path)
+    lines = text.splitlines()
+    if len(lines) != num_columns:
+        raise ValueError(
+            f"{path}: annotation metadata sidecar line count mismatch: "
+            f"expected {num_columns}, got {len(lines)}"
+        )
+    empty = [i for i, line in enumerate(lines) if line == ""]
+    if empty:
+        raise ValueError(f"{path}: annotation metadata sidecar line {empty[0] + 1} is empty")
+    return lines
+
+
+def _read_annotation_table(path: Path, header: bool) -> tuple[pd.DataFrame, list[str] | None, int]:
+    if not path.is_file():
+        raise FileNotFoundError(f"annotation file not found: {path}")
+
     try:
         df = pd.read_csv(
             path,
             sep="\t",
-            header=None,
+            header=0 if header else None,
             dtype=str,
-            comment="#",
-            skip_blank_lines=True,
             keep_default_na=False,
             na_filter=False,
+            comment="#",
+            skip_blank_lines=True,
         )
     except EmptyDataError as exc:
         raise ValueError(f"{path}: BED file is empty") from exc
     except ParserError as exc:
-        raise ValueError(f"{path}: malformed BED") from exc
+        raise ValueError(f"{path}: malformed annotation input") from exc
 
     if df.shape[0] == 0:
         raise ValueError(f"{path}: BED file is empty")
+
     if df.shape[1] < 3:
         raise ValueError(f"{path}: BED must have at least 3 tab-separated columns")
+    header_fields = [str(x) for x in df.columns] if header else None
+    if header_fields is not None:
+        if any(x == "" for x in header_fields):
+            raise ValueError(f"{path}: header names must be non-empty")
+        if len(set(header_fields)) != len(header_fields):
+            raise ValueError(f"{path}: header names must be unique")
 
-    chr_col = df.iloc[:, 0]
-    start_raw = df.iloc[:, 1]
-    end_raw = df.iloc[:, 2]
+    return df, header_fields, 1 if header else 0
 
+
+def _validate_interval_columns(
+    df: pd.DataFrame,
+    path: Path,
+    row_base0: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    chr_col = df.iloc[:, 0].astype(str)
     bad_chr = chr_col.eq("")
     if bad_chr.any():
         idx = int(bad_chr.idxmax())
-        raise ValueError(f"{path}: row {idx + 1}: chromosome label must be non-empty")
+        raise ValueError(f"{path}: row {row_base0 + idx + 1}: chromosome label must be non-empty")
+    chr_values = chr_col.to_numpy(dtype=object)
 
+    chr_series = pd.Series(chr_values, dtype="string")
+    chr_style = chr_series.str.startswith("chr", na=False)
+    if chr_style.any():
+        idx = int(chr_style.idxmax())
+        raise ValueError(f"{path}: row {row_base0 + idx + 1}: chr-style labels (e.g., chr1/chrX) are not allowed")
+    unsupported = ~chr_series.isin(_ALLOWED_CHR)
+    if unsupported.any():
+        idx = int(unsupported.idxmax())
+        raise ValueError(
+            f"{path}: row {row_base0 + idx + 1}: unsupported chr label {chr_values[idx]!r}; expected 1-22, X (Y/MT are ignored)"
+        )
+
+    start_raw = df.iloc[:, 1]
+    end_raw = df.iloc[:, 2]
     start_num = pd.to_numeric(start_raw, errors="coerce")
     end_num = pd.to_numeric(end_raw, errors="coerce")
 
     bad_start = start_num.isna() | (np.floor(start_num) != start_num) | (start_num < 0)
     if bad_start.any():
         idx = int(bad_start.idxmax())
-        raise ValueError(f"{path}: row {idx + 1}: BED start must be a non-negative integer")
+        raise ValueError(f"{path}: row {row_base0 + idx + 1}: BED start must be a non-negative integer")
 
     bad_end = end_num.isna() | (np.floor(end_num) != end_num) | (end_num < 0)
     if bad_end.any():
         idx = int(bad_end.idxmax())
-        raise ValueError(f"{path}: row {idx + 1}: BED end must be a non-negative integer")
+        raise ValueError(f"{path}: row {row_base0 + idx + 1}: BED end must be a non-negative integer")
 
-    start_int = start_num.astype(np.int64)
-    end_int = end_num.astype(np.int64)
-
+    start_int = start_num.astype(np.int64).to_numpy()
+    end_int = end_num.astype(np.int64).to_numpy()
     bad_len = end_int < start_int
     if bad_len.any():
-        idx = int(bad_len.idxmax())
-        raise ValueError(f"{path}: row {idx + 1}: BED interval end must be >= start")
+        idx = int(np.flatnonzero(bad_len)[0])
+        raise ValueError(f"{path}: row {row_base0 + idx + 1}: BED interval end must be >= start")
 
-    intervals_by_chr: dict[str, np.ndarray] = {}
-    for chr_label, grp in pd.DataFrame(
-        {"chr": chr_col.to_numpy(dtype=object), "start": start_int, "end": end_int}
-    ).groupby("chr", sort=False):
-        starts = grp["start"].to_numpy(dtype=np.int64)
-        ends = grp["end"].to_numpy(dtype=np.int64)
-        intervals_by_chr[str(chr_label)] = _merge_intervals(starts, ends)
-
-    return intervals_by_chr
+    return chr_values, start_int, end_int
 
 
-def _merge_intervals(starts: np.ndarray, ends: np.ndarray) -> np.ndarray:
-    if starts.size == 0:
-        return np.empty((0, 2), dtype=np.int64)
-
-    order = np.lexsort((ends, starts))
-    s = starts[order]
-    e = ends[order]
-
-    running_max_end = np.maximum.accumulate(e)
-    new_group = np.empty(len(s), dtype=bool)
-    new_group[0] = True
-    new_group[1:] = s[1:] > running_max_end[:-1]
-
-    group_starts_idx = np.where(new_group)[0]
-    merged_starts = s[group_starts_idx]
-    merged_ends = np.maximum.reduceat(e, group_starts_idx)
-
-    return np.column_stack([merged_starts.astype(np.int64), merged_ends.astype(np.int64)])
+def _binary_intervals_by_chr(path: Path) -> dict[str, np.ndarray]:
+    df, _, row_base0 = _read_annotation_table(path, header=False)
+    if df.shape[1] < 3:
+        raise ValueError(f"{path}: BED must have at least 3 tab-separated columns")
+    chr_values, starts, ends = _validate_interval_columns(df, path, row_base0=row_base0)
+    return binary_intervals_by_chr_from_arrays(chr_values, starts, ends)
 
 
-def _paint_mask(bp: np.ndarray, intervals: np.ndarray) -> np.ndarray:
-    n = bp.size
-    if intervals.size == 0:
-        return np.zeros(n, dtype=np.uint8)
-
-    pos0 = np.asarray(bp, dtype=np.int64) - 1
-    starts = intervals[:, 0]
-    ends = intervals[:, 1]
-
-    idx = np.searchsorted(starts, pos0, side="right") - 1
-    valid = idx >= 0
-    out = np.zeros(n, dtype=np.uint8)
-    if valid.any():
-        valid_idx = idx[valid]
-        inside = pos0[valid] < ends[valid_idx]
-        out[np.flatnonzero(valid)[inside]] = 1
-    return out
-
-
-def _paint_annotations(bed_paths: list[Path], reference) -> tuple[sparse.csr_matrix, list[str]]:
+def _paint_binary_annotations(bed_paths: list[Path], reference) -> tuple[sparse.csr_matrix, list[str]]:
     annonames = [_annotation_name_from_path(p) for p in bed_paths]
     if len(set(annonames)) != len(annonames):
         raise ValueError("duplicate annotation names derived from BED basenames")
@@ -183,30 +274,95 @@ def _paint_annotations(bed_paths: list[Path], reference) -> tuple[sparse.csr_mat
     n = int(reference.num_snp)
     k = len(bed_paths)
     if n == 0:
-        return sparse.csr_matrix((0, k), dtype=np.uint8), annonames
+        return sparse.csr_matrix((0, k), dtype=np.float64), annonames
 
     columns = []
     for bed_path in bed_paths:
-        intervals_by_chr = _parse_bed(bed_path)
-        mask = np.zeros(n, dtype=np.uint8)
-        for ref_shard, off in zip(reference.shards, reference.shard_offsets):
-            start = int(off["start0"])
-            stop = int(off["stop0"])
-            intervals = intervals_by_chr.get(ref_shard.label)
-            if intervals is None:
-                continue
-            mask[start:stop] = _paint_mask(ref_shard.bp, intervals)
-        columns.append(mask)
+        intervals_by_chr = _binary_intervals_by_chr(bed_path)
+        columns.append(paint_binary_column(intervals_by_chr, reference))
 
-    dense = np.column_stack(columns).astype(np.uint8)
-    return sparse.csr_matrix(dense), annonames
+    return sparse.hstack(columns, format="csr"), annonames
+
+
+def _normalize_value_columns(value_columns, header_fields, num_columns: int, path: Path) -> list[int] | None:
+    if value_columns is None:
+        return None
+    if isinstance(value_columns, (str, int, np.integer)):
+        selectors = [value_columns]
+    else:
+        selectors = list(value_columns)
+    if not selectors:
+        raise ValueError("value_columns must be a non-empty list")
+
+    out = []
+    for selector in selectors:
+        if isinstance(selector, str):
+            if header_fields is None:
+                raise ValueError("named value_columns are invalid when header=False")
+            if selector not in header_fields:
+                raise ValueError(f"{path}: unknown value column name {selector!r}")
+            col0 = header_fields.index(selector)
+        elif isinstance(selector, (int, np.integer)) and not isinstance(selector, bool):
+            col0 = int(selector)
+        else:
+            raise ValueError("value_columns must contain column names or integer indices")
+        if col0 < 3 or col0 >= num_columns:
+            raise ValueError(
+                f"{path}: value column {selector!r} is out of range; selected columns must be physical columns 4 or later"
+            )
+        out.append(col0)
+
+    if len(set(out)) != len(out):
+        raise ValueError("value_columns must not contain duplicates")
+    return out
+
+
+def _default_annotation_names(
+    path: Path,
+    num_columns: int,
+    header_fields: list[str] | None,
+    value_columns0: list[int] | None,
+) -> list[str]:
+    if value_columns0 is None:
+        if num_columns == 3:
+            return [_annotation_name_from_path(path)]
+        if num_columns == 4:
+            if header_fields is None:
+                return [_annotation_name_from_path(path)]
+            return [str(header_fields[3])]
+        raise ValueError(f"{path}: input with five or more columns requires explicit value_columns")
+
+    if header_fields is None and num_columns >= 5:
+        raise ValueError(f"{path}: headerless input with five or more columns requires annotation_names")
+    if header_fields is not None:
+        return [str(header_fields[i]) for i in value_columns0]
+    return [_annotation_name_from_path(path)]
+
+
+def _numeric_values(
+    df: pd.DataFrame,
+    value_columns0: list[int],
+    path: Path,
+    row_base0: int = 0,
+) -> np.ndarray:
+    selected = df.iloc[:, value_columns0]
+    numeric = selected.apply(pd.to_numeric, errors="coerce")
+    values = numeric.to_numpy(dtype=np.float64)
+    finite = np.isfinite(values)
+    if not finite.all():
+        row0, col_pos = np.argwhere(~finite)[0]
+        col0 = value_columns0[int(col_pos)]
+        raise ValueError(
+            f"{path}: row {row_base0 + int(row0) + 1}: annotation value column {col0} must be finite numeric"
+        )
+    return values
 
 
 class AnnotationShard:
     def __init__(self, label: str, reference_checksum: str, annomat):
         self._label = str(label)
         self._reference_checksum = str(reference_checksum)
-        self._annomat = _as_sparse_binary(annomat)
+        self._annomat = _as_sparse_numeric(annomat)
 
     @property
     def label(self) -> str:
@@ -234,18 +390,43 @@ class AnnotationShard:
 
 
 class AnnotationPanel:
-    def __init__(self, shards: list[AnnotationShard], annonames):
+    def __init__(
+        self,
+        shards: list[AnnotationShard],
+        annonames,
+        is_binary=None,
+        annotation_metadata=None,
+        *,
+        _validate_binary: bool = True,
+    ):
         self._shards = list(shards)
         if not self._shards:
             raise ValueError("AnnotationPanel requires at least one shard")
         self._annonames = np.asarray(_coerce_annonames(annonames), dtype=object)
         self._num_snp = int(sum(s.num_snp for s in self._shards))
 
-        self._shard_offsets = []
-        pos = 0
         for s in self._shards:
             if s.num_annot != self._annonames.size:
                 raise ValueError("all shards must share the same annotation columns")
+
+        if is_binary is None:
+            panel_mat = sparse.vstack([s.annomat for s in self._shards], format="csr")
+            self._is_binary = _coerce_is_binary(None, panel_mat)
+        else:
+            self._is_binary = _coerce_is_binary_vector(is_binary, self._annonames.size)
+            if _validate_binary:
+                _validate_declared_binary_shards(self._shards, self._is_binary, "annomat")
+
+        if annotation_metadata is None:
+            self._annotation_metadata = np.asarray([""] * self._annonames.size, dtype=object)
+        else:
+            self._annotation_metadata = _coerce_string_vector(
+                annotation_metadata, self._annonames.size, "annotation_metadata"
+            )
+
+        self._shard_offsets = []
+        pos = 0
+        for s in self._shards:
             self._shard_offsets.append(
                 {"shard_label": s.label, "start0": pos, "stop0": pos + s.num_snp}
             )
@@ -258,6 +439,14 @@ class AnnotationPanel:
     @property
     def annonames(self) -> np.ndarray:
         return self._annonames.copy()
+
+    @property
+    def is_binary(self) -> np.ndarray:
+        return self._is_binary.copy()
+
+    @property
+    def annotation_metadata(self) -> np.ndarray:
+        return self._annotation_metadata.copy()
 
     @property
     def num_snp(self) -> int:
@@ -274,14 +463,20 @@ class AnnotationPanel:
     @property
     def annomat(self) -> sparse.csr_matrix:
         if not self._shards:
-            return sparse.csr_matrix((0, self.num_annot), dtype=np.uint8)
+            return sparse.csr_matrix((0, self.num_annot), dtype=np.float64)
         return sparse.vstack([s.annomat for s in self._shards], format="csr")
 
     def select_shards(self, shards) -> "AnnotationPanel":
         available = [s.label for s in self._shards]
         selected = validate_requested_shards(shards, available, "AnnotationPanel.select_shards")
         by_label = {s.label: s for s in self._shards}
-        return AnnotationPanel([by_label[label] for label in selected], self._annonames)
+        return AnnotationPanel(
+            [by_label[label] for label in selected],
+            self._annonames,
+            is_binary=self._is_binary,
+            annotation_metadata=self._annotation_metadata,
+            _validate_binary=False,
+        )
 
     def select_annotations(self, names) -> "AnnotationPanel":
         if isinstance(names, str):
@@ -302,7 +497,13 @@ class AnnotationPanel:
             AnnotationShard._from_arrays(s.label, s.reference_checksum, s.annomat[:, idx])
             for s in self._shards
         ]
-        return AnnotationPanel(out_shards, names_list)
+        return AnnotationPanel(
+            out_shards,
+            names_list,
+            is_binary=self._is_binary[idx],
+            annotation_metadata=self._annotation_metadata[idx],
+            _validate_binary=False,
+        )
 
     def union_annotations(self, other, mode: str = "by_name") -> "AnnotationPanel":
         if mode != "by_name":
@@ -315,39 +516,72 @@ class AnnotationPanel:
             raise ValueError(f"annotation name collision(s): {', '.join(overlap)}")
 
         other_shards = list(getattr(other, "shards", []))
-        if len(other_shards) != len(self._shards):
-            raise ValueError("union_annotations requires matching shard structure")
+        _raise_if_reference_shards_incompatible(
+            self._shards,
+            other_shards,
+            where="union_annotations",
+            require_checksum=True,
+        )
 
         out_shards = []
         for a, b in zip(self._shards, other_shards):
-            if a.label != getattr(b, "label", None):
-                raise ValueError("union_annotations requires matching shard labels")
-            if a.num_snp != getattr(b, "num_snp", None):
-                raise ValueError("union_annotations requires matching shard row counts")
-            b_checksum = getattr(b, "reference_checksum", None)
-            if b_checksum is not None and b_checksum != a.reference_checksum:
-                raise ValueError("union_annotations requires checksum-compatible reference alignment")
-
             b_anno = getattr(b, "annomat", None)
             if b_anno is None:
                 raise ValueError("union_annotations requires other shards to expose annomat")
-            union_mat = sparse.hstack([a.annomat, _as_sparse_binary(b_anno)], format="csr")
+            union_mat = sparse.hstack([a.annomat, _as_sparse_numeric(b_anno)], format="csr")
             out_shards.append(AnnotationShard._from_arrays(a.label, a.reference_checksum, union_mat))
 
-        return AnnotationPanel(out_shards, lhs_names + rhs_names)
+        rhs_is_binary_attr = getattr(other, "is_binary", None)
+        if rhs_is_binary_attr is None:
+            rhs_annomat = getattr(other, "annomat", None)
+            if rhs_annomat is None:
+                raise ValueError("union_annotations requires other to expose is_binary or annomat")
+            rhs_is_binary = _coerce_is_binary(None, _as_sparse_numeric(rhs_annomat))
+        else:
+            rhs_is_binary = np.asarray(rhs_is_binary_attr, dtype=bool).reshape(-1)
+        rhs_metadata = np.asarray(
+            getattr(other, "annotation_metadata", [""] * len(rhs_names)),
+            dtype=object,
+        ).reshape(-1)
+        if rhs_is_binary.size != len(rhs_names):
+            raise ValueError("union_annotations requires other is_binary length to match annotation names")
+        if rhs_metadata.size != len(rhs_names):
+            raise ValueError("union_annotations requires other annotation_metadata length to match annotation names")
+
+        return AnnotationPanel(
+            out_shards,
+            lhs_names + rhs_names,
+            is_binary=np.concatenate([self._is_binary, rhs_is_binary]),
+            annotation_metadata=np.concatenate([self._annotation_metadata, rhs_metadata]),
+            _validate_binary=False,
+        )
 
     def save_cache(self, path) -> None:
         save_annotations_cache(self, path)
 
 
-def create_annotations(reference, annotation_matrix, annotation_names) -> AnnotationPanel:
+def create_annotations(
+    reference,
+    annotation_matrix,
+    annotation_names,
+    is_binary=None,
+    annotation_metadata=None,
+) -> AnnotationPanel:
     names = _coerce_annonames(annotation_names)
     n = int(reference.num_snp)
-    mat = _as_sparse_binary(annotation_matrix, "annotation_matrix")
+    mat = _as_sparse_numeric(annotation_matrix, "annotation_matrix")
     if mat.shape != (n, len(names)):
         raise ValueError(
             f"annotation_matrix shape mismatch: expected ({n}, {len(names)}), got {mat.shape}"
         )
+
+    binary = _coerce_is_binary(is_binary, mat)
+    _validate_declared_binary(mat, binary, "annotation_matrix")
+    metadata = (
+        np.asarray([""] * len(names), dtype=object)
+        if annotation_metadata is None
+        else _coerce_string_vector(annotation_metadata, len(names), "annotation_metadata")
+    )
 
     out_shards = []
     for ref_shard, off in zip(reference.shards, reference.shard_offsets):
@@ -360,19 +594,53 @@ def create_annotations(reference, annotation_matrix, annotation_names) -> Annota
                 annomat=mat[start:stop, :],
             )
         )
-    return AnnotationPanel(out_shards, names)
+    return AnnotationPanel(
+        out_shards,
+        names,
+        is_binary=binary,
+        annotation_metadata=metadata,
+        _validate_binary=False,
+    )
 
 
-def create_annotation(reference, annovec, annoname) -> AnnotationPanel:
-    name = str(annoname)
+def create_annotation(
+    reference,
+    annovec,
+    annotation_name,
+    is_binary=None,
+    annotation_metadata=None,
+) -> AnnotationPanel:
+    name = str(annotation_name)
     if not name:
-        raise ValueError("annoname must be non-empty")
+        raise ValueError("annotation_name must be non-empty")
     vec = _coerce_annovec(annovec, int(reference.num_snp))
     mat = sparse.csr_matrix(vec.reshape(-1, 1))
-    return create_annotations(reference, annotation_matrix=mat, annotation_names=[name])
+    if is_binary is not None:
+        binary_arr = np.asarray(is_binary)
+        if binary_arr.ndim != 0:
+            raise ValueError("is_binary must be a scalar logical for create_annotation")
+        binary = [bool(binary_arr)]
+    else:
+        binary = None
+    metadata = "" if annotation_metadata is None else str(annotation_metadata)
+    return create_annotations(
+        reference,
+        annotation_matrix=mat,
+        annotation_names=[name],
+        is_binary=binary,
+        annotation_metadata=[metadata],
+    )
 
 
-def load_annotations(bed_paths, reference) -> AnnotationPanel:
+def load_annotations(
+    bed_paths,
+    reference,
+    annotation_metadata=None,
+    annotation_metadata_paths=None,
+) -> AnnotationPanel:
+    if annotation_metadata is not None and annotation_metadata_paths is not None:
+        raise ValueError("load_annotations accepts at most one of annotation_metadata and annotation_metadata_paths")
+
     if isinstance(bed_paths, (str, Path)):
         paths = [Path(bed_paths)]
     else:
@@ -383,8 +651,152 @@ def load_annotations(bed_paths, reference) -> AnnotationPanel:
         if not p.is_file():
             raise FileNotFoundError(f"BED file not found: {p}")
 
-    annomat, annonames = _paint_annotations(paths, reference)
-    return create_annotations(reference, annotation_matrix=annomat, annotation_names=annonames)
+    annomat, annonames = _paint_binary_annotations(paths, reference)
+    if annotation_metadata is not None:
+        metadata = _coerce_string_vector(annotation_metadata, len(paths), "annotation_metadata")
+    elif annotation_metadata_paths is not None:
+        meta_paths = list(annotation_metadata_paths)
+        if len(meta_paths) != len(paths):
+            raise ValueError(
+                f"annotation_metadata_paths length mismatch: expected {len(paths)}, got {len(meta_paths)}"
+            )
+        values = []
+        for bed_path, meta_path in zip(paths, meta_paths):
+            if meta_path is None or str(meta_path) == "":
+                values.append(_generated_metadata(bed_path, None, None))
+            else:
+                values.append(_read_sidecar_exact(meta_path))
+        metadata = np.asarray(values, dtype=object)
+    else:
+        metadata = np.asarray([_generated_metadata(p, None, None) for p in paths], dtype=object)
+
+    return create_annotations(
+        reference,
+        annotation_matrix=annomat,
+        annotation_names=annonames,
+        is_binary=np.ones(len(annonames), dtype=bool),
+        annotation_metadata=metadata,
+    )
+
+
+def load_annotation(
+    path,
+    reference,
+    header: bool = False,
+    value_columns=None,
+    annotation_names=None,
+    annotation_metadata=None,
+    annotation_metadata_path=None,
+) -> AnnotationPanel:
+    if annotation_metadata is not None and annotation_metadata_path is not None:
+        raise ValueError("load_annotation accepts at most one of annotation_metadata and annotation_metadata_path")
+
+    source_path = Path(path)
+    df, header_fields, row_base0 = _read_annotation_table(source_path, bool(header))
+    num_columns = int(df.shape[1])
+    if num_columns < 3:
+        raise ValueError(f"{source_path}: annotation input must have at least 3 tab-separated columns")
+
+    value_columns0 = _normalize_value_columns(value_columns, header_fields, num_columns, source_path)
+    chr_values, starts, ends = _validate_interval_columns(df, source_path, row_base0=row_base0)
+    n = int(reference.num_snp)
+
+    if value_columns0 is None and num_columns == 3:
+        names = (
+            _default_annotation_names(source_path, num_columns, header_fields, value_columns0)
+            if annotation_names is None
+            else _coerce_annonames(annotation_names)
+        )
+        if len(names) != 1:
+            raise ValueError("annotation_names length mismatch: expected 1")
+        intervals_by_chr = binary_intervals_by_chr_from_arrays(chr_values, starts, ends)
+        annomat = paint_binary_column(intervals_by_chr, reference)
+        is_binary = np.array([True], dtype=bool)
+        source_columns = [None]
+        source_column_names = [None]
+        if annotation_metadata_path is not None:
+            metadata = np.asarray([_read_sidecar_exact(annotation_metadata_path)], dtype=object)
+        elif annotation_metadata is not None:
+            metadata = _coerce_string_vector(annotation_metadata, 1, "annotation_metadata")
+        else:
+            metadata = np.asarray(
+                [_generated_metadata(source_path, source_columns[0], source_column_names[0])],
+                dtype=object,
+            )
+    else:
+        if value_columns0 is None:
+            if num_columns == 4:
+                value_columns0 = [3]
+            else:
+                raise ValueError(f"{source_path}: input with five or more columns requires explicit value_columns")
+        names = (
+            _default_annotation_names(source_path, num_columns, header_fields, value_columns0)
+            if annotation_names is None
+            else _coerce_annonames(annotation_names)
+        )
+        if len(names) != len(value_columns0):
+            raise ValueError(
+                f"annotation_names length mismatch: expected {len(value_columns0)}, got {len(names)}"
+            )
+
+        validate_numeric_non_overlapping(
+            chr_values,
+            starts,
+            ends,
+            source_path,
+            row_base0=row_base0,
+        )
+        values = _numeric_values(df, value_columns0, source_path, row_base0=row_base0)
+
+        dense = np.zeros((n, len(value_columns0)), dtype=np.float64)
+        source = pd.DataFrame({"chr": chr_values, "start": starts, "end": ends})
+        for chr_label, grp in source.groupby("chr", sort=False):
+            if chr_label in IGNORED_CHR:
+                continue
+            order = np.lexsort((grp["end"].to_numpy(), grp["start"].to_numpy()))
+            intervals = np.column_stack(
+                [
+                    grp["start"].to_numpy(dtype=np.int64)[order],
+                    grp["end"].to_numpy(dtype=np.int64)[order],
+                ]
+            )
+            value_block = values[grp.index.to_numpy(dtype=np.int64)[order], :]
+            for ref_shard, off in zip(reference.shards, reference.shard_offsets):
+                if ref_shard.label != chr_label:
+                    continue
+                start0 = int(off["start0"])
+                stop0 = int(off["stop0"])
+                dense[start0:stop0, :] = paint_numeric_values(ref_shard.bp, intervals, value_block)
+        annomat = sparse.csr_matrix(dense)
+        is_binary = np.zeros(len(value_columns0), dtype=bool)
+        source_columns = value_columns0
+        source_column_names = [
+            None if header_fields is None else str(header_fields[i]) for i in value_columns0
+        ]
+
+        if annotation_metadata_path is not None:
+            sidecar_lines = _read_column_metadata_sidecar(annotation_metadata_path, num_columns)
+            metadata = np.asarray([sidecar_lines[i] for i in value_columns0], dtype=object)
+        elif annotation_metadata is not None:
+            metadata = _coerce_string_vector(
+                annotation_metadata, len(value_columns0), "annotation_metadata"
+            )
+        else:
+            metadata = np.asarray(
+                [
+                    _generated_metadata(source_path, col0, col_name)
+                    for col0, col_name in zip(source_columns, source_column_names)
+                ],
+                dtype=object,
+            )
+
+    return create_annotations(
+        reference,
+        annotation_matrix=annomat,
+        annotation_names=names,
+        is_binary=is_binary,
+        annotation_metadata=metadata,
+    )
 
 
 def save_annotations_cache(panel: AnnotationPanel, path) -> None:
@@ -393,15 +805,17 @@ def save_annotations_cache(panel: AnnotationPanel, path) -> None:
         "shard_labels": [s.label for s in panel.shards],
         "shard_checksums": [s.reference_checksum for s in panel.shards],
         "annonames": panel.annonames.tolist(),
+        "is_binary": panel.is_binary.astype(bool).tolist(),
+        "annotation_metadata": panel.annotation_metadata.tolist(),
     }
     arrays = {
-        "_meta": np.frombuffer(json.dumps(meta).encode(), dtype=np.uint8),
+        "_meta": np.frombuffer(json.dumps(meta, separators=(",", ":")).encode(), dtype=np.uint8),
     }
 
     for i, shard in enumerate(panel.shards):
         p = f"s{i}_"
         mat = shard.annomat.tocsr()
-        arrays[p + "data"] = mat.data.astype(np.uint8)
+        arrays[p + "data"] = mat.data.astype(np.float64)
         arrays[p + "indices"] = mat.indices.astype(np.int32)
         arrays[p + "indptr"] = mat.indptr.astype(np.int32)
         arrays[p + "shape"] = np.asarray(mat.shape, dtype=np.int64)
@@ -413,7 +827,7 @@ def load_annotations_cache(path, shards=None) -> AnnotationPanel:
     with np.load(path, allow_pickle=False) as data:
         meta = json.loads(bytes(data["_meta"]).decode())
         schema = meta.get("schema")
-        if schema != _CACHE_SCHEMA:
+        if schema not in {_CACHE_SCHEMA, _OLD_CACHE_SCHEMA}:
             raise ValueError(f"Unsupported annotations cache schema: {schema!r}")
 
         labels = list(meta.get("shard_labels", []))
@@ -424,6 +838,16 @@ def load_annotations_cache(path, shards=None) -> AnnotationPanel:
             )
 
         annonames = _coerce_annonames(meta.get("annonames", []))
+        if schema == _OLD_CACHE_SCHEMA:
+            is_binary = np.ones(len(annonames), dtype=bool)
+            annotation_metadata = np.asarray([""] * len(annonames), dtype=object)
+        else:
+            is_binary = _coerce_is_binary_vector(meta.get("is_binary", []), len(annonames))
+            annotation_metadata = _coerce_string_vector(
+                meta.get("annotation_metadata", []),
+                len(annonames),
+                "annotation_metadata",
+            )
         selected = validate_requested_shards(shards, labels, "load_annotations_cache")
         label_to_index = {label: i for i, label in enumerate(labels)}
 
@@ -433,7 +857,7 @@ def load_annotations_cache(path, shards=None) -> AnnotationPanel:
             p = f"s{i}_"
             mat = sparse.csr_matrix(
                 (
-                    np.asarray(data[p + "data"], dtype=np.uint8),
+                    np.asarray(data[p + "data"], dtype=np.float64),
                     np.asarray(data[p + "indices"], dtype=np.int32),
                     np.asarray(data[p + "indptr"], dtype=np.int32),
                 ),
@@ -447,4 +871,10 @@ def load_annotations_cache(path, shards=None) -> AnnotationPanel:
                 )
             )
 
-    return AnnotationPanel(shard_objs, annonames)
+    return AnnotationPanel(
+        shard_objs,
+        annonames,
+        is_binary=is_binary,
+        annotation_metadata=annotation_metadata,
+        _validate_binary=False,
+    )
