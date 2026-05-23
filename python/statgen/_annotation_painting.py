@@ -97,27 +97,40 @@ def paint_mask(bp: np.ndarray, intervals: np.ndarray) -> np.ndarray:
     return out
 
 
-def paint_numeric_values(
+def paint_numeric_sparse(
     bp: np.ndarray,
     intervals: np.ndarray,
     values: np.ndarray,
-) -> np.ndarray:
+) -> sparse.csr_matrix:
     n = bp.size
     k = values.shape[1]
-    out = np.zeros((n, k), dtype=np.float64)
     if intervals.size == 0:
-        return out
+        return sparse.csr_matrix((n, k), dtype=np.float64)
 
     pos0 = np.asarray(bp, dtype=np.int64) - 1
     starts = intervals[:, 0]
     ends = intervals[:, 1]
     idx = np.searchsorted(starts, pos0, side="right") - 1
     valid = idx >= 0
-    if valid.any():
-        valid_idx = idx[valid]
-        inside = pos0[valid] < ends[valid_idx]
-        out[np.flatnonzero(valid)[inside], :] = values[valid_idx[inside], :]
-    return out
+    if not valid.any():
+        return sparse.csr_matrix((n, k), dtype=np.float64)
+
+    valid_idx = idx[valid]
+    inside = pos0[valid] < ends[valid_idx]
+    if not inside.any():
+        return sparse.csr_matrix((n, k), dtype=np.float64)
+
+    hit_rows = np.flatnonzero(valid)[inside]
+    hit_values = values[valid_idx[inside], :]
+    row_idx, col_idx = np.nonzero(hit_values)
+    if row_idx.size == 0:
+        return sparse.csr_matrix((n, k), dtype=np.float64)
+
+    return sparse.csr_matrix(
+        (hit_values[row_idx, col_idx], (hit_rows[row_idx], col_idx)),
+        shape=(n, k),
+        dtype=np.float64,
+    )
 
 
 def paint_binary_column(intervals_by_chr: dict[str, np.ndarray], reference) -> sparse.csr_matrix:

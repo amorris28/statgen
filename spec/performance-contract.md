@@ -27,24 +27,11 @@ public cache save/load APIs.
   data across runtimes should regenerate from canonical BED inputs in each
   runtime.
 
-Cache loaders SHOULD assume cache payloads are already valid from cache-build
-time and SHOULD avoid full source-style revalidation on the default load path.
-At minimum, cache loaders MUST enforce lightweight compatibility gates (for
-example schema/version checks and reference checksum checks where applicable).
-
-External source parsers/loaders are responsible for validating the external
-data contract at the I/O boundary. This includes domain rules such as supported
-contig labels, allele syntax, allele distinctness, required fields, and
-coordinate validity. They should fail with source-aware diagnostics while file
-path, row number, and raw field values are still available.
-
-Internal constructors and downstream functions should trust already-validated
-inputs. They should enforce only structural invariants needed to keep in-memory
-objects well formed, such as matching vector lengths, shard label consistency,
-array shape/class compatibility, and cache schema/checksum gates. Minimal
-structural checks in internal code are not violations of this contract, but
-duplicating source-level domain validation in every downstream object or helper
-is not required and should be avoided on hot paths.
+Cache loading and internal hot paths follow the validation-boundary contract in
+[SPEC.md](SPEC.md): cache loaders SHOULD avoid full source-style revalidation
+on the default load path, and internal constructors/downstream functions SHOULD
+trust already-validated payload values while enforcing only structural
+invariants needed for well-formed objects.
 
 For this contract, "native binary storage" means all SNP-axis numeric payloads
 are persisted as language-native array variables in binary container formats,
@@ -82,6 +69,16 @@ line-by-line manual parsing.
 - Python: dataframe-style readers are the required default path.
 - R: language-native tabular readers with explicit column schemas, as documented
   in [R.md](R.md), are the required default path.
+
+Runtime table readers are not required to expose identical permissive parsing
+behavior for non-canonical inputs. Implementations should choose the simplest
+native-reader path that preserves the canonical source contract and should not
+add whole-file prefilters or row-by-row compatibility shims merely to mimic
+another runtime's treatment of comments, blank lines, malformed rows, or other
+reader-specific recovery behavior. Small probes used to identify a header,
+skip leading metadata/comment lines, infer a column count, or choose an
+explicit schema are allowed because they support the native-reader path rather
+than replacing it.
 
 Documented exceptions are allowed only when a native table reader cannot
 correctly represent required input semantics for a specific input shape or

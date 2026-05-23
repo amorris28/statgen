@@ -12,7 +12,7 @@ function save_annotations_cache(panel, path, varargin)
         'save_annotations_cache', 'v7', {'v7', 'v7.3', 'v5'}, varargin{:});
 
     n_shards = numel(panel.shards);
-    metadata.schema = 'annotations_cache/0.1';
+    metadata.schema = 'annotations_cache/0.2';
     metadata.n_shards = n_shards;
     metadata.shard_labels = cell(n_shards, 1);
     metadata.shard_checksums = cell(n_shards, 1);
@@ -30,6 +30,8 @@ function save_annotations_cache(panel, path, varargin)
 
     annomat = panel.annomat;
     annonames = panel.annonames;
+    is_binary = logical(panel.is_binary(:));
+    annotation_metadata = statgen.internal.ensure_cell_col(panel.annotation_metadata);
 
-    save(path, 'metadata', 'annomat', 'annonames', save_arg);
+    save(path, 'metadata', 'annomat', 'annonames', 'is_binary', 'annotation_metadata', save_arg);
 end

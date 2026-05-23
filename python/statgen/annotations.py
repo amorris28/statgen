@@ -11,7 +11,7 @@ from ._annotation_painting import (
     binary_intervals_by_chr_from_arrays,
     paint_binary_column,
     paint_mask,
-    paint_numeric_values,
+    paint_numeric_sparse,
     validate_numeric_non_overlapping,
 )
 from .reference import _raise_if_reference_shards_incompatible
@@ -128,13 +128,6 @@ def _validate_declared_binary(mat: sparse.csr_matrix, is_binary: np.ndarray, nam
             raise ValueError(
                 f"{name} declared binary must be binary (0/1); found non-binary value {data[idx]!r}"
             )
-
-
-def _validate_declared_binary_shards(shards: list, is_binary: np.ndarray, name: str) -> None:
-    if not np.any(is_binary):
-        return
-    for shard in shards:
-        _validate_declared_binary(shard.annomat, is_binary, name)
 
 
 def _annotation_name_from_path(path: Path) -> str:
@@ -396,8 +389,6 @@ class AnnotationPanel:
         annonames,
         is_binary=None,
         annotation_metadata=None,
-        *,
-        _validate_binary: bool = True,
     ):
         self._shards = list(shards)
         if not self._shards:
@@ -409,13 +400,7 @@ class AnnotationPanel:
             if s.num_annot != self._annonames.size:
                 raise ValueError("all shards must share the same annotation columns")
 
-        if is_binary is None:
-            panel_mat = sparse.vstack([s.annomat for s in self._shards], format="csr")
-            self._is_binary = _coerce_is_binary(None, panel_mat)
-        else:
-            self._is_binary = _coerce_is_binary_vector(is_binary, self._annonames.size)
-            if _validate_binary:
-                _validate_declared_binary_shards(self._shards, self._is_binary, "annomat")
+        self._is_binary = _coerce_is_binary_vector(is_binary, self._annonames.size)
 
         if annotation_metadata is None:
             self._annotation_metadata = np.asarray([""] * self._annonames.size, dtype=object)
@@ -475,7 +460,6 @@ class AnnotationPanel:
             self._annonames,
             is_binary=self._is_binary,
             annotation_metadata=self._annotation_metadata,
-            _validate_binary=False,
         )
 
     def select_annotations(self, names) -> "AnnotationPanel":
@@ -502,58 +486,37 @@ class AnnotationPanel:
             names_list,
             is_binary=self._is_binary[idx],
             annotation_metadata=self._annotation_metadata[idx],
-            _validate_binary=False,
         )
 
     def union_annotations(self, other, mode: str = "by_name") -> "AnnotationPanel":
         if mode != "by_name":
             raise ValueError("union_annotations supports only mode='by_name'")
+        if not isinstance(other, AnnotationPanel):
+            raise ValueError("union_annotations requires another AnnotationPanel")
 
         lhs_names = self._annonames.tolist()
-        rhs_names = np.asarray(getattr(other, "annonames", []), dtype=object).tolist()
+        rhs_names = other._annonames.tolist()
         overlap = sorted(set(lhs_names).intersection(rhs_names))
         if overlap:
             raise ValueError(f"annotation name collision(s): {', '.join(overlap)}")
 
-        other_shards = list(getattr(other, "shards", []))
         _raise_if_reference_shards_incompatible(
             self._shards,
-            other_shards,
+            other._shards,
             where="union_annotations",
             require_checksum=True,
         )
 
         out_shards = []
-        for a, b in zip(self._shards, other_shards):
-            b_anno = getattr(b, "annomat", None)
-            if b_anno is None:
-                raise ValueError("union_annotations requires other shards to expose annomat")
-            union_mat = sparse.hstack([a.annomat, _as_sparse_numeric(b_anno)], format="csr")
+        for a, b in zip(self._shards, other._shards):
+            union_mat = sparse.hstack([a.annomat, b.annomat], format="csr")
             out_shards.append(AnnotationShard._from_arrays(a.label, a.reference_checksum, union_mat))
-
-        rhs_is_binary_attr = getattr(other, "is_binary", None)
-        if rhs_is_binary_attr is None:
-            rhs_annomat = getattr(other, "annomat", None)
-            if rhs_annomat is None:
-                raise ValueError("union_annotations requires other to expose is_binary or annomat")
-            rhs_is_binary = _coerce_is_binary(None, _as_sparse_numeric(rhs_annomat))
-        else:
-            rhs_is_binary = np.asarray(rhs_is_binary_attr, dtype=bool).reshape(-1)
-        rhs_metadata = np.asarray(
-            getattr(other, "annotation_metadata", [""] * len(rhs_names)),
-            dtype=object,
-        ).reshape(-1)
-        if rhs_is_binary.size != len(rhs_names):
-            raise ValueError("union_annotations requires other is_binary length to match annotation names")
-        if rhs_metadata.size != len(rhs_names):
-            raise ValueError("union_annotations requires other annotation_metadata length to match annotation names")
 
         return AnnotationPanel(
             out_shards,
             lhs_names + rhs_names,
-            is_binary=np.concatenate([self._is_binary, rhs_is_binary]),
-            annotation_metadata=np.concatenate([self._annotation_metadata, rhs_metadata]),
-            _validate_binary=False,
+            is_binary=np.concatenate([self._is_binary, other._is_binary]),
+            annotation_metadata=np.concatenate([self._annotation_metadata, other._annotation_metadata]),
         )
 
     def save_cache(self, path) -> None:
@@ -599,7 +562,6 @@ def create_annotations(
         names,
         is_binary=binary,
         annotation_metadata=metadata,
-        _validate_binary=False,
     )
 
 
@@ -748,7 +710,10 @@ def load_annotation(
         )
         values = _numeric_values(df, value_columns0, source_path, row_base0=row_base0)
 
-        dense = np.zeros((n, len(value_columns0)), dtype=np.float64)
+        blocks = [
+            sparse.csr_matrix((ref_shard.num_snp, len(value_columns0)), dtype=np.float64)
+            for ref_shard in reference.shards
+        ]
         source = pd.DataFrame({"chr": chr_values, "start": starts, "end": ends})
         for chr_label, grp in source.groupby("chr", sort=False):
             if chr_label in IGNORED_CHR:
@@ -761,13 +726,11 @@ def load_annotation(
                 ]
             )
             value_block = values[grp.index.to_numpy(dtype=np.int64)[order], :]
-            for ref_shard, off in zip(reference.shards, reference.shard_offsets):
+            for shard_idx, ref_shard in enumerate(reference.shards):
                 if ref_shard.label != chr_label:
                     continue
-                start0 = int(off["start0"])
-                stop0 = int(off["stop0"])
-                dense[start0:stop0, :] = paint_numeric_values(ref_shard.bp, intervals, value_block)
-        annomat = sparse.csr_matrix(dense)
+                blocks[shard_idx] = paint_numeric_sparse(ref_shard.bp, intervals, value_block)
+        annomat = sparse.vstack(blocks, format="csr")
         is_binary = np.zeros(len(value_columns0), dtype=bool)
         source_columns = value_columns0
         source_column_names = [
@@ -876,5 +839,4 @@ def load_annotations_cache(path, shards=None) -> AnnotationPanel:
         annonames,
         is_binary=is_binary,
         annotation_metadata=annotation_metadata,
-        _validate_binary=False,
     )

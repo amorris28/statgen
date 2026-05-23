@@ -2,18 +2,21 @@ classdef AnnotationPanel
 %STATGEN.ANNOTATIONPANEL Reference-aligned SNP annotation matrix.
 %
 %   annotations = statgen.load_annotations(bed_paths, reference)
+%   annotations = statgen.load_annotation(path, reference, ...)
 %   annotations = statgen.load_annotations_cache(path)
 %   annotations = statgen.create_annotations(reference, annotation_matrix, annotation_names)
 %
-% An AnnotationPanel stores one or more binary SNP annotations aligned to a
-% ReferencePanel. annomat is a num_snp-by-num_annot sparse matrix in panel
+% An AnnotationPanel stores one or more SNP annotation columns aligned to a
+% ReferencePanel. annomat is a num_snp-by-num_annot sparse numeric matrix in panel
 % order.
 %
 % Common properties:
-%   num_snp     Number of SNPs in the aligned reference.
-%   num_annot   Number of annotation columns.
-%   annonames   Annotation names.
-%   annomat     Sparse binary annotation matrix.
+%   num_snp              Number of SNPs in the aligned reference.
+%   num_annot            Number of annotation columns.
+%   annonames            Annotation names.
+%   is_binary            Logical vector marking binary columns.
+%   annotation_metadata  Opaque metadata strings.
+%   annomat              Sparse numeric annotation matrix.
 %
 % Common methods:
 %   select_shards       Restrict the panel to selected shards.
@@ -21,12 +24,14 @@ classdef AnnotationPanel
 %   union_annotations   Combine non-overlapping annotation columns.
 %   save_cache          Save the panel to a MATLAB .mat cache.
 %
-% See also statgen.load_annotations, statgen.create_annotations,
+% See also statgen.load_annotations, statgen.load_annotation, statgen.create_annotations,
 % statgen.create_annotation, statgen.load_annotations_cache.
     properties (SetAccess = private)
         num_snp
         num_annot
         annonames
+        is_binary
+        annotation_metadata
         shard_offsets
         shards
     end
@@ -35,8 +40,10 @@ classdef AnnotationPanel
     end
 
     methods
-        function obj = AnnotationPanel(shards_cell, annonames)
+        function obj = AnnotationPanel(shards_cell, annonames, is_binary, annotation_metadata)
             if nargin == 0, return; end
+            if nargin < 3, is_binary = []; end
+            if nargin < 4, annotation_metadata = []; end
             if isempty(shards_cell)
                 error('statgen:annotations', 'AnnotationPanel requires at least one shard');
             end
@@ -62,6 +69,16 @@ classdef AnnotationPanel
 
             obj.num_snp = total;
             obj.shard_offsets = offsets;
+            if nargin < 3 || isempty(is_binary)
+                error('statgen:annotations', 'is_binary must be supplied');
+            end
+            obj.is_binary = coerce_is_binary_(is_binary, obj.num_annot);
+            if isempty(annotation_metadata)
+                obj.annotation_metadata = repmat({''}, obj.num_annot, 1);
+            else
+                obj.annotation_metadata = statgen.internal.annotation_coerce_metadata_vector( ...
+                    annotation_metadata, obj.num_annot, 'annotation_metadata');
+            end
         end
 
         function display(obj)
@@ -85,7 +102,7 @@ classdef AnnotationPanel
             fprintf('    shards: %d\n', numel(obj.shards));
             fprintf('    shard_labels: %s\n', shard_labels_string_(obj.shards));
             fprintf('    annonames: %s\n', statgen.internal.display_join_strings(obj.annonames));
-            fprintf('    annomat: %d-by-%d sparse logical-equivalent, nnz=%d, density=%.4g\n', ...
+            fprintf('    annomat: %d-by-%d sparse numeric, nnz=%d, density=%.4g\n', ...
                 obj.num_snp, obj.num_annot, nnz_total, nnz_total / denom);
         end
 
@@ -119,7 +136,7 @@ classdef AnnotationPanel
                 idx = find(strcmp(available, selected{i}), 1, 'first');
                 out_shards{i} = obj.shards{idx};
             end
-            out = statgen.AnnotationPanel(out_shards, obj.annonames);
+            out = statgen.AnnotationPanel(out_shards, obj.annonames, obj.is_binary, obj.annotation_metadata);
         end
 
         function out = select_annotations(obj, names)
@@ -145,7 +162,7 @@ classdef AnnotationPanel
                 s = obj.shards{i};
                 out_shards{i} = statgen.AnnotationShard(s.label, s.reference_checksum, s.annomat(:, idx));
             end
-            out = statgen.AnnotationPanel(out_shards, req);
+            out = statgen.AnnotationPanel(out_shards, req, obj.is_binary(idx), obj.annotation_metadata(idx));
         end
 
         function out = union_annotations(obj, other, mode)
@@ -164,13 +181,14 @@ classdef AnnotationPanel
             if ~strcmp(mode, 'by_name')
                 error('statgen:annotations', 'union_annotations supports only mode=''by_name''');
             end
-
-            try
-                rhs_names = ensure_names_(other.annonames);
-                rhs_shards = other.shards;
-            catch
-                error('statgen:annotations', 'union_annotations requires another AnnotationPanel-like object');
+            if ~isa(other, 'statgen.AnnotationPanel')
+                error('statgen:annotations', 'union_annotations requires another AnnotationPanel');
             end
+            rhs_names = ensure_names_(other.annonames);
+            rhs_shards = other.shards;
+            rhs_is_binary = coerce_is_binary_(other.is_binary, numel(rhs_names));
+            rhs_metadata = statgen.internal.annotation_coerce_metadata_vector( ...
+                other.annotation_metadata, numel(rhs_names), 'annotation_metadata');
 
             overlap = intersect(obj.annonames, rhs_names, 'stable');
             if ~isempty(overlap)
@@ -178,7 +196,7 @@ classdef AnnotationPanel
             end
 
             if numel(rhs_shards) ~= numel(obj.shards)
-                error('statgen:annotations', 'union_annotations requires matching shard structure');
+                error('statgen:annotations', 'union_annotations shard count mismatch');
             end
 
             out_shards = cell(numel(obj.shards), 1);
@@ -191,25 +209,17 @@ classdef AnnotationPanel
                 if a.num_snp ~= b.num_snp
                     error('statgen:annotations', 'union_annotations requires matching shard row counts');
                 end
-                b_has_checksum = false;
-                if isobject(b)
-                    b_has_checksum = isprop(b, 'reference_checksum');
-                elseif isstruct(b)
-                    b_has_checksum = isfield(b, 'reference_checksum');
-                end
-                if b_has_checksum
-                    b_checksum = b.reference_checksum;
-                    if ~strcmp(a.reference_checksum, b_checksum)
-                        error('statgen:annotations', ...
-                            'union_annotations requires checksum-compatible reference alignment');
-                    end
+                b_checksum = b.reference_checksum;
+                if ~strcmp(a.reference_checksum, b_checksum)
+                    error('statgen:annotations', 'union_annotations reference_checksum mismatch');
                 end
 
                 out_shards{i} = statgen.AnnotationShard( ...
-                    a.label, a.reference_checksum, [a.annomat, sparse(double(b.annomat))]);
+                    a.label, a.reference_checksum, [a.annomat, b.annomat]);
             end
 
-            out = statgen.AnnotationPanel(out_shards, [obj.annonames; rhs_names]);
+            out = statgen.AnnotationPanel(out_shards, [obj.annonames; rhs_names], ...
+                [obj.is_binary; rhs_is_binary], [obj.annotation_metadata; rhs_metadata]);
         end
 
         function save_cache(obj, path, varargin)
@@ -225,6 +235,24 @@ classdef AnnotationPanel
             statgen.save_annotations_cache(obj, path, varargin{:});
         end
     end
+end
+
+function out = coerce_is_binary_(value, expected_len)
+    if ischar(value) || isstring(value)
+        error('statgen:annotations', 'is_binary must be a logical vector with length %d', expected_len);
+    end
+    arr = value(:);
+    if numel(arr) ~= expected_len
+        error('statgen:annotations', 'is_binary length mismatch: expected %d, got %d', expected_len, numel(arr));
+    end
+    if ~islogical(arr)
+        bad = ~(arr == 0 | arr == 1);
+        if any(bad)
+            i = find(bad, 1, 'first');
+            error('statgen:annotations', 'is_binary(%d) must be logical', i);
+        end
+    end
+    out = logical(arr);
 end
 
 function out = ensure_names_(names)

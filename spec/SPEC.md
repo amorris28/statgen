@@ -17,6 +17,7 @@ In this file:
 1. [Contig naming, Genome build and Allele contract](#contig-naming-genome-build-and-allele-contract)
 1. [Alignment and indexing](#alignment-and-indexing)
 1. [Portable storage policy](#portable-storage-policy)
+1. [Validation boundaries](#validation-boundaries)
 1. [Object scope and mutability](#object-scope-and-mutability)
 1. [Runtime verbosity](#runtime-verbosity)
 1. [Optional collection manifests](#optional-collection-manifests)
@@ -152,6 +153,34 @@ distributed shard files are runtime-native sparse matrix artifacts, not caches.
 Python LD distributions use NumPy/SciPy `.npz`; MATLAB/Octave LD distributions
 use `.mat`; R loads Python `.npz` LD shards with an R reference-cache sidecar.
 See [ld.md](ld.md) for the LD-specific distribution contract.
+
+Portable source formats define the canonical data contract, not identical
+parser leniency across runtimes. For valid canonical inputs, all runtimes must
+produce equivalent objects. For non-canonical details such as extra comment
+lines, blank-line placement, malformed rows, or implementation-specific table
+reader recovery behavior, runtimes may differ as long as they do not silently
+change valid data semantics.
+
+## Validation boundaries
+
+`statgen` validates data at the boundary where it enters the library.
+External source loaders validate source formats and domain contracts while
+source-aware diagnostics are still available. Validated factory functions
+validate user-supplied in-memory arrays and vectors before assembling objects.
+
+Cache loaders validate cache schema, required metadata, dimensions, shard
+selection, and compatibility gates such as reference checksums where applicable.
+They may trust payload values written by `statgen` cache writers and are not
+required to repeat full source-style validation on the default load path.
+
+Object constructors are not public user APIs. Internal constructors and
+downstream object operations enforce structural invariants needed for
+well-formed objects, but should not duplicate semantic validation already
+performed by loaders, cache loaders, or validated factories.
+
+Object specs may define stricter boundary validation or explicit QA APIs, such
+as checksum recomputation or distribution validation, when those checks are
+intentionally outside the default load path.
 
 ## Object scope and mutability
 

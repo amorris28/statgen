@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from scipy import sparse
 
 from statgen.annotations import (
+    AnnotationPanel,
+    AnnotationShard,
     create_annotation,
     create_annotations,
     load_annotation,
@@ -427,31 +428,17 @@ def test_union_annotations_enforces_compatibility_and_name_collisions():
     with pytest.raises(ValueError, match="shard count mismatch"):
         a.union_annotations(x_only)
 
-    other_missing_checksum = SimpleNamespace(
-        annonames=np.array(["other"], dtype=object),
-        is_binary=np.array([True]),
-        annotation_metadata=np.array([""], dtype=object),
-        shards=[
-            SimpleNamespace(label=s.label, num_snp=s.num_snp, annomat=s.annomat[:, :1])
-            for s in a.shards
-        ],
-    )
-    with pytest.raises(ValueError, match="reference_checksum"):
-        a.union_annotations(other_missing_checksum)
+    with pytest.raises(ValueError, match="requires another AnnotationPanel"):
+        a.union_annotations({"annonames": ["other"], "shards": a.shards})
 
-    other_bad_checksum = SimpleNamespace(
-        annonames=np.array(["other"], dtype=object),
-        is_binary=np.array([True]),
-        annotation_metadata=np.array([""], dtype=object),
-        shards=[
-            SimpleNamespace(
-                label=s.label,
-                num_snp=s.num_snp,
-                reference_checksum="deadbeef" * 4,
-                annomat=s.annomat[:, :1],
-            )
+    other_bad_checksum = AnnotationPanel(
+        [
+            AnnotationShard._from_arrays(s.label, "deadbeef" * 4, s.annomat[:, :1])
             for s in a.shards
         ],
+        ["other"],
+        is_binary=np.array([True]),
+        annotation_metadata=np.array([""], dtype=object),
     )
     with pytest.raises(ValueError, match="reference_checksum mismatch"):
         a.union_annotations(other_bad_checksum)
@@ -680,7 +667,7 @@ def test_octave_annotations_cache_roundtrip_and_subset(tmp_path):
         "fprintf('%d\\n', x.num_snp); "
         "fprintf('%s\\n', x.shards{1}.label); "
         f"L = load('{cache}'); "
-        "fprintf('%d %d %d\\n', isfield(L, 'metadata'), isfield(L, 'annomat'), isfield(L, 'cache_shards'));"
+        "fprintf('%d %d %d %d %d\\n', isfield(L, 'metadata'), isfield(L, 'annomat'), isfield(L, 'is_binary'), isfield(L, 'annotation_metadata'), isfield(L, 'cache_shards'));"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
@@ -688,8 +675,39 @@ def test_octave_annotations_cache_roundtrip_and_subset(tmp_path):
     assert lines[0] == "1"
     assert lines[1] == "8"
     assert lines[2] == "3"
-    assert lines[4] == "1 1 0"
+    assert lines[4] == "1 1 1 1 0"
     assert lines[3] == "X"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_annotations_cache_roundtrip_preserves_continuous_metadata(tmp_path):
+    annot = tmp_path / "score_cache.annot"
+    cache = tmp_path / "mixed_annotations_cache.mat"
+    _write_text(
+        annot,
+        "1\t99\t200\t0.5\n"
+        "1\t299\t400\t-1.25\n"
+        "X\t99\t301\t2.0\n",
+    )
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"a = statgen.load_annotation('{annot}', ref); "
+        f"statgen.save_annotations_cache(a, '{cache}'); "
+        f"b = statgen.load_annotations_cache('{cache}'); "
+        "M = full(b.annomat); "
+        "fprintf('%d\\n', b.is_binary(1)); "
+        "fprintf('%d\\n', ~isempty(strfind(b.annotation_metadata{1}, 'source_column0'))); "
+        "fprintf('%d\\n', ~isempty(strfind(b.annotation_metadata{1}, 'score_cache.annot'))); "
+        "fprintf('%.2f %.2f %.2f\\n', M(1,1), M(3,1), M(8,1));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "0"
+    assert lines[1] == "1"
+    assert lines[2] == "1"
+    assert lines[3] == "0.50 -1.25 2.00"
 
 
 @pytest.mark.octave
@@ -766,6 +784,29 @@ def test_octave_duplicate_bed_basenames_fail(tmp_path):
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "FAIL"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_annotations_metadata_sidecars_and_generated_fallback(tmp_path):
+    sidecar = tmp_path / "anno1.meta"
+    sidecar.write_text('{"name":"anno1"}\nsecond line', encoding="utf-8")
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"a = statgen.load_annotations({{[fixture_dir '/annotations/anno1.bed'], [fixture_dir '/annotations/anno2.bed']}}, ref, 'annotation_metadata_paths', {{'{sidecar}', ''}}); "
+        "fprintf('%d\\n', strcmp(a.annotation_metadata{1}, sprintf('{\"name\":\"anno1\"}\\nsecond line'))); "
+        "fprintf('%d\\n', ~isempty(strfind(a.annotation_metadata{2}, 'source_file'))); "
+        "fprintf('%d\\n', ~isempty(strfind(a.annotation_metadata{2}, 'anno2.bed'))); "
+        "b = statgen.load_annotations({[fixture_dir '/annotations/anno1.bed'], [fixture_dir '/annotations/anno2.bed']}, ref, 'annotation_metadata', {'m1','m2'}); "
+        "fprintf('%s,%s\\n', b.annotation_metadata{1}, b.annotation_metadata{2});"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "1"
+    assert lines[1] == "1"
+    assert lines[2] == "1"
+    assert lines[3] == "m1,m2"
 
 
 @pytest.mark.octave
@@ -854,6 +895,23 @@ def test_octave_boundary_membership_start_inclusive_end_exclusive(tmp_path):
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_overlapping_binary_bed_intervals_paint_union(tmp_path):
+    bed = tmp_path / "overlap_octave.bed"
+    _write_bed(bed, [("1", 99, 150), ("1", 120, 200), ("1", 299, 350)])
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"a = statgen.load_annotations('{bed}', ref); "
+        "v = full(a.annomat(:,1)); "
+        "fprintf('%d', v(1)); fprintf('%d', v(2)); fprintf('%d', v(3)); fprintf('%d', v(4)); "
+        "fprintf('%d', v(5)); fprintf('%d', v(6)); fprintf('%d', v(7)); fprintf('%d', v(8)); fprintf('\\n');"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "11100000"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_adjacent_interval_merge_matches_premerged(tmp_path):
     merged = tmp_path / "merged_octave.bed"
     split = tmp_path / "split_octave.bed"
@@ -869,6 +927,111 @@ def test_octave_adjacent_interval_merge_matches_premerged(tmp_path):
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "1"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_annotation_numeric_headerless_single_column(tmp_path):
+    path = tmp_path / "score.annot"
+    _write_text(
+        path,
+        "1\t99\t200\t0.5\n"
+        "1\t299\t400\t-1.25\n"
+        "X\t99\t301\t2.0\n",
+    )
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"a = statgen.load_annotation('{path}', ref); "
+        "v = full(a.annomat(:,1)); "
+        "fprintf('%s\\n', a.annonames{1}); "
+        "fprintf('%d\\n', a.is_binary(1)); "
+        "fprintf('%.2f %.2f %.2f %.2f\\n', v(1), v(3), v(6), v(8));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "score"
+    assert lines[1] == "0"
+    assert lines[2] == "0.50 -1.25 2.00 2.00"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_annotation_headered_multi_column_selection_and_sidecar(tmp_path):
+    path = tmp_path / "wide.annot"
+    _write_text(
+        path,
+        "chrom\tstart0\tend0\tscore\tweight\n"
+        "1\t99\t200\t0.5\t10\n"
+        "1\t299\t400\t1.5\t20\n"
+        "X\t99\t301\t2.5\t30\n",
+    )
+    sidecar = tmp_path / "wide.meta"
+    sidecar.write_text("chrom meta\nstart meta\nend meta\nscore meta\nweight meta", encoding="utf-8")
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"a = statgen.load_annotation('{path}', ref, 'header', true, 'value_columns', {{'weight','score'}}, 'annotation_metadata_path', '{sidecar}'); "
+        "M = full(a.annomat); "
+        "fprintf('%s,%s\\n', a.annonames{1}, a.annonames{2}); "
+        "fprintf('%s,%s\\n', a.annotation_metadata{1}, a.annotation_metadata{2}); "
+        "fprintf('%d,%d\\n', a.is_binary(1), a.is_binary(2)); "
+        "fprintf('%.1f %.1f %.1f %.1f\\n', M(1,1), M(1,2), M(8,1), M(8,2));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "weight,score"
+    assert lines[1] == "weight meta,score meta"
+    assert lines[2] == "0,0"
+    assert lines[3] == "10.0 0.5 30.0 2.5"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_annotation_matlab_one_based_value_columns(tmp_path):
+    path = tmp_path / "integer_columns.annot"
+    _write_text(
+        path,
+        "1\t99\t200\t0.5\t10\n"
+        "1\t299\t400\t1.5\t20\n"
+        "X\t99\t301\t2.5\t30\n",
+    )
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"a = statgen.load_annotation('{path}', ref, 'value_columns', [5 4], 'annotation_names', {{'weight','score'}}); "
+        "M = full(a.annomat); "
+        "fprintf('%s,%s\\n', a.annonames{1}, a.annonames{2}); "
+        "fprintf('%.1f %.1f %.1f %.1f\\n', M(1,1), M(1,2), M(8,1), M(8,2));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "weight,score"
+    assert lines[1] == "10.0 0.5 30.0 2.5"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_annotation_validation_errors(tmp_path):
+    overlap = tmp_path / "overlap.annot"
+    _write_text(overlap, "1\t99\t200\t1\n1\t150\t250\t2\n")
+    nonfinite = tmp_path / "nonfinite.annot"
+    _write_text(nonfinite, "1\t99\t200\tNaN\n")
+    wide = tmp_path / "wide.annot"
+    _write_text(wide, "1\t99\t200\t1\t2\n")
+    sidecar = tmp_path / "bad.meta"
+    sidecar.write_text("c1\nc2\nc3", encoding="utf-8")
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"try; statgen.load_annotation('{overlap}', ref); fprintf('NOFAIL1\\n'); catch; fprintf('FAIL1\\n'); end; "
+        f"try; statgen.load_annotation('{nonfinite}', ref); fprintf('NOFAIL2\\n'); catch; fprintf('FAIL2\\n'); end; "
+        f"try; statgen.load_annotation('{wide}', ref); fprintf('NOFAIL3\\n'); catch; fprintf('FAIL3\\n'); end; "
+        f"try; statgen.load_annotation('{wide}', ref, 'value_columns', 4); fprintf('NOFAIL4\\n'); catch; fprintf('FAIL4\\n'); end; "
+        f"try; statgen.load_annotation('{wide}', ref, 'annotation_metadata_path', '{sidecar}'); fprintf('NOFAIL5\\n'); catch; fprintf('FAIL5\\n'); end;"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines() == ["FAIL1", "FAIL2", "FAIL3", "FAIL4", "FAIL5"]
 
 
 @pytest.mark.octave
@@ -893,29 +1056,62 @@ def test_octave_union_annotations_happy_path_and_name_collision():
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_union_annotations_preserves_continuous_columns_and_rejects_non_panels():
+    script = _octave_script(
+        "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        "a = statgen.load_annotations([fixture_dir '/annotations/anno1.bed'], ref); "
+        "cont = statgen.create_annotation(ref, 2 * ones(ref.num_snp, 1), 'continuous', false, 'cont meta'); "
+        "u = a.union_annotations(cont); "
+        "fprintf('%s,%s\\n', u.annonames{1}, u.annonames{2}); "
+        "fprintf('%d,%d\\n', u.is_binary(1), u.is_binary(2)); "
+        "fprintf('%s\\n', u.annotation_metadata{2}); "
+        "M = full(u.annomat); fprintf('%.1f\\n', M(1,2)); "
+        "fallback = struct(); "
+        "fallback.annonames = {'fallback'}; "
+        "fallback.is_binary = false; "
+        "fallback.annotation_metadata = {'fallback meta'}; "
+        "fallback.shards = a.shards; "
+        "try; a.union_annotations(fallback); fprintf('NOFAIL\\n'); catch; fprintf('FAIL\\n'); end;"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "anno1,continuous"
+    assert lines[1] == "1,0"
+    assert lines[2] == "cont meta"
+    assert lines[3] == "2.0"
+    assert lines[4] == "FAIL"
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_create_annotations_and_create_annotation_validation():
     script = _octave_script(
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         "A = [ones(ref.num_snp,1), zeros(ref.num_snp,1)]; "
         "ok = statgen.create_annotations(ref, A, {'a','b'}); "
         "fprintf('%d\\n', ok.num_annot); "
+        "fprintf('%d,%d\\n', ok.is_binary(1), ok.is_binary(2)); "
         "try; statgen.create_annotations(ref, ones(ref.num_snp,1), {'a','b'}); fprintf('NOFAIL1\\n'); catch; fprintf('FAIL1\\n'); end; "
-        "try; statgen.create_annotations(ref, 2*ones(ref.num_snp,2), {'a','b'}); fprintf('NOFAIL2\\n'); catch; fprintf('FAIL2\\n'); end; "
+        "cont = statgen.create_annotations(ref, 2*ones(ref.num_snp,2), {'c','d'}, [false; false]); fprintf('%d,%d\\n', cont.is_binary(1), cont.is_binary(2)); "
+        "try; statgen.create_annotations(ref, 2*ones(ref.num_snp,2), {'a','b'}, [true; true]); fprintf('NOFAIL2\\n'); catch; fprintf('FAIL2\\n'); end; "
         "try; statgen.create_annotations(ref, A, {'dup','dup'}); fprintf('NOFAIL3\\n'); catch; fprintf('FAIL3\\n'); end; "
         "single = statgen.create_annotation(ref, ones(ref.num_snp,1), 'single'); fprintf('%d\\n', single.num_annot); "
         "try; statgen.create_annotation(ref, ones(2,1), 'bad'); fprintf('NOFAIL4\\n'); catch; fprintf('FAIL4\\n'); end; "
-        "v = ones(ref.num_snp,1); v(1)=2; try; statgen.create_annotation(ref, v, 'bad'); fprintf('NOFAIL5\\n'); catch; fprintf('FAIL5\\n'); end;"
+        "v = ones(ref.num_snp,1); v(1)=2; try; statgen.create_annotation(ref, v, 'bad', true); fprintf('NOFAIL5\\n'); catch; fprintf('FAIL5\\n'); end;"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
     lines = result.stdout.strip().splitlines()
     assert lines[0] == "2"
-    assert lines[1] == "FAIL1"
-    assert lines[2] == "FAIL2"
-    assert lines[3] == "FAIL3"
-    assert lines[4] == "1"
-    assert lines[5] == "FAIL4"
-    assert lines[6] == "FAIL5"
+    assert lines[1] == "1,1"
+    assert lines[2] == "FAIL1"
+    assert lines[3] == "0,0"
+    assert lines[4] == "FAIL2"
+    assert lines[5] == "FAIL3"
+    assert lines[6] == "1"
+    assert lines[7] == "FAIL4"
+    assert lines[8] == "FAIL5"
 
 
 @pytest.mark.octave
