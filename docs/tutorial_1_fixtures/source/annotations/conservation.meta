@@ -1,0 +1,5 @@
+{"column":"chrom","role":"coordinate"}
+{"column":"start0","role":"coordinate"}
+{"column":"end0","role":"coordinate"}
+{"name":"conservation","type":"continuous","description":"Synthetic conservation-like interval score"}
+{"name":"promoter_activity","type":"continuous","description":"Synthetic promoter-activity interval score"}

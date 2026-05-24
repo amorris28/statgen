@@ -9,6 +9,8 @@ Writes all source files that Tutorial 1 reads as inputs:
     source/sumstats/trait_a.tsv.gz
     source/sumstats/trait_b.tsv.gz
     source/annotations/{coding_exon,exon,intron,utr3,utr5,whole_gene}.bed
+    source/annotations/conservation.annot
+    source/annotations/conservation.meta
 
 Design highlights
 -----------------
@@ -33,6 +35,8 @@ LD reference and annotation are always reference-complete (full N SNPs,
 
 Each annotation has a different number of genomic block intervals and a
   different fraction of reference variants covered.
+The conservation annotation is a headered BED-like file with two continuous
+  numeric value columns and a column-aligned metadata sidecar.
 
 PLINK bfiles are generated directly in Python; no external tools are needed
 for this step. plink2 is required later for the Tutorial 1 LD build step.
@@ -271,6 +275,38 @@ def _write_annotation_beds(annot_dir: Path, ref_variants_by_chr: dict) -> None:
         )
 
 
+def _write_continuous_annotation(annot_dir: Path) -> None:
+    """Write a small headered BED-like continuous annotation plus sidecar."""
+    rows = [
+        ("21", 5_000_000, 5_400_000, 0.82, 1.5),
+        ("21", 5_600_000, 6_100_000, 0.35, 0.4),
+        ("22", 10_500_000, 11_000_000, 0.67, 2.2),
+        ("22", 12_100_000, 12_650_000, 0.18, 0.7),
+        ("X", 2_600_000, 3_300_000, 0.91, 1.9),
+        ("X", 3_900_000, 4_300_000, 0.44, 0.2),
+    ]
+    with open(annot_dir / "conservation.annot", "w") as f:
+        f.write("chrom\tstart0\tend0\tconservation\tpromoter_activity\n")
+        for chrom, start0, end0, conservation, promoter_activity in rows:
+            f.write(
+                f"{chrom}\t{start0}\t{end0}\t"
+                f"{conservation:g}\t{promoter_activity:g}\n"
+            )
+
+    with open(annot_dir / "conservation.meta", "w") as f:
+        f.write('{"column":"chrom","role":"coordinate"}\n')
+        f.write('{"column":"start0","role":"coordinate"}\n')
+        f.write('{"column":"end0","role":"coordinate"}\n')
+        f.write(
+            '{"name":"conservation","type":"continuous",'
+            '"description":"Synthetic conservation-like interval score"}\n'
+        )
+        f.write(
+            '{"name":"promoter_activity","type":"continuous",'
+            '"description":"Synthetic promoter-activity interval score"}\n'
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -366,6 +402,7 @@ def main(argv=None) -> int:
 
     print()
     _write_annotation_beds(annot_dir, ref_variants_by_chr)
+    _write_continuous_annotation(annot_dir)
 
     print(f"\nFixtures written to: {src}")
     print(f"Use '{out_root}' as the Tutorial 1 working directory.")

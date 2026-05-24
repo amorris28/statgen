@@ -9,6 +9,7 @@
 %   load_ld_reference       Load the ReferencePanel bundled with an LD distribution.
 %   load_sumstats           Load summary statistics aligned to a reference.
 %   load_annotations        Load BED annotations aligned to a reference.
+%   load_annotation         Load one binary or continuous annotation source.
 %   load_genotype           Load PLINK genotype metadata aligned to a reference.
 %
 % Cache loaders:

@@ -1,5 +1,5 @@
 function out = annotation_generated_metadata(path, source_column0, source_column_name)
-% Generate stable opaque annotation provenance metadata.
+% Generate stable annotation provenance metadata.
     if isempty(source_column0)
         col = 'null';
     else

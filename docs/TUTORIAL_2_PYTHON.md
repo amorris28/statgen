@@ -93,12 +93,15 @@ assert reference.is_object_compatible(genotype)
 
 ## Run LD Operations
 
-`annotations.annomat` is aligned to the reference, so it can be multiplied by
-LD `r²` directly.
+`annotations.annomat` is a sparse numeric matrix aligned to the reference, so
+it can be multiplied by LD `r²` directly. Use `annotations.is_binary` to
+distinguish binary BED-derived columns from continuous annotation columns.
 
 ```python
 a1freq = ld.a1freq()
 annomat = annotations.annomat
+continuous_names = annotations.annonames[~annotations.is_binary]
+continuous_meta = annotations.annotation_metadata[~annotations.is_binary]
 
 ld_weighted_annotations = ld.multiply_r2(annomat)
 trait_a_pruned = fast_prune(trait_a.logpvec, ld, r2_threshold=0.2)

@@ -9,7 +9,7 @@ function panel = load_annotations_cache(path, shards)
 % the cached shard labels.
 %
 % See also statgen.AnnotationPanel, statgen.load_annotations,
-% statgen.save_annotations_cache.
+% statgen.load_annotation, statgen.save_annotations_cache.
     if nargin < 2
         shards = [];
     end

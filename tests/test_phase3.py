@@ -346,7 +346,7 @@ def test_load_annotation_binary_sidecar_and_name_override(tmp_path):
     bed = tmp_path / "raw.bed"
     meta = tmp_path / "raw.meta"
     _write_text(bed, "1\t99\t200\n")
-    meta.write_text("opaque\nmetadata\n", encoding="utf-8")
+    meta.write_text("stored\nmetadata\n", encoding="utf-8")
 
     a = load_annotation(
         bed,
@@ -357,7 +357,7 @@ def test_load_annotation_binary_sidecar_and_name_override(tmp_path):
 
     assert list(a.annonames) == ["renamed"]
     np.testing.assert_array_equal(a.is_binary, np.array([True]))
-    assert a.annotation_metadata.tolist() == ["opaque\nmetadata\n"]
+    assert a.annotation_metadata.tolist() == ["stored\nmetadata\n"]
     np.testing.assert_array_equal(a.annomat.toarray().reshape(-1), np.array([1, 1, 0, 0, 0, 0, 0, 0]))
 
 

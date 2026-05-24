@@ -3,10 +3,19 @@ function panel = load_annotation(path, reference, varargin)
 %
 %   annotations = statgen.load_annotation(path, reference)
 %   annotations = statgen.load_annotation(..., 'header', true, 'value_columns', columns)
+%   annotations = statgen.load_annotation(..., 'annotation_names', names)
+%   annotations = statgen.load_annotation(..., 'annotation_metadata', metadata)
+%   annotations = statgen.load_annotation(..., 'annotation_metadata_path', path)
 %
-% A three-column BED input produces one binary annotation. Inputs with numeric
-% value columns produce one or more continuous annotation columns. value_columns
-% uses MATLAB one-based physical column indices or header names.
+% Three-column input with value_columns omitted produces one binary annotation
+% named from the file stem. Four-column input with value_columns omitted selects
+% column 4 automatically. Five or more columns require explicit value_columns.
+% Inputs with numeric value columns produce continuous annotation columns.
+% value_columns uses MATLAB one-based physical column indices or header names.
+% annotation_names overrides names inferred from the header or file stem.
+% annotation_metadata is a cell or string vector with one entry per output
+% column. Provide annotation_metadata or annotation_metadata_path to attach
+% metadata strings; omitting both generates stable JSON provenance strings.
 %
 % See also statgen.load_annotations, statgen.AnnotationPanel.
     if nargin < 2

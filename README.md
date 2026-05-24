@@ -37,7 +37,7 @@ allele orientation should be resolved upstream by
 | --- | --- | --- |
 | `ReferencePanel` | Ordered reference variant table | External PLINK `.bim`, either one file or an `@`-sharded path |
 | `LDPanel` | Sparse LD distribution tied to a matching reference | Built LD distribution directory produced by `statgen` from PLINK bfiles |
-| `AnnotationPanel` | Binary annotation matrix painted onto the reference | External BED files |
+| `AnnotationPanel` | Numeric annotation matrix painted onto the reference | External BED or BED-like annotation files |
 | `GenotypePanel` | Reference-aligned PLINK genotype metadata with on-demand hardcall access | External PLINK 1 bfile prefix, either one bfile or an `@`-sharded prefix |
 | `Sumstats` | One aligned summary-statistics trait or source | External `.tsv.gz` with `chr`, `bp`, `a1`, `a2`, `p`, and optional columns such as `beta`, `se`, `z`, and `n` |
 
@@ -182,10 +182,21 @@ matrix representation is stored in `.mat` files.
 ### AnnotationPanel
 
 - `load_annotations(bed_paths, reference)` paints BED intervals onto a
-  `ReferencePanel`; BED basenames become unique annotation names.
-- `create_annotations(reference, annomat, annonames)` creates an annotation
-  panel from an already aligned matrix, not raw BED input.
-- `panel.annomat` exposes the reference-aligned annotation matrix.
+  `ReferencePanel`; BED basenames become unique annotation names and columns are
+  marked binary.
+- `load_annotation(path, reference, ...)` loads one BED-like annotation source;
+  3-column inputs produce one binary column and selected numeric value columns
+  produce continuous annotations.
+- `create_annotations(reference, annomat, annonames, is_binary=None,
+  annotation_metadata=None)` creates an annotation panel from an already aligned
+  matrix, not raw BED input.
+- `create_annotation(reference, annovec, annotation_name, is_binary=None,
+  annotation_metadata=None)` creates a one-column annotation panel from an
+  already aligned vector.
+- `panel.annomat` exposes the reference-aligned sparse numeric annotation
+  matrix.
+- `panel.is_binary` marks binary columns, and `panel.annotation_metadata`
+  exposes per-column metadata strings stored with the annotations.
 - `panel.select_shards(shards)` and `panel.select_annotations(names)` subset an
   annotation panel.
 - `panel.union_annotations(other, mode="by_name")` combines annotation panels.

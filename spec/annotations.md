@@ -55,13 +55,8 @@ binary BED inputs, metadata sidecars are file-level metadata and the entire
 sidecar content is used as the annotation metadata string, preserving the text
 content exactly.
 
-BED comment and blank lines are skipped before parsing columns 1–3:
-
-- empty lines;
-- lines starting with `#`.
-
-This applies anywhere in the file. In Python, this is intentionally compatible
-with `pandas.read_csv(..., comment="#", skip_blank_lines=True)`.
+Comment and blank-line handling follows each runtime's native table reader
+(`pandas.read_csv`, MATLAB/Octave `textscan`, or R `data.table::fread`).
 
 `track` and `browser` metadata lines are not supported. If present in a file,
 they must be prefixed with `#` before loading.
@@ -90,13 +85,13 @@ of annotations is:
 - `annonames`: string vector, length `num_annot`;
 - `is_binary`: logical vector, length `num_annot`, indicating whether each
   annotation column should be treated as a binary membership annotation;
-- `annotation_metadata`: string vector, length `num_annot`, containing opaque
+- `annotation_metadata`: string vector, length `num_annot`, containing
   user metadata for each annotation.
 
-`annotation_metadata` entries are ordinary strings. The recommended content is
-one JSON object string per annotation, but `statgen` does not parse or validate
-metadata syntax. If omitted by the caller, factory functions use empty strings
-and source loaders must generate stable provenance strings.
+`annotation_metadata` entries are ordinary strings preserved by `statgen`
+without parsing or validation. The recommended content is one JSON object
+string per annotation. If omitted by the caller, factory functions use empty
+strings and source loaders must generate stable provenance strings.
 Columns with `is_binary = true` must contain only `0` and `1`. Columns with
 `is_binary = false` are numeric annotation columns and may happen to contain
 only `0` and `1`; loaders do not reclassify them as binary from observed
@@ -190,7 +185,7 @@ shard_stop0
 `annomat` is a panel-wide sparse numeric matrix with rows aligned to the
 reference panel. `annonames` is a column cell array of annotation names.
 `is_binary` is a logical column vector and `annotation_metadata` is a column
-cell array of opaque metadata strings. Shard offsets are zero-based half-open
+cell array of metadata strings. Shard offsets are zero-based half-open
 intervals into `annomat` rows and are sufficient to reconstruct
 `AnnotationShard` objects. `shard_checksums` stores the per-shard reference
 checksums used to restore
@@ -305,8 +300,8 @@ Expected behavior:
   converting any host-language-indexed integer selectors to physical column
   numbers. If `annotation_metadata_path` is supplied for 3-column binary input,
   the full sidecar content is used as the single output metadata string. If
-  neither argument is supplied, the loader must generate stable opaque
-  provenance strings, recommended as compact JSON object strings containing at
+  neither argument is supplied, the loader must generate stable provenance
+  strings, recommended as compact JSON object strings containing at
   least `source_file`, `source_column0`, and `source_column_name`.
 - `load_annotations` accepts at most one of `annotation_metadata` and
   `annotation_metadata_paths`. If `annotation_metadata` is supplied, it must be
@@ -317,8 +312,8 @@ Expected behavior:
   entry is file-level metadata and the full sidecar content is used as the
   metadata string for the corresponding binary BED annotation. A missing/empty
   entry requests generated provenance for that BED file. If neither argument is
-  supplied, the loader must generate stable opaque provenance strings,
-  recommended as compact JSON object strings containing at least `source_file`,
+  supplied, the loader must generate stable provenance strings, recommended as
+  compact JSON object strings containing at least `source_file`,
   `source_column0`, and `source_column_name`.
 - Empty annotation source files are invalid input and must fail with a clear
   error. A file that becomes empty after skipping BED comment lines is also

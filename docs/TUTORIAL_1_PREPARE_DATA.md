@@ -92,6 +92,8 @@ source/sumstats/trait_b.tsv.gz
 
 Annotations:
 source/annotations/coding_exon.bed
+source/annotations/conservation.annot
+source/annotations/conservation.meta
 source/annotations/exon.bed
 source/annotations/intron.bed
 source/annotations/utr3.bed
@@ -124,6 +126,11 @@ Summary-statistics files are matched to the reference by `chr:bp:a1:a2`. They
 must contain `chr`, `bp`, `a1`, `a2`, and `p` columns. `z` and `n` are optional;
 when present, missing values among variants with `p` values will produce
 warnings.
+
+Annotation examples include binary 3-column BED files and a headered BED-like
+continuous annotation file. `conservation.meta` is a column-aligned metadata
+sidecar for `conservation.annot`; headerless continuous files are also
+supported by `load_annotation`.
 
 ## Build the LD Distribution
 
@@ -181,13 +188,13 @@ The default conversion writes v7.3 MAT-files under MATLAB. Octave users may use
 
 ## Build Python Caches
 
-This pass loads source BIM, TSV, BED, and genotype metadata files and writes
-reference-aligned caches.
+This pass loads source BIM, TSV, BED/BED-like annotation, and genotype metadata
+files and writes reference-aligned caches.
 
 ```python
 from pathlib import Path
 
-from statgen.annotations import load_annotations
+from statgen.annotations import load_annotation, load_annotations
 from statgen.genotype import load_genotype
 from statgen.reference import load_reference
 from statgen.sumstats import load_sumstats
@@ -204,7 +211,7 @@ trait_a = load_sumstats("source/sumstats/trait_a.tsv.gz", reference)
 trait_b = load_sumstats("source/sumstats/trait_b.tsv.gz", reference)
 
 annot_root = Path("source/annotations")
-annotations = load_annotations(
+binary_annotations = load_annotations(
     [
         annot_root / "coding_exon.bed",
         annot_root / "exon.bed",
@@ -215,6 +222,14 @@ annotations = load_annotations(
     ],
     reference,
 )
+continuous_annotations = load_annotation(
+    annot_root / "conservation.annot",
+    reference,
+    header=True,
+    value_columns=["conservation", "promoter_activity"],
+    annotation_metadata_path=annot_root / "conservation.meta",
+)
+annotations = binary_annotations.union_annotations(continuous_annotations)
 
 genotype = load_genotype("source/genotypes/chr@", reference)
 
@@ -268,7 +283,14 @@ bed_paths = {
     fullfile(annot_root, 'utr5.bed')
     fullfile(annot_root, 'whole_gene.bed')
 };
-annotations = statgen.load_annotations(bed_paths, reference);
+binary_annotations = statgen.load_annotations(bed_paths, reference);
+continuous_annotations = statgen.load_annotation( ...
+    fullfile(annot_root, 'conservation.annot'), ...
+    reference, ...
+    'header', true, ...
+    'value_columns', {'conservation', 'promoter_activity'}, ...
+    'annotation_metadata_path', fullfile(annot_root, 'conservation.meta'));
+annotations = binary_annotations.union_annotations(continuous_annotations);
 
 genotype = statgen.load_genotype( ...
     'source/genotypes/chr@', ...
