@@ -45,6 +45,7 @@ Required CRAN dependencies should be minimal:
 - `jsonlite` for manifest and metadata JSON;
 - `digest` for MD5 checksums;
 - `bit64` for exact allele-hash vectors;
+- `data.table` for explicit-schema tabular readers;
 - `testthat` in `Suggests` for package tests.
 
 The package must not depend on `reticulate`, Python, MATLAB/Octave, PLINK, or

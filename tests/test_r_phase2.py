@@ -27,6 +27,7 @@ def _source_phase2_script(expr: str) -> str:
         "bfile_utils.R",
         "reference.R",
         "sumstats.R",
+        "annotation_painting.R",
         "annotations.R",
     ]
     sources = " ".join(
@@ -203,6 +204,8 @@ def test_r_annotations_match_python_fixture_matrix_and_cache(tmp_path):
             "cat(num_annot(a), '\\n'); "
             "cat(paste(annonames(a), collapse=','), '\\n'); "
             "cat(class(annomat(a))[[1]], '\\n'); "
+            "cat(paste(as.integer(is_binary(a)), collapse=','), '\\n'); "
+            "cat(paste(grepl('source_file', annotation_metadata(a)), collapse=','), '\\n'); "
             "cat(paste(as.integer(as.vector(as.matrix(annomat(loaded)))), collapse=','), '\\n'); "
             "cat(paste(annonames(selected), collapse=','), '\\n'); "
             "cat(paste(colnames(annomat(selected)), collapse=','), '\\n')"
@@ -210,12 +213,123 @@ def test_r_annotations_match_python_fixture_matrix_and_cache(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     lines = [line.strip() for line in result.stdout.strip().splitlines()]
-    assert lines[:4] == ["8", "2", "anno1,anno2", "lgCMatrix"]
+    assert lines[:6] == ["8", "2", "anno1,anno2", "dgCMatrix", "1,1", "TRUE,TRUE"]
     # R stores matrices in column-major order; this flattening matches the
     # Python expected_col_major vector built from the dense annotation matrix.
-    assert lines[4] == ",".join(str(x) for x in expected_col_major.tolist())
-    assert lines[5] == "anno2,anno1"
-    assert lines[6] == "anno2,anno1"
+    assert lines[6] == ",".join(str(x) for x in expected_col_major.tolist())
+    assert lines[7] == "anno2,anno1"
+    assert lines[8] == "anno2,anno1"
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_load_annotation_continuous_headered_and_cache_metadata(tmp_path):
+    annot = tmp_path / "wide.annot"
+    annot.write_text(
+        "chrom\tstart0\tend0\tscore\tweight\n"
+        "1\t99\t200\t0.5\t10\n"
+        "1\t299\t400\t1.5\t20\n"
+        "X\t99\t301\t2.5\t30\n"
+    )
+    sidecar = tmp_path / "wide.meta"
+    sidecar.write_text("chrom meta\nstart meta\nend meta\nscore meta\nweight meta", encoding="utf-8")
+    cache = tmp_path / "annotations.rds"
+
+    result = run_rscript(
+        _source_phase2_script(
+            f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
+            f"a <- load_annotation({json.dumps(str(annot))}, ref, header = TRUE, value_columns = c('weight', 'score'), annotation_metadata_path = {json.dumps(str(sidecar))}); "
+            f"save_annotations_cache(a, {json.dumps(str(cache))}); "
+            f"b <- load_annotations_cache({json.dumps(str(cache))}); "
+            "M <- as.matrix(annomat(b)); "
+            "cat(paste(annonames(b), collapse=','), '\\n'); "
+            "cat(paste(annotation_metadata(b), collapse=','), '\\n'); "
+            "cat(paste(as.integer(is_binary(b)), collapse=','), '\\n'); "
+            "cat(class(annomat(b))[[1]], '\\n'); "
+            "cat(paste(format(as.vector(M), digits=17), collapse=','), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.strip() for line in result.stdout.strip().splitlines()]
+    assert lines[0] == "weight,score"
+    assert lines[1] == "weight meta,score meta"
+    assert lines[2] == "0,0"
+    assert lines[3] == "dgCMatrix"
+    np.testing.assert_allclose(
+        _parse_float_csv(lines[4]),
+        np.array(
+            [
+                10.0, 10.0, 20.0, 20.0, 0.0, 30.0, 30.0, 30.0,
+                0.5, 0.5, 1.5, 1.5, 0.0, 2.5, 2.5, 2.5,
+            ]
+        ),
+    )
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_load_annotation_binary_and_batch_sidecar_metadata(tmp_path):
+    bed = tmp_path / "raw.bed"
+    bed.write_text("1\t99\t200\n")
+    binary_meta = tmp_path / "raw.meta"
+    binary_meta.write_text("stored\nmetadata\n", encoding="utf-8")
+    batch_meta = tmp_path / "anno1.meta"
+    batch_meta.write_text("batch\nmetadata\n", encoding="utf-8")
+
+    result = run_rscript(
+        _source_phase2_script(
+            f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
+            f"single <- load_annotation({json.dumps(str(bed))}, ref, annotation_names = 'renamed', annotation_metadata_path = {json.dumps(str(binary_meta))}); "
+            f"batch <- load_annotations(c({json.dumps(str(ANNOTATIONS[0]))}, {json.dumps(str(ANNOTATIONS[1]))}), ref, annotation_metadata_paths = c({json.dumps(str(batch_meta))}, NA_character_)); "
+            "cat(paste(annonames(single), collapse=','), '\\n'); "
+            "cat(paste(as.integer(is_binary(single)), collapse=','), '\\n'); "
+            "cat(as.character(identical(annotation_metadata(single), 'stored\\nmetadata\\n')), '\\n'); "
+            "cat(paste(as.integer(as.vector(as.matrix(annomat(single)))), collapse=','), '\\n'); "
+            "cat(as.character(identical(annotation_metadata(batch)[[1]], 'batch\\nmetadata\\n')), '\\n'); "
+            "cat(as.character(grepl('anno2.bed', annotation_metadata(batch)[[2]], fixed = TRUE)), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.rstrip() for line in result.stdout.splitlines()]
+    assert lines[0] == "renamed"
+    assert lines[1] == "1"
+    assert lines[2] == "TRUE"
+    assert lines[3] == "1,1,0,0,0,0,0,0"
+    assert lines[4] == "TRUE"
+    assert lines[5] == "TRUE"
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_load_annotation_validation_and_old_cache_upgrade(tmp_path):
+    overlap = tmp_path / "overlap.annot"
+    overlap.write_text("1\t99\t200\t1\n1\t150\t250\t2\n")
+    nonfinite = tmp_path / "nonfinite.annot"
+    nonfinite.write_text("1\t99\t200\tNaN\n")
+    wide = tmp_path / "wide.annot"
+    wide.write_text("1\t99\t200\t1\t2\n")
+    old_cache = tmp_path / "old_annotations.rds"
+
+    result = run_rscript(
+        _source_phase2_script(
+            f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
+            "a <- load_annotations(c('tests/fixtures/annotations/anno1.bed', 'tests/fixtures/annotations/anno2.bed'), ref); "
+            f"payload <- list(metadata = list(schema = 'annotations_cache/0.1', n_shards = length(shards(a)), shard_labels = vapply(shards(a), function(s) s$label, character(1)), shard_checksums = vapply(shards(a), function(s) s$reference_checksum, character(1)), shard_start0 = shard_offsets(a)$start0, shard_stop0 = shard_offsets(a)$stop0), annomat = as(annomat(a), 'lgCMatrix'), annonames = annonames(a)); "
+            f"saveRDS(payload, {json.dumps(str(old_cache))}); "
+            f"loaded <- load_annotations_cache({json.dumps(str(old_cache))}); "
+            f"ok1 <- FALSE; tryCatch(load_annotation({json.dumps(str(overlap))}, ref), error = function(e) ok1 <<- grepl('overlap', e$message)); "
+            f"ok2 <- FALSE; tryCatch(load_annotation({json.dumps(str(nonfinite))}, ref), error = function(e) ok2 <<- grepl('finite numeric', e$message)); "
+            f"ok3 <- FALSE; tryCatch(load_annotation({json.dumps(str(wide))}, ref), error = function(e) ok3 <<- grepl('requires explicit value_columns', e$message)); "
+            f"ok4 <- FALSE; tryCatch(load_annotation({json.dumps(str(wide))}, ref, value_columns = 4), error = function(e) ok4 <<- grepl('requires annotation_names', e$message)); "
+            "cat(as.character(ok1), as.character(ok2), as.character(ok3), as.character(ok4), '\\n'); "
+            "cat(class(annomat(loaded))[[1]], '\\n'); "
+            "cat(paste(as.integer(is_binary(loaded)), collapse=','), '\\n'); "
+            "cat(paste(annotation_metadata(loaded), collapse=','), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.strip() for line in result.stdout.strip().splitlines()]
+    assert lines == ["TRUE TRUE TRUE TRUE", "dgCMatrix", "1,1", ","]
 
 
 @pytest.mark.r

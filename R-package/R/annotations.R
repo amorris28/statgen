@@ -1,15 +1,24 @@
-.annotations_cache_schema <- "annotations_cache/0.1"
+.annotations_cache_schema <- "annotations_cache/0.2"
+.annotations_old_cache_schema <- "annotations_cache/0.1"
 
 annomat <- function(x, ...) UseMethod("annomat")
 annonames <- function(x, ...) UseMethod("annonames")
 num_annot <- function(x, ...) UseMethod("num_annot")
+is_binary <- function(x, ...) UseMethod("is_binary")
+annotation_metadata <- function(x, ...) UseMethod("annotation_metadata")
 select_annotations <- function(x, names, ...) UseMethod("select_annotations")
 union_annotations <- function(x, other, mode = "by_name", ...) UseMethod("union_annotations")
 
-load_annotations <- function(bed_paths, reference) {
+load_annotations <- function(bed_paths, reference,
+                             annotation_metadata = NULL,
+                             annotation_metadata_paths = NULL) {
   if (!inherits(reference, "ReferencePanel")) {
     stop("reference must be a ReferencePanel", call. = FALSE)
   }
+  if (!is.null(annotation_metadata) && !is.null(annotation_metadata_paths)) {
+    stop("load_annotations accepts at most one of annotation_metadata and annotation_metadata_paths", call. = FALSE)
+  }
+
   paths <- .coerce_bed_paths(bed_paths)
   for (path in paths) {
     if (!file.exists(path)) {
@@ -22,32 +31,147 @@ load_annotations <- function(bed_paths, reference) {
   }
 
   columns <- lapply(paths, function(path) {
-    Matrix::Matrix(.paint_bed_to_reference(.parse_bed(path), reference), ncol = 1L, sparse = TRUE)
+    .annotation_paint_binary_column(.parse_binary_bed(path), reference)
   })
-  create_annotations(reference, annotation_matrix = do.call(cbind, columns), annotation_names = names)
+  metadata <- .load_annotations_metadata(paths, annotation_metadata, annotation_metadata_paths)
+  create_annotations(
+    reference,
+    annotation_matrix = do.call(cbind, columns),
+    annotation_names = names,
+    is_binary = rep.int(TRUE, length(names)),
+    annotation_metadata = metadata
+  )
 }
 
-create_annotation <- function(reference, annovec, annoname) {
-  name <- as.character(annoname)
+load_annotation <- function(path, reference, header = FALSE, value_columns = NULL,
+                            annotation_names = NULL, annotation_metadata = NULL,
+                            annotation_metadata_path = NULL) {
+  if (!inherits(reference, "ReferencePanel")) {
+    stop("reference must be a ReferencePanel", call. = FALSE)
+  }
+  if (!is.null(annotation_metadata) && !is.null(annotation_metadata_path)) {
+    stop("load_annotation accepts at most one of annotation_metadata and annotation_metadata_path", call. = FALSE)
+  }
+  path <- .validate_path_scalar(path, "path")
+  if (!file.exists(path)) {
+    stop(sprintf("annotation file not found: %s", path), call. = FALSE)
+  }
+
+  table <- .read_annotation_table(path, isTRUE(header), value_columns, infer_single_value = TRUE)
+  df <- table$df
+  n_cols <- ncol(df)
+  value_columns1 <- table$value_columns
+  interval <- .validate_annotation_intervals(df, path, table$row_base0)
+  chr_values <- interval$chr
+  starts <- interval$starts
+  ends <- interval$ends
+
+  if (is.null(value_columns1) && n_cols == 3L) {
+    names <- if (is.null(annotation_names)) {
+      .default_annotation_names(path, n_cols, table$header_fields, value_columns1)
+    } else {
+      .coerce_annonames(annotation_names, "annotation_names")
+    }
+    if (length(names) != 1L) {
+      stop("annotation_names length mismatch: expected 1", call. = FALSE)
+    }
+    mat <- .annotation_paint_binary_column(
+      .annotation_binary_intervals_by_chr(chr_values, starts, ends),
+      reference
+    )
+    binary <- TRUE
+    source_columns0 <- NA_integer_
+    source_column_names <- NA_character_
+    metadata <- .load_annotation_metadata(
+      path, annotation_metadata, annotation_metadata_path, 1L,
+      source_columns0, source_column_names, n_cols, binary = TRUE
+    )
+  } else {
+    if (is.null(value_columns1)) {
+      if (n_cols == 4L) {
+        value_columns1 <- 4L
+      } else {
+        stop(sprintf("%s: input with five or more columns requires explicit value_columns", path), call. = FALSE)
+      }
+    }
+    names <- if (is.null(annotation_names)) {
+      .default_annotation_names(path, n_cols, table$header_fields, value_columns1)
+    } else {
+      .coerce_annonames(annotation_names, "annotation_names")
+    }
+    if (length(names) != length(value_columns1)) {
+      stop(sprintf(
+        "annotation_names length mismatch: expected %d, got %d",
+        length(value_columns1), length(names)
+      ), call. = FALSE)
+    }
+
+    .annotation_validate_numeric_nonoverlap(chr_values, starts, ends, path, table$row_base0)
+    values <- .annotation_numeric_values(df, value_columns1, path, table$row_base0)
+    mat <- .annotation_paint_numeric(chr_values, starts, ends, values, reference)
+    binary <- rep.int(FALSE, length(value_columns1))
+    source_columns0 <- as.integer(value_columns1 - 1L)
+    source_column_names <- if (is.null(table$header_fields)) {
+      rep.int(NA_character_, length(value_columns1))
+    } else {
+      table$header_fields[value_columns1]
+    }
+    metadata <- .load_annotation_metadata(
+      path, annotation_metadata, annotation_metadata_path, length(value_columns1),
+      source_columns0, source_column_names, n_cols, binary = FALSE
+    )
+  }
+
+  create_annotations(
+    reference,
+    annotation_matrix = mat,
+    annotation_names = names,
+    is_binary = binary,
+    annotation_metadata = metadata
+  )
+}
+
+create_annotation <- function(reference, annovec, annotation_name,
+                              is_binary = NULL, annotation_metadata = NULL) {
+  name <- as.character(annotation_name)
   if (length(name) != 1L || is.na(name) || identical(name, "")) {
-    stop("annoname must be a non-empty character scalar", call. = FALSE)
+    stop("annotation_name must be a non-empty character scalar", call. = FALSE)
   }
   vec <- .coerce_annovec(annovec, num_snp(reference))
-  create_annotations(reference, annotation_matrix = Matrix::Matrix(vec, ncol = 1L, sparse = TRUE), annotation_names = name)
+  metadata <- if (is.null(annotation_metadata)) "" else as.character(annotation_metadata)
+  if (length(metadata) != 1L || is.na(metadata)) {
+    stop("annotation_metadata must be a character scalar", call. = FALSE)
+  }
+  create_annotations(
+    reference,
+    annotation_matrix = Matrix::Matrix(vec, ncol = 1L, sparse = TRUE),
+    annotation_names = name,
+    is_binary = is_binary,
+    annotation_metadata = metadata
+  )
 }
 
-create_annotations <- function(reference, annotation_matrix, annotation_names) {
+create_annotations <- function(reference, annotation_matrix, annotation_names,
+                               is_binary = NULL, annotation_metadata = NULL) {
   if (!inherits(reference, "ReferencePanel")) {
     stop("reference must be a ReferencePanel", call. = FALSE)
   }
   names <- .coerce_annonames(annotation_names)
-  mat <- .as_lgC_binary_matrix(annotation_matrix, "annotation_matrix")
+  mat <- .as_dgC_numeric_matrix(annotation_matrix, "annotation_matrix")
   expected <- c(num_snp(reference), length(names))
   if (!identical(as.integer(dim(mat)), as.integer(expected))) {
     stop(sprintf(
       "annotation_matrix shape mismatch: expected (%d, %d), got (%d, %d)",
       expected[[1]], expected[[2]], dim(mat)[[1]], dim(mat)[[2]]
     ), call. = FALSE)
+  }
+
+  binary <- .coerce_or_infer_is_binary(is_binary, mat)
+  .validate_declared_binary(mat, binary, "annotation_matrix")
+  metadata <- if (is.null(annotation_metadata)) {
+    rep.int("", length(names))
+  } else {
+    .coerce_annotation_metadata(annotation_metadata, length(names), "annotation_metadata")
   }
 
   out <- vector("list", length(shards(reference)))
@@ -62,7 +186,7 @@ create_annotations <- function(reference, annotation_matrix, annotation_names) {
       mat[start:stop, , drop = FALSE]
     )
   }
-  .new_annotation_panel(out, names)
+  .new_annotation_panel(out, names, binary, metadata)
 }
 
 save_annotations_cache <- function(panel, path) {
@@ -81,7 +205,9 @@ save_annotations_cache <- function(panel, path) {
       shard_stop0 = offsets$stop0
     ),
     annomat = annomat(panel),
-    annonames = annonames(panel)
+    annonames = annonames(panel),
+    is_binary = is_binary(panel),
+    annotation_metadata = annotation_metadata(panel)
   )
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
   saveRDS(payload, path)
@@ -106,10 +232,11 @@ load_annotations_cache <- function(path, shards = NULL) {
     out[[i]] <- .new_annotation_shard(
       label,
       meta$shard_checksums[[idx]],
-      cache$annomat[start:stop, , drop = FALSE]
+      cache$annomat[start:stop, , drop = FALSE],
+      validate_values = FALSE
     )
   }
-  .new_annotation_panel(out, names)
+  .new_annotation_panel(out, names, cache$is_binary, cache$annotation_metadata)
 }
 
 num_snp.AnnotationShard <- function(x, ...) x$num_snp
@@ -125,16 +252,18 @@ annomat.AnnotationPanel <- function(x, ...) {
   .set_annotation_colnames(mat, x$annonames)
 }
 annonames.AnnotationPanel <- function(x, ...) x$annonames
+is_binary.AnnotationPanel <- function(x, ...) x$is_binary
+annotation_metadata.AnnotationPanel <- function(x, ...) x$annotation_metadata
 
 select_shards.AnnotationPanel <- function(x, shards, ...) {
   available <- vapply(x$shards, function(s) s$label, character(1))
   selected <- .validate_requested_shards(shards, available, "AnnotationPanel.select_shards")
   by_label <- stats::setNames(x$shards, available)
-  .new_annotation_panel(unname(by_label[selected]), x$annonames)
+  .new_annotation_panel(unname(by_label[selected]), x$annonames, x$is_binary, x$annotation_metadata)
 }
 
 select_annotations.AnnotationPanel <- function(x, names, ...) {
-  requested <- .coerce_annonames(names)
+  requested <- .coerce_annonames(names, "names")
   idx <- match(requested, x$annonames)
   missing <- requested[is.na(idx)]
   if (length(missing)) {
@@ -143,7 +272,7 @@ select_annotations.AnnotationPanel <- function(x, names, ...) {
   out <- lapply(x$shards, function(s) {
     .new_annotation_shard(s$label, s$reference_checksum, s$annomat[, idx, drop = FALSE])
   })
-  .new_annotation_panel(out, requested)
+  .new_annotation_panel(out, requested, x$is_binary[idx], x$annotation_metadata[idx])
 }
 
 union_annotations.AnnotationPanel <- function(x, other, mode = "by_name", ...) {
@@ -168,7 +297,12 @@ union_annotations.AnnotationPanel <- function(x, other, mode = "by_name", ...) {
       do.call(cbind, list(a$annomat, b$annomat))
     )
   }
-  .new_annotation_panel(out, c(x$annonames, other$annonames))
+  .new_annotation_panel(
+    out,
+    c(x$annonames, other$annonames),
+    c(x$is_binary, other$is_binary),
+    c(x$annotation_metadata, other$annotation_metadata)
+  )
 }
 
 .check_annotation_reference_alignment <- function(x, other, context) {
@@ -193,7 +327,7 @@ union_annotations.AnnotationPanel <- function(x, other, mode = "by_name", ...) {
         context, sQuote(a$label)
       ), call. = FALSE)
     }
-    if (!identical(a$reference_checksum, b$reference_checksum)) {
+    if (is.null(b$reference_checksum) || !identical(a$reference_checksum, b$reference_checksum)) {
       stop(sprintf(
         "%s requires compatible reference alignment: shard %s reference_checksum mismatch",
         context, sQuote(a$label)
@@ -214,8 +348,8 @@ print.AnnotationPanel <- function(x, ...) {
   invisible(x)
 }
 
-.new_annotation_shard <- function(label, reference_checksum, mat) {
-  mat <- .as_lgC_binary_matrix(mat)
+.new_annotation_shard <- function(label, reference_checksum, mat, validate_values = TRUE) {
+  mat <- .as_dgC_numeric_matrix(mat, validate_values = validate_values)
   structure(
     list(
       label = as.character(label),
@@ -228,11 +362,13 @@ print.AnnotationPanel <- function(x, ...) {
   )
 }
 
-.new_annotation_panel <- function(shard_list, names) {
+.new_annotation_panel <- function(shard_list, names, is_binary, annotation_metadata) {
   if (!length(shard_list)) {
     stop("AnnotationPanel requires at least one shard", call. = FALSE)
   }
   names <- .coerce_annonames(names)
+  binary <- .coerce_is_binary_vector(is_binary, length(names))
+  metadata <- .coerce_annotation_metadata(annotation_metadata, length(names), "annotation_metadata")
   pos <- 0L
   offsets <- data.frame(
     shard_label = character(length(shard_list)),
@@ -253,6 +389,9 @@ print.AnnotationPanel <- function(x, ...) {
     list(
       shards = shard_list,
       annonames = names,
+      # Store fields directly here; callers should use accessors outside constructors.
+      is_binary = binary,
+      annotation_metadata = metadata,
       num_snp = pos,
       num_annot = length(names),
       shard_offsets = offsets
@@ -270,9 +409,6 @@ print.AnnotationPanel <- function(x, ...) {
   if (!is.character(bed_paths) || !length(bed_paths) || anyNA(bed_paths) || any(bed_paths == "")) {
     stop("bed_paths must be a non-empty character vector of BED files", call. = FALSE)
   }
-  if (is.character(bed_paths) && length(bed_paths) == 1L) {
-    return(bed_paths)
-  }
   as.character(bed_paths)
 }
 
@@ -280,194 +416,454 @@ print.AnnotationPanel <- function(x, ...) {
   tools::file_path_sans_ext(basename(paths))
 }
 
-.coerce_annonames <- function(names) {
+.coerce_annonames <- function(names, name = "annonames") {
   if (!is.character(names) || !length(names) || anyNA(names) || any(names == "")) {
-    stop("annonames must be a non-empty character vector of unique strings", call. = FALSE)
+    stop(sprintf("%s must be a non-empty character vector of unique strings", name), call. = FALSE)
   }
   if (anyDuplicated(names)) {
-    stop("annonames must be unique", call. = FALSE)
+    stop(sprintf("%s must be unique", name), call. = FALSE)
   }
   as.character(names)
 }
 
+.coerce_annotation_metadata <- function(value, expected_len, name) {
+  if (!is.character(value)) {
+    stop(sprintf("%s must be a character vector", name), call. = FALSE)
+  }
+  if (length(value) != expected_len) {
+    stop(sprintf("%s length mismatch: expected %d, got %d", name, expected_len, length(value)), call. = FALSE)
+  }
+  if (anyNA(value)) {
+    stop(sprintf("%s must not contain missing values", name), call. = FALSE)
+  }
+  as.character(value)
+}
+
 .coerce_annovec <- function(annovec, n) {
-  vec <- as.vector(annovec)
+  vec <- as.numeric(as.vector(annovec))
   if (length(vec) != n) {
     stop(sprintf("annovec length mismatch: expected %d, got %d", n, length(vec)), call. = FALSE)
   }
-  if (any(is.na(vec)) || any(!(vec %in% c(FALSE, TRUE, 0, 1)))) {
-    stop("annovec must be binary (0/1)", call. = FALSE)
+  if (any(!is.finite(vec))) {
+    stop(sprintf("annovec[%d] must be finite numeric", which(!is.finite(vec))[[1]]), call. = FALSE)
   }
-  as.logical(vec)
+  vec
 }
 
-.as_lgC_binary_matrix <- function(mat, name = "annomat") {
-  if (inherits(mat, "lgCMatrix")) {
-    return(mat)
-  }
-  if (inherits(mat, "Matrix")) {
-    dims <- dim(mat)
-    entries <- Matrix::summary(mat)
-    if (nrow(entries)) {
-      nonzero <- entries$x != 0
-      bad <- !(entries$x[nonzero] %in% c(TRUE, 1))
-      if (any(bad)) {
-        stop(sprintf("%s contains non-binary values", name), call. = FALSE)
-      }
-      return(Matrix::sparseMatrix(
-        i = entries$i[nonzero],
-        j = entries$j[nonzero],
-        x = rep.int(TRUE, sum(nonzero)),
-        dims = dims
-      ))
+.as_dgC_numeric_matrix <- function(mat, name = "annomat", validate_values = TRUE, drop_zeros = TRUE) {
+  if (inherits(mat, "dgCMatrix")) {
+    out <- mat
+  } else if (inherits(mat, "Matrix")) {
+    out <- Matrix::Matrix(mat, sparse = TRUE)
+    if (drop_zeros) {
+      out <- Matrix::drop0(out)
     }
-    return(Matrix::sparseMatrix(i = integer(), j = integer(), x = logical(), dims = dims))
+    out <- methods::as(out, "dgCMatrix")
+  } else {
+    arr <- as.matrix(mat)
+    if (length(dim(arr)) != 2L) {
+      stop(sprintf("%s must be a 2D matrix", name), call. = FALSE)
+    }
+    if (validate_values && any(!is.finite(arr))) {
+      idx <- which(!is.finite(arr), arr.ind = TRUE)[1, , drop = TRUE]
+      stop(sprintf("%s contains non-finite value at row %d column %d", name, idx[[1]], idx[[2]]), call. = FALSE)
+    }
+    out <- Matrix::Matrix(arr, sparse = TRUE)
+    if (drop_zeros) {
+      out <- Matrix::drop0(out)
+    }
+    out <- methods::as(out, "dgCMatrix")
   }
-  arr <- as.matrix(mat)
-  if (length(dim(arr)) != 2L) {
+  if (length(dim(out)) != 2L) {
     stop(sprintf("%s must be a 2D matrix", name), call. = FALSE)
   }
-  if (any(is.na(arr)) || any(!(arr %in% c(FALSE, TRUE, 0, 1)))) {
-    stop(sprintf("%s contains non-binary values", name), call. = FALSE)
+  if (validate_values) {
+    entries <- Matrix::summary(out)
+    if (nrow(entries) && any(!is.finite(entries$x))) {
+      bad <- which(!is.finite(entries$x))[[1]]
+      stop(sprintf("%s contains non-finite value: %s", name, entries$x[[bad]]), call. = FALSE)
+    }
   }
-  Matrix::Matrix(arr != 0, sparse = TRUE)
+  if (drop_zeros) {
+    out <- Matrix::drop0(out)
+  }
+  methods::as(out, "dgCMatrix")
 }
 
-.parse_bed <- function(path) {
-  # First pass: scan line-by-line to validate structure and count header lines to
-  # skip. Avoids seek(), which R documents as unreliable on Windows text connections.
+.coerce_or_infer_is_binary <- function(value, mat) {
+  k <- dim(mat)[[2]]
+  if (is.null(value)) {
+    out <- rep.int(TRUE, k)
+    entries <- Matrix::summary(mat)
+    if (nrow(entries)) {
+      out[unique(entries$j[entries$x != 1])] <- FALSE
+    }
+    return(out)
+  }
+  .coerce_is_binary_vector(value, k)
+}
+
+.coerce_is_binary_vector <- function(value, expected_len) {
+  if (is.null(value)) {
+    stop("is_binary must be supplied", call. = FALSE)
+  }
+  if (is.character(value)) {
+    stop("is_binary must be a logical vector", call. = FALSE)
+  }
+  if (length(value) != expected_len) {
+    stop(sprintf("is_binary length mismatch: expected %d, got %d", expected_len, length(value)), call. = FALSE)
+  }
+  if (anyNA(value)) {
+    stop("is_binary must not contain missing values", call. = FALSE)
+  }
+  bad <- !(value %in% c(FALSE, TRUE, 0, 1))
+  if (any(bad)) {
+    stop(sprintf("is_binary[%d] must be logical", which(bad)[[1]]), call. = FALSE)
+  }
+  as.logical(value)
+}
+
+.validate_declared_binary <- function(mat, binary, name) {
+  if (!any(binary)) {
+    return(invisible(NULL))
+  }
+  entries <- Matrix::summary(mat[, binary, drop = FALSE])
+  if (nrow(entries) && any(entries$x != 1)) {
+    bad <- which(entries$x != 1)[[1]]
+    stop(sprintf("%s declared binary must be binary (0/1); found non-binary value %s", name, entries$x[[bad]]), call. = FALSE)
+  }
+  invisible(NULL)
+}
+
+.parse_binary_bed <- function(path) {
+  table <- .read_annotation_table(path, header = FALSE, value_columns = NULL, infer_single_value = FALSE)
+  interval <- .validate_annotation_intervals(table$df, path, table$row_base0)
+  .annotation_binary_intervals_by_chr(interval$chr, interval$starts, interval$ends)
+}
+
+.read_annotation_table <- function(path, header, value_columns, infer_single_value) {
+  probe <- .probe_annotation_table(path)
+  n_cols <- probe$n_cols
+  if (n_cols < 3L) {
+    stop(sprintf("%s: BED must have at least 3 tab-separated columns", path), call. = FALSE)
+  }
+  header_fields <- NULL
+  if (header) {
+    header_fields <- strsplit(probe$first_line, "\t", fixed = TRUE)[[1L]]
+    if (any(header_fields == "")) {
+      stop(sprintf("%s: header names must be non-empty", path), call. = FALSE)
+    }
+    if (anyDuplicated(header_fields)) {
+      stop(sprintf("%s: header names must be unique", path), call. = FALSE)
+    }
+  }
+  value_columns1 <- .normalize_value_columns(value_columns, header_fields, n_cols, path)
+  if (isTRUE(infer_single_value) && is.null(value_columns1) && n_cols == 4L) {
+    value_columns1 <- 4L
+  }
+
+  char_cols <- seq_len(n_cols)
+  numeric_cols <- integer()
+  if (!is.null(value_columns1)) {
+    numeric_cols <- value_columns1
+    char_cols <- setdiff(char_cols, numeric_cols)
+  }
+  col_names <- if (header) header_fields else paste0("V", seq_len(n_cols))
+  fread_args <- list(
+    input = path,
+    sep = "\t",
+    header = header,
+    skip = probe$skip,
+    fill = TRUE,
+    blank.lines.skip = TRUE,
+    colClasses = list(
+      character = col_names[char_cols],
+      numeric = col_names[numeric_cols]
+    ),
+    na.strings = c("NA", "NaN", "nan", "Inf", "inf", "-Inf", "-inf"),
+    data.table = FALSE,
+    showProgress = FALSE
+  )
+  df <- tryCatch(
+    do.call(data.table::fread, fread_args),
+    error = function(e) {
+      stop(sprintf("%s: malformed annotation input", path), call. = FALSE)
+    },
+    warning = function(w) {
+      stop(sprintf("%s: malformed annotation input", path), call. = FALSE)
+    }
+  )
+  if (nrow(df) == 0L) {
+    stop(sprintf("%s: BED file is empty", path), call. = FALSE)
+  }
+  if (ncol(df) != n_cols) {
+    stop(sprintf("%s: malformed annotation input", path), call. = FALSE)
+  }
+  names(df) <- col_names
+  .reject_late_annotation_comments(df, path)
+  list(
+    df = df,
+    header_fields = header_fields,
+    row_base0 = if (header) 1L else 0L,
+    value_columns = value_columns1
+  )
+}
+
+.probe_annotation_table <- function(path) {
   con <- file(path, open = "rt")
   on.exit(close(con), add = TRUE)
-
-  skip_count <- 0L
-  first_data <- NULL
-  found_data <- FALSE
-
+  skip <- 0L
   repeat {
     line <- readLines(con, n = 1L, warn = FALSE)
     if (!length(line)) {
-      if (!found_data) {
-        stop(sprintf("%s: BED file is empty", path), call. = FALSE)
-      }
-      break
+      stop(sprintf("%s: BED file is empty", path), call. = FALSE)
     }
-    if (!found_data) {
-      if (identical(line, "") || startsWith(line, "#")) {
-        skip_count <- skip_count + 1L
-      } else {
-        first_data <- line
-        found_data <- TRUE
-      }
-    } else {
-      if (identical(line, "") || startsWith(line, "#")) {
-        stop(sprintf("%s: blank or comment line after BED data row", path), call. = FALSE)
-      }
-    }
-  }
-  close(con)
-  on.exit(NULL)
-
-  if (length(strsplit(first_data, "\t", fixed = TRUE)[[1L]]) < 3L) {
-    stop(sprintf("%s: BED must have at least 3 tab-separated columns", path), call. = FALSE)
-  }
-
-  # Second pass: read.table opens the file fresh, no seek() needed.
-  df <- tryCatch(
-    utils::read.table(
-      file = path,
-      skip = skip_count,
-      header = FALSE,
-      sep = "\t",
-      quote = "",
-      comment.char = "",
-      stringsAsFactors = FALSE,
-      colClasses = "character",
-      fill = FALSE
-    ),
-    error = function(e) {
-      stop(sprintf("%s: malformed BED", path), call. = FALSE)
-    }
-  )
-  if (ncol(df) < 3L) {
-    stop(sprintf("%s: BED must have at least 3 tab-separated columns", path), call. = FALSE)
-  }
-  chr <- df[[1]]
-  bad_chr <- is.na(chr) | chr == ""
-  if (any(bad_chr)) {
-    stop(sprintf("%s: row %d: chromosome label must be non-empty", path, which(bad_chr)[[1]]), call. = FALSE)
-  }
-  starts <- suppressWarnings(as.numeric(df[[2]]))
-  ends <- suppressWarnings(as.numeric(df[[3]]))
-  bad_start <- is.na(starts) | !is.finite(starts) | floor(starts) != starts | starts < 0
-  if (any(bad_start)) {
-    stop(sprintf("%s: row %d: BED start must be a non-negative integer", path, which(bad_start)[[1]]), call. = FALSE)
-  }
-  bad_end <- is.na(ends) | !is.finite(ends) | floor(ends) != ends | ends < 0
-  if (any(bad_end)) {
-    stop(sprintf("%s: row %d: BED end must be a non-negative integer", path, which(bad_end)[[1]]), call. = FALSE)
-  }
-  if (any(ends < starts)) {
-    stop(sprintf("%s: row %d: BED interval end must be >= start", path, which(ends < starts)[[1]]), call. = FALSE)
-  }
-  split_idx <- split(seq_along(chr), chr)
-  lapply(split_idx, function(idx) .merge_intervals(as.integer(starts[idx]), as.integer(ends[idx])))
-}
-
-.merge_intervals <- function(starts, ends) {
-  if (!length(starts)) {
-    return(matrix(integer(), ncol = 2L, dimnames = list(NULL, c("start", "end"))))
-  }
-  ord <- order(starts, ends)
-  starts <- starts[ord]
-  ends <- ends[ord]
-
-  running_max_end <- cummax(ends)
-  new_group <- c(TRUE, starts[-1L] > running_max_end[-length(running_max_end)])
-  group_id <- cumsum(new_group)
-
-  cbind(
-    start = starts[new_group],
-    end = as.integer(unname(tapply(ends, group_id, max)))
-  )
-}
-
-.paint_bed_to_reference <- function(intervals_by_chr, reference) {
-  out <- rep.int(FALSE, num_snp(reference))
-  offsets <- shard_offsets(reference)
-  for (i in seq_along(shards(reference))) {
-    ref_shard <- shards(reference)[[i]]
-    intervals <- intervals_by_chr[[ref_shard$label]]
-    if (is.null(intervals) || !nrow(intervals)) {
+    if (identical(line, "") || startsWith(line, "#")) {
+      skip <- skip + 1L
       next
     }
-    start <- offsets$start0[[i]] + 1L
-    stop <- offsets$stop0[[i]]
-    out[start:stop] <- .paint_mask(bp(ref_shard), intervals)
+    fields <- strsplit(line, "\t", fixed = TRUE)[[1L]]
+    return(list(skip = skip, first_line = line, n_cols = length(fields)))
+  }
+}
+
+.reject_late_annotation_comments <- function(df, path) {
+  first <- as.character(df[[1L]])
+  late <- is.na(first) | first == "" | startsWith(first, "#")
+  if (any(late)) {
+    stop(sprintf("%s: blank or comment line after BED data row", path), call. = FALSE)
+  }
+}
+
+.normalize_value_columns <- function(value_columns, header_fields, n_cols, path) {
+  if (is.null(value_columns)) {
+    return(NULL)
+  }
+  selectors <- as.list(value_columns)
+  if (!length(selectors)) {
+    stop("value_columns must be a non-empty vector", call. = FALSE)
+  }
+  out <- integer(length(selectors))
+  for (i in seq_along(selectors)) {
+    selector <- selectors[[i]]
+    if (is.character(selector)) {
+      if (is.null(header_fields)) {
+        stop("named value_columns are invalid when header = FALSE", call. = FALSE)
+      }
+      idx <- match(selector, header_fields)
+      if (is.na(idx)) {
+        stop(sprintf("%s: unknown value column name %s", path, sQuote(selector)), call. = FALSE)
+      }
+      col <- idx
+    } else if (is.numeric(selector) && length(selector) == 1L && is.finite(selector) && selector == floor(selector)) {
+      col <- as.integer(selector)
+    } else {
+      stop("value_columns must contain column names or integer indices", call. = FALSE)
+    }
+    if (col < 4L || col > n_cols) {
+      stop(sprintf("%s: value column is out of range; selected columns must be physical columns 4 or later", path), call. = FALSE)
+    }
+    out[[i]] <- col
+  }
+  if (anyDuplicated(out)) {
+    stop("value_columns must not contain duplicates", call. = FALSE)
   }
   out
 }
 
-.paint_mask <- function(bp, intervals) {
-  pos0 <- as.integer(bp) - 1L
-  idx <- findInterval(pos0, intervals[, "start"])
-  valid <- idx > 0L
-  out <- rep.int(FALSE, length(bp))
-  out[valid] <- pos0[valid] < intervals[idx[valid], "end"]
-  out
+.validate_annotation_intervals <- function(df, path, row_base0) {
+  chr_values <- as.character(df[[1L]])
+  bad_chr <- is.na(chr_values) | chr_values == ""
+  if (any(bad_chr)) {
+    stop(sprintf("%s: row %d: chromosome label must be non-empty", path, row_base0 + which(bad_chr)[[1]]), call. = FALSE)
+  }
+  .validate_annotation_chr_labels(chr_values, path, row_base0)
+
+  starts <- suppressWarnings(as.numeric(df[[2L]]))
+  bad_start <- is.na(starts) | !is.finite(starts) | floor(starts) != starts | starts < 0
+  if (any(bad_start)) {
+    stop(sprintf("%s: row %d: BED start must be a non-negative integer", path, row_base0 + which(bad_start)[[1]]), call. = FALSE)
+  }
+  ends <- suppressWarnings(as.numeric(df[[3L]]))
+  bad_end <- is.na(ends) | !is.finite(ends) | floor(ends) != ends | ends < 0
+  if (any(bad_end)) {
+    stop(sprintf("%s: row %d: BED end must be a non-negative integer", path, row_base0 + which(bad_end)[[1]]), call. = FALSE)
+  }
+  bad_len <- ends < starts
+  if (any(bad_len)) {
+    stop(sprintf("%s: row %d: BED interval end must be >= start", path, row_base0 + which(bad_len)[[1]]), call. = FALSE)
+  }
+  list(chr = chr_values, starts = as.integer(starts), ends = as.integer(ends))
+}
+
+.validate_annotation_chr_labels <- function(chr_values, path, row_base0) {
+  chr_style <- startsWith(tolower(chr_values), "chr")
+  if (any(chr_style)) {
+    stop(sprintf("%s: row %d: chr-style labels (e.g., chr1/chrX) are not allowed", path, row_base0 + which(chr_style)[[1]]), call. = FALSE)
+  }
+  known <- chr_values %in% c(.canonical_chr_order, .ignored_chr)
+  if (!all(known)) {
+    idx <- which(!known)[[1]]
+    stop(sprintf("%s: row %d: unsupported chr label %s; expected 1-22, X (Y/MT are ignored)", path, row_base0 + idx, sQuote(chr_values[[idx]])), call. = FALSE)
+  }
+}
+
+.annotation_numeric_values <- function(df, value_columns1, path, row_base0) {
+  values <- as.matrix(df[, value_columns1, drop = FALSE])
+  storage.mode(values) <- "double"
+  bad <- which(!is.finite(values), arr.ind = TRUE)
+  if (nrow(bad)) {
+    row <- bad[[1, "row"]]
+    col <- value_columns1[[bad[[1, "col"]]]]
+    stop(sprintf("%s: row %d: annotation value column %d must be finite numeric", path, row_base0 + row, col), call. = FALSE)
+  }
+  values
+}
+
+.default_annotation_names <- function(path, n_cols, header_fields, value_columns1) {
+  if (is.null(value_columns1)) {
+    if (n_cols == 3L) {
+      return(.annotation_names_from_paths(path))
+    }
+    if (n_cols == 4L) {
+      if (is.null(header_fields)) {
+        return(.annotation_names_from_paths(path))
+      }
+      return(header_fields[[4L]])
+    }
+    stop(sprintf("%s: input with five or more columns requires explicit value_columns", path), call. = FALSE)
+  }
+  if (is.null(header_fields) && n_cols >= 5L) {
+    stop(sprintf("%s: headerless input with five or more columns requires annotation_names", path), call. = FALSE)
+  }
+  if (is.null(header_fields)) {
+    return(.annotation_names_from_paths(path))
+  }
+  header_fields[value_columns1]
+}
+
+.load_annotations_metadata <- function(paths, metadata, metadata_paths) {
+  if (!is.null(metadata)) {
+    return(.coerce_annotation_metadata(metadata, length(paths), "annotation_metadata"))
+  }
+  if (!is.null(metadata_paths)) {
+    if (!is.character(metadata_paths) || length(metadata_paths) != length(paths)) {
+      stop(sprintf("annotation_metadata_paths length mismatch: expected %d, got %d", length(paths), length(metadata_paths)), call. = FALSE)
+    }
+    out <- character(length(paths))
+    for (i in seq_along(paths)) {
+      meta_path <- metadata_paths[[i]]
+      if (is.na(meta_path) || identical(meta_path, "")) {
+        out[[i]] <- .annotation_generated_metadata(paths[[i]], NA_integer_, NA_character_)
+      } else {
+        out[[i]] <- .read_sidecar_exact(meta_path)
+      }
+    }
+    return(out)
+  }
+  vapply(paths, .annotation_generated_metadata, character(1), source_column0 = NA_integer_, source_column_name = NA_character_)
+}
+
+.load_annotation_metadata <- function(path, metadata, metadata_path, expected_len,
+                                      source_columns0, source_column_names,
+                                      n_cols, binary) {
+  if (!is.null(metadata)) {
+    return(.coerce_annotation_metadata(metadata, expected_len, "annotation_metadata"))
+  }
+  if (!is.null(metadata_path)) {
+    metadata_path <- .validate_path_scalar(metadata_path, "annotation_metadata_path")
+    if (binary) {
+      return(.read_sidecar_exact(metadata_path))
+    }
+    lines <- .read_column_metadata_sidecar(metadata_path, n_cols)
+    return(lines[source_columns0 + 1L])
+  }
+  mapply(
+    .annotation_generated_metadata,
+    source_column0 = source_columns0,
+    source_column_name = source_column_names,
+    MoreArgs = list(path = path),
+    USE.NAMES = FALSE
+  )
+}
+
+.annotation_generated_metadata <- function(path, source_column0, source_column_name) {
+  jsonlite::toJSON(
+    list(
+      source_file = as.character(path),
+      source_column0 = if (is.na(source_column0)) NA_integer_ else as.integer(source_column0),
+      source_column_name = if (is.na(source_column_name)) NA_character_ else as.character(source_column_name)
+    ),
+    auto_unbox = TRUE,
+    null = "null",
+    na = "null"
+  )
+}
+
+.read_sidecar_exact <- function(path) {
+  path <- .validate_path_scalar(path, "annotation_metadata_path")
+  size <- file.info(path)$size
+  if (is.na(size)) {
+    stop(sprintf("annotation metadata sidecar not found: %s", path), call. = FALSE)
+  }
+  con <- file(path, open = "rb")
+  on.exit(close(con), add = TRUE)
+  readChar(con, nchars = size, useBytes = TRUE)
+}
+
+.read_column_metadata_sidecar <- function(path, n_cols) {
+  text <- .read_sidecar_exact(path)
+  lines <- strsplit(text, "\r\n|\n|\r", perl = TRUE)[[1L]]
+  if (length(lines) == 1L && identical(lines, "")) {
+    lines <- character()
+  }
+  if (length(lines) && identical(lines[[length(lines)]], "") && grepl("(\r\n|\n|\r)$", text, perl = TRUE)) {
+    lines <- lines[-length(lines)]
+  }
+  if (length(lines) != n_cols) {
+    stop(sprintf("%s: annotation metadata sidecar line count mismatch: expected %d, got %d", path, n_cols, length(lines)), call. = FALSE)
+  }
+  if (any(lines == "")) {
+    stop(sprintf("%s: annotation metadata sidecar line %d is empty", path, which(lines == "")[[1]]), call. = FALSE)
+  }
+  lines
 }
 
 .validate_annotations_cache_payload <- function(payload) {
+  if (!is.list(payload) || is.null(payload$metadata)) {
+    stop("Invalid annotations cache: expected an RDS list with metadata", call. = FALSE)
+  }
+  schema <- as.character(payload$metadata$schema)
+  if (identical(schema, .annotations_old_cache_schema)) {
+    cache <- .validate_cache_payload_metadata(payload, .annotations_old_cache_schema, "annotations")
+    names <- .coerce_annonames(payload$annonames)
+    annomat <- .as_dgC_numeric_matrix(payload$annomat, validate_values = FALSE, drop_zeros = FALSE)
+    if (!identical(as.integer(dim(annomat)[[1]]), as.integer(cache$total))) {
+      stop("Invalid annotations cache: annomat row count mismatch", call. = FALSE)
+    }
+    if (!identical(as.integer(dim(annomat)[[2]]), as.integer(length(names)))) {
+      stop("Invalid annotations cache: annomat column count mismatch", call. = FALSE)
+    }
+    return(list(
+      annomat = annomat,
+      is_binary = rep.int(TRUE, length(names)),
+      annotation_metadata = rep.int("", length(names))
+    ))
+  }
   cache <- .validate_cache_payload_metadata(payload, .annotations_cache_schema, "annotations")
   total <- cache$total
   if (is.null(payload$annomat) || is.null(payload$annonames)) {
     stop("Invalid annotations cache: missing annomat or annonames", call. = FALSE)
   }
-  annomat <- .as_lgC_binary_matrix(payload$annomat)
+  names <- .coerce_annonames(payload$annonames)
+  annomat <- .as_dgC_numeric_matrix(payload$annomat, validate_values = FALSE, drop_zeros = FALSE)
   if (!identical(as.integer(dim(annomat)[[1]]), as.integer(total))) {
     stop("Invalid annotations cache: annomat row count mismatch", call. = FALSE)
   }
-  if (!identical(as.integer(dim(annomat)[[2]]), as.integer(length(payload$annonames)))) {
+  if (!identical(as.integer(dim(annomat)[[2]]), as.integer(length(names)))) {
     stop("Invalid annotations cache: annomat column count mismatch", call. = FALSE)
   }
-  list(annomat = annomat)
+  binary <- .coerce_is_binary_vector(payload$is_binary, length(names))
+  metadata <- .coerce_annotation_metadata(payload$annotation_metadata, length(names), "annotation_metadata")
+  list(annomat = annomat, is_binary = binary, annotation_metadata = metadata)
 }

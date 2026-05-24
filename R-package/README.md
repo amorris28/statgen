@@ -27,3 +27,12 @@ install.packages("statgen")
 
 - [Main statgen repository](https://github.com/precimed/statgen)
 - Package vignette: `vignette("statgen")`
+
+## Annotation Loading
+
+`load_annotations()` loads one or more 3-column BED files as binary annotation
+columns. `load_annotation()` loads one BED-like source file and can paint
+selected numeric value columns as continuous annotations. Both return an
+`AnnotationPanel` whose `annomat()` accessor is a sparse numeric
+`Matrix::dgCMatrix`; `is_binary()` and `annotation_metadata()` expose per-column
+metadata.

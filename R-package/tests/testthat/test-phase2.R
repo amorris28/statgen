@@ -114,11 +114,13 @@ test_that("load_annotations paints BED intervals and cache round-trips", {
   expect_equal(num_snp(ann), 8L)
   expect_equal(num_annot(ann), 2L)
   expect_equal(annonames(ann), c("anno1", "anno2"))
-  expect_s4_class(annomat(ann), "lgCMatrix")
+  expect_s4_class(annomat(ann), "dgCMatrix")
+  expect_equal(is_binary(ann), c(TRUE, TRUE))
+  expect_true(all(grepl("source_file", annotation_metadata(ann), fixed = TRUE)))
   ann_dense <- as.matrix(annomat(ann))
   expect_equal(colnames(annomat(ann)), c("anno1", "anno2"))
-  expect_equal(as.vector(ann_dense[, 1L]), c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE))
-  expect_equal(as.vector(ann_dense[, 2L]), c(FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE))
+  expect_equal(as.vector(ann_dense[, 1L]), c(1, 1, 1, 1, 1, 0, 0, 0))
+  expect_equal(as.vector(ann_dense[, 2L]), c(0, 0, 0, 0, 0, 1, 1, 1))
 
   cache <- tempfile(fileext = ".rds")
   save_cache(ann, cache)
@@ -128,6 +130,89 @@ test_that("load_annotations paints BED intervals and cache round-trips", {
   expect_equal(as.matrix(annomat(loaded)), as.matrix(annomat(ann))[6:8, ])
 })
 
+test_that("load_annotation paints continuous values and preserves metadata", {
+  ref <- load_reference(.phase2_reference_template())
+  annot <- tempfile(fileext = ".annot")
+  writeLines(c(
+    "chrom\tstart0\tend0\tscore\tweight",
+    "1\t99\t200\t0.5\t10",
+    "1\t299\t400\t1.5\t20",
+    "X\t99\t301\t2.5\t30"
+  ), annot)
+  sidecar <- tempfile(fileext = ".meta")
+  writeLines(c("chrom meta", "start meta", "end meta", "score meta", "weight meta"), sidecar)
+
+  ann <- load_annotation(
+    annot,
+    ref,
+    header = TRUE,
+    value_columns = c("weight", "score"),
+    annotation_metadata_path = sidecar
+  )
+  expect_equal(annonames(ann), c("weight", "score"))
+  expect_equal(is_binary(ann), c(FALSE, FALSE))
+  expect_equal(annotation_metadata(ann), c("weight meta", "score meta"))
+  expect_s4_class(annomat(ann), "dgCMatrix")
+  expect_equal(
+    as.vector(as.matrix(annomat(ann))[, 1L]),
+    c(10, 10, 20, 20, 0, 30, 30, 30)
+  )
+  expect_equal(
+    as.vector(as.matrix(annomat(ann))[, 2L]),
+    c(0.5, 0.5, 1.5, 1.5, 0, 2.5, 2.5, 2.5)
+  )
+
+  cache <- tempfile(fileext = ".rds")
+  save_annotations_cache(ann, cache)
+  loaded <- load_annotations_cache(cache)
+  expect_equal(is_binary(loaded), c(FALSE, FALSE))
+  expect_equal(annotation_metadata(loaded), c("weight meta", "score meta"))
+  expect_equal(as.matrix(annomat(loaded)), as.matrix(annomat(ann)))
+})
+
+test_that("load_annotation supports binary sidecar, name override, and headerless 4-column default", {
+  ref <- load_reference(.phase2_reference_template(), shards = "1")
+  bed <- tempfile(fileext = ".bed")
+  writeLines("1\t99\t200", bed)
+  sidecar <- tempfile(fileext = ".meta")
+  writeLines(c("binary", "metadata"), sidecar)
+
+  binary <- load_annotation(
+    bed,
+    ref,
+    annotation_names = "renamed_binary",
+    annotation_metadata_path = sidecar
+  )
+  expect_equal(annonames(binary), "renamed_binary")
+  expect_equal(is_binary(binary), TRUE)
+  expect_equal(annotation_metadata(binary), "binary\nmetadata\n")
+  expect_equal(as.vector(as.matrix(annomat(binary))), c(1, 1, 0, 0, 0))
+
+  annot <- tempfile(fileext = ".annot")
+  writeLines(c("1\t99\t200\t0.5", "1\t299\t400\t1.5"), annot)
+  continuous <- load_annotation(annot, ref)
+  expect_equal(annonames(continuous), tools::file_path_sans_ext(basename(annot)))
+  expect_equal(is_binary(continuous), FALSE)
+  expect_equal(as.vector(as.matrix(annomat(continuous))), c(0.5, 0.5, 1.5, 1.5, 0))
+})
+
+test_that("load_annotations supports batch metadata sidecars", {
+  bed1 <- system.file("extdata", "anno1.bed", package = "statgen", mustWork = TRUE)
+  bed2 <- system.file("extdata", "anno2.bed", package = "statgen", mustWork = TRUE)
+  ref <- load_reference(.phase2_reference_template())
+  sidecar <- tempfile(fileext = ".meta")
+  writeLines(c("sidecar", "metadata"), sidecar)
+
+  ann <- load_annotations(
+    c(bed1, bed2),
+    ref,
+    annotation_metadata_paths = c(sidecar, NA_character_)
+  )
+  expect_equal(annotation_metadata(ann)[[1]], "sidecar\nmetadata\n")
+  expect_true(grepl("source_file", annotation_metadata(ann)[[2]], fixed = TRUE))
+  expect_true(grepl("anno2.bed", annotation_metadata(ann)[[2]], fixed = TRUE))
+})
+
 test_that("load_annotations accepts scalar path and leading comments", {
   ref <- load_reference(.phase2_reference_template(), shards = "1")
   bed <- tempfile(fileext = ".bed")
@@ -135,26 +220,35 @@ test_that("load_annotations accepts scalar path and leading comments", {
 
   ann <- load_annotations(bed, ref)
   expect_equal(num_annot(ann), 1L)
-  expect_equal(as.vector(as.matrix(annomat(ann))), c(TRUE, TRUE, FALSE, FALSE, FALSE))
+  expect_equal(as.vector(as.matrix(annomat(ann))), c(1, 1, 0, 0, 0))
 })
 
 test_that("annotation factories, selection, and union work", {
   ref <- load_reference(.phase2_reference_template())
   n <- num_snp(ref)
-  a <- create_annotation(ref, rep(c(1, 0), length.out = n), "a")
+  a <- create_annotation(ref, rep(c(1, 0), length.out = n), "a", annotation_metadata = "meta a")
   b <- create_annotations(
     ref,
     annotation_matrix = matrix(rep(c(0, 1), length.out = n), ncol = 1L),
-    annotation_names = "b"
+    annotation_names = "b",
+    annotation_metadata = "meta b"
   )
   u <- union_annotations(a, b)
 
   expect_equal(annonames(u), c("a", "b"))
+  expect_equal(annotation_metadata(u), c("meta a", "meta b"))
+  expect_equal(is_binary(u), c(TRUE, TRUE))
   expect_equal(colnames(annomat(u)), c("a", "b"))
   selected <- select_annotations(u, names = c("b", "a"))
   expect_equal(annonames(selected), c("b", "a"))
+  expect_equal(annotation_metadata(selected), c("meta b", "meta a"))
   expect_equal(colnames(annomat(selected)), c("b", "a"))
   expect_error(select_annotations(u, "missing"), "unknown annotation")
+  expect_error(select_annotations(u, c("a", "a")), "names must be unique")
+
+  cont <- create_annotations(ref, 2 * matrix(1, nrow = n, ncol = 1L), "cont", is_binary = FALSE)
+  expect_equal(is_binary(cont), FALSE)
+  expect_error(create_annotations(ref, 2 * matrix(1, nrow = n, ncol = 1L), "bad", is_binary = TRUE), "non-binary")
 })
 
 test_that("annotations cache validation rejects bad schema and zero shards", {

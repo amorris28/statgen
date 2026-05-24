@@ -118,7 +118,15 @@ annotation_paths <- file.path(
     "whole_gene.bed"
   )
 )
-annotations <- load_annotations(annotation_paths, reference)
+binary_annotations <- load_annotations(annotation_paths, reference)
+continuous_annotations <- load_annotation(
+  "source/annotations/conservation.annot",
+  reference,
+  header = TRUE,
+  value_columns = c("conservation", "promoter_activity"),
+  annotation_metadata_path = "source/annotations/conservation.meta"
+)
+annotations <- union_annotations(binary_annotations, continuous_annotations)
 
 genotype <- load_genotype("source/genotypes/chr@", reference)
 ```
@@ -140,11 +148,14 @@ stopifnot(is_object_compatible(reference, genotype))
 
 ## Run LD Operations
 
-`annomat(annotations)` is aligned to the reference, so it can be multiplied by
-LD `r^2` directly.
+`annomat(annotations)` is a sparse numeric matrix aligned to the reference, so
+it can be multiplied by LD `r^2` directly. Use `is_binary(annotations)` to
+distinguish binary membership columns from continuous numeric annotations.
 
 ```r
 a1 <- a1freq(ld)
+continuous_names <- annonames(annotations)[!is_binary(annotations)]
+continuous_meta <- annotation_metadata(annotations)[!is_binary(annotations)]
 ld_weighted_annotations <- multiply_r2(ld, annomat(annotations))
 trait_a_pruned <- fast_prune(logpvec(trait_a), ld, r2_threshold = 0.2)
 ```

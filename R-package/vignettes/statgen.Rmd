@@ -48,11 +48,28 @@ annotation_paths <- system.file(
   c("anno1.bed", "anno2.bed"),
   package = "statgen"
 )
-annotations <- load_annotations(annotation_paths, reference)
+binary_annotations <- load_annotations(annotation_paths, reference)
+
+continuous_path <- tempfile(fileext = ".annot")
+writeLines(c(
+  "chrom\tstart0\tend0\tscore",
+  "1\t99\t200\t0.5",
+  "1\t299\t400\t1.5",
+  "X\t99\t301\t2.5"
+), continuous_path)
+continuous_annotations <- load_annotation(
+  continuous_path,
+  reference,
+  header = TRUE,
+  value_columns = "score"
+)
+annotations <- union_annotations(binary_annotations, continuous_annotations)
 
 num_snp(reference)
 head(logpvec(sumstats))
 colnames(annomat(annotations))
+is_binary(annotations)
+annotation_metadata(annotations)[!is_binary(annotations)]
 ```
 
 R-native object caches are RDS files. They are useful for repeated analyses in
