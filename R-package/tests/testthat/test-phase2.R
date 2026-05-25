@@ -15,6 +15,10 @@
   list(value = value, warnings = warnings)
 }
 
+.phase2_write_lf <- function(text, path) {
+  writeBin(charToRaw(text), path)
+}
+
 test_that("load_sumstats aligns TSV rows and cache round-trips", {
   sum_path <- system.file("extdata", "traits.tsv.gz", package = "statgen", mustWork = TRUE)
   ref <- load_reference(.phase2_reference_template())
@@ -175,7 +179,7 @@ test_that("load_annotation supports binary sidecar, name override, and headerles
   bed <- tempfile(fileext = ".bed")
   writeLines("1\t99\t200", bed)
   sidecar <- tempfile(fileext = ".meta")
-  writeLines(c("binary", "metadata"), sidecar)
+  .phase2_write_lf("binary\nmetadata\n", sidecar)
 
   binary <- load_annotation(
     bed,
@@ -201,7 +205,7 @@ test_that("load_annotations supports batch metadata sidecars", {
   bed2 <- system.file("extdata", "anno2.bed", package = "statgen", mustWork = TRUE)
   ref <- load_reference(.phase2_reference_template())
   sidecar <- tempfile(fileext = ".meta")
-  writeLines(c("sidecar", "metadata"), sidecar)
+  .phase2_write_lf("sidecar\nmetadata\n", sidecar)
 
   ann <- load_annotations(
     c(bed1, bed2),
