@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added continuous numeric annotation support in Python, MATLAB/Octave, and R.
+  New `load_annotation(...)` APIs load one BED-like source file, support
+  selecting one or more value columns, optional headers, annotation name
+  overrides, and metadata supplied directly or through sidecar files.
+- `AnnotationPanel` now exposes per-column binary status and metadata through
+  `is_binary` / `annotation_metadata` accessors or properties. Binary
+  `load_annotations(...)` batch loaders can also attach per-file metadata.
+
+### Changed
+- Annotation matrices are now sparse numeric matrices instead of binary-only
+  masks.
+- Annotation caches now use schema `annotations_cache/0.2` to store
+  `is_binary` and `annotation_metadata`. Existing `annotations_cache/0.1`
+  caches remain loadable and are upgraded with binary status set to true and
+  empty metadata.
+
+### Fixed
+- Updated R package metadata to satisfy CRAN-style quoting of software names in
+  `DESCRIPTION`.
+
 ## [0.3.2] - 2026-05-19
 
 ### Changed
