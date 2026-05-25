@@ -57,6 +57,11 @@ def write_bed_annotation(path: Path, intervals: list[tuple]) -> None:
             f.write(f"{chrom}\t{start}\t{end}\n")
 
 
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
 def write_plink_bed(path: Path, n_snp: int, n_sample: int) -> None:
     """Write a minimal PLINK .bed file (magic + SNP-major + all homref genotypes)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -437,6 +442,21 @@ ANNO2_BED = [
     ("X", 198, 302),
 ]
 
+CONTINUOUS_ANNOTATION_ROWS = """\
+chrom\tstart0\tend0\tscore\tweight
+1\t99\t200\t0.5\t1.25
+1\t299\t400\t-1.25\t0.75
+X\t99\t301\t2.0\t3.5
+"""
+
+CONTINUOUS_ANNOTATION_META = """\
+chrom metadata
+start metadata
+end metadata
+score metadata
+weight metadata
+"""
+
 # Sumstats: chr, bp, a1, a2, z, n, p
 # Row notes:
 #   1:200  z=NA  (missing z)
@@ -481,6 +501,8 @@ def main() -> None:
     # --- annotations ---
     write_bed_annotation(ROOT / "annotations/anno1.bed", ANNO1_BED)
     write_bed_annotation(ROOT / "annotations/anno2.bed", ANNO2_BED)
+    write_text(ROOT / "annotations/continuous.annot", CONTINUOUS_ANNOTATION_ROWS)
+    write_text(ROOT / "annotations/continuous.meta", CONTINUOUS_ANNOTATION_META)
 
     # --- sumstats ---
     for name, rows in [
