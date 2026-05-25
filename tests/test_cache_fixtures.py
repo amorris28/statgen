@@ -130,48 +130,81 @@ def _r_script(expr: str) -> str:
     )
 
 
+def _r_statements(expr: str) -> str:
+    return "; ".join(line.strip() for line in expr.splitlines() if line.strip()) + "; "
+
+
 @pytest.mark.r
 @skipif_no_rscript
-def test_r_cache_fixtures_load_and_match_sources():
+@pytest.mark.parametrize(
+    ("section", "expr"),
+    [
+        (
+            "reference",
+            f"""
+            ref <- statgen_cache_fixture_reference(repo_root)
+            ref_cached <- load_reference_cache({json.dumps(str(CACHE_DIR / 'reference_r_reference_cache_0_1.rds'))})
+            stopifnot(identical(bp(ref_cached), bp(ref)))
+            stopifnot(identical(snp(ref_cached), snp(ref)))
+            stopifnot(identical(a1(ref_cached), a1(ref)))
+            stopifnot(identical(a2(ref_cached), a2(ref)))
+            """,
+        ),
+        (
+            "sumstats",
+            f"""
+            ref <- statgen_cache_fixture_reference(repo_root)
+            s <- load_sumstats({json.dumps(str(SUMSTATS))}, ref)
+            s_cached <- load_sumstats_cache({json.dumps(str(CACHE_DIR / 'sumstats_r_sumstats_cache_0_1.rds'))})
+            stopifnot(isTRUE(all.equal(logpvec(s_cached), logpvec(s), check.attributes = FALSE)))
+            stopifnot(isTRUE(all.equal(zvec(s_cached), zvec(s), check.attributes = FALSE)))
+            stopifnot(isTRUE(all.equal(nvec(s_cached), nvec(s), check.attributes = FALSE)))
+            """,
+        ),
+        (
+            "annotations",
+            f"""
+            ref <- statgen_cache_fixture_reference(repo_root)
+            a <- statgen_cache_fixture_annotations(repo_root, ref)
+            a_cached <- load_annotations_cache({json.dumps(str(CACHE_DIR / 'annotations_r_annotations_cache_0_2.rds'))})
+            stopifnot(identical(annonames(a_cached), annonames(a)))
+            stopifnot(identical(is_binary(a_cached), is_binary(a)))
+            stopifnot(identical(annotation_metadata(a_cached), annotation_metadata(a)))
+            stopifnot(isTRUE(all.equal(as.matrix(annomat(a_cached)), as.matrix(annomat(a)), check.attributes = FALSE)))
+            a_old <- load_annotations_cache({json.dumps(str(CACHE_DIR / 'annotations_r_annotations_cache_0_1.rds'))})
+            a_binary <- load_annotations(c({json.dumps(str(ANNOTATIONS_REL[0]))}, {json.dumps(str(ANNOTATIONS_REL[1]))}), ref)
+            stopifnot(identical(annonames(a_old), annonames(a_binary)))
+            stopifnot(identical(is_binary(a_old), c(TRUE, TRUE)))
+            stopifnot(identical(annotation_metadata(a_old), c('', '')))
+            stopifnot(isTRUE(all.equal(as.matrix(annomat(a_old)), as.matrix(annomat(a_binary)), check.attributes = FALSE)))
+            """,
+        ),
+        (
+            "genotype",
+            f"""
+            ref <- statgen_cache_fixture_reference(repo_root)
+            g <- load_genotype({json.dumps(GENOTYPE)}, ref)
+            g_cached <- load_genotype_cache({json.dumps(str(CACHE_DIR / 'genotype_r_genotype_cache_0_1.rds'))})
+            stopifnot(identical(is_present(g_cached), is_present(g)))
+            stopifnot(isTRUE(all.equal(ploidy_male(g_cached), ploidy_male(g), check.attributes = FALSE)))
+            stopifnot(isTRUE(all.equal(ploidy_female(g_cached), ploidy_female(g), check.attributes = FALSE)))
+            stopifnot(identical(source_row0(g_cached), source_row0(g)))
+            stopifnot(identical(fid(g_cached), fid(g)))
+            stopifnot(identical(iid(g_cached), iid(g)))
+            stopifnot(identical(fetch_genotypes_int8(g_cached, c(1L, 6L, 8L)), fetch_genotypes_int8(g, c(1L, 6L, 8L))))
+            """,
+        ),
+    ],
+)
+def test_r_cache_fixtures_load_and_match_sources(section, expr):
     result = run_rscript(
         _r_script(
-            "ref <- statgen_cache_fixture_reference(repo_root); "
-            f"ref_cached <- load_reference_cache({json.dumps(str(CACHE_DIR / 'reference_r_reference_cache_0_1.rds'))}); "
-            "stopifnot(identical(bp(ref_cached), bp(ref))); "
-            "stopifnot(identical(snp(ref_cached), snp(ref))); "
-            "stopifnot(identical(a1(ref_cached), a1(ref))); "
-            "stopifnot(identical(a2(ref_cached), a2(ref))); "
-            f"s <- load_sumstats({json.dumps(str(SUMSTATS))}, ref); "
-            f"s_cached <- load_sumstats_cache({json.dumps(str(CACHE_DIR / 'sumstats_r_sumstats_cache_0_1.rds'))}); "
-            "stopifnot(isTRUE(all.equal(logpvec(s_cached), logpvec(s), check.attributes = FALSE))); "
-            "stopifnot(isTRUE(all.equal(zvec(s_cached), zvec(s), check.attributes = FALSE))); "
-            "stopifnot(isTRUE(all.equal(nvec(s_cached), nvec(s), check.attributes = FALSE))); "
-            "a <- statgen_cache_fixture_annotations(repo_root, ref); "
-            f"a_cached <- load_annotations_cache({json.dumps(str(CACHE_DIR / 'annotations_r_annotations_cache_0_2.rds'))}); "
-            "stopifnot(identical(annonames(a_cached), annonames(a))); "
-            "stopifnot(identical(is_binary(a_cached), is_binary(a))); "
-            "stopifnot(identical(annotation_metadata(a_cached), annotation_metadata(a))); "
-            "stopifnot(isTRUE(all.equal(as.matrix(annomat(a_cached)), as.matrix(annomat(a)), check.attributes = FALSE))); "
-            f"a_old <- load_annotations_cache({json.dumps(str(CACHE_DIR / 'annotations_r_annotations_cache_0_1.rds'))}); "
-            f"a_binary <- load_annotations(c({json.dumps(str(ANNOTATIONS_REL[0]))}, {json.dumps(str(ANNOTATIONS_REL[1]))}), ref); "
-            "stopifnot(identical(annonames(a_old), annonames(a_binary))); "
-            "stopifnot(identical(is_binary(a_old), c(TRUE, TRUE))); "
-            "stopifnot(identical(annotation_metadata(a_old), c('', ''))); "
-            "stopifnot(isTRUE(all.equal(as.matrix(annomat(a_old)), as.matrix(annomat(a_binary)), check.attributes = FALSE))); "
-            f"g <- load_genotype({json.dumps(GENOTYPE)}, ref); "
-            f"g_cached <- load_genotype_cache({json.dumps(str(CACHE_DIR / 'genotype_r_genotype_cache_0_1.rds'))}); "
-            "stopifnot(identical(is_present(g_cached), is_present(g))); "
-            "stopifnot(isTRUE(all.equal(ploidy_male(g_cached), ploidy_male(g), check.attributes = FALSE))); "
-            "stopifnot(isTRUE(all.equal(ploidy_female(g_cached), ploidy_female(g), check.attributes = FALSE))); "
-            "stopifnot(identical(source_row0(g_cached), source_row0(g))); "
-            "stopifnot(identical(fid(g_cached), fid(g))); "
-            "stopifnot(identical(iid(g_cached), iid(g))); "
-            "stopifnot(identical(fetch_genotypes_int8(g_cached, c(1L, 6L, 8L)), fetch_genotypes_int8(g, c(1L, 6L, 8L)))); "
-            "cat('OK\\n')"
+            _r_statements(expr)
+            + "cat('OK\\n')"
         ),
         timeout=60,
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 0, f"{section} cache fixture check failed\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     assert result.stdout.strip() == "OK"
 
 
@@ -183,26 +216,39 @@ def test_matlab_cache_fixtures_load_and_match_sources():
         "cache_dir = 'tests/fixtures/cache'; "
         "ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
         "ref_cached = statgen.load_reference_cache([cache_dir '/reference_matlab_reference_cache_0_1.mat']); "
-        "ok = isequal(ref_cached.bp, ref.bp) && isequal(ref_cached.snp, ref.snp) && isequal(ref_cached.a1, ref.a1) && isequal(ref_cached.a2, ref.a2); "
+        "assert(isequal(ref_cached.bp, ref.bp), 'reference bp mismatch'); "
+        "assert(isequal(ref_cached.snp, ref.snp), 'reference snp mismatch'); "
+        "assert(isequal(ref_cached.a1, ref.a1), 'reference a1 mismatch'); "
+        "assert(isequal(ref_cached.a2, ref.a2), 'reference a2 mismatch'); "
         "s = statgen.load_sumstats([fixture_dir '/sumstats/traits_complete.tsv.gz'], ref); "
         "s_cached = statgen.load_sumstats_cache([cache_dir '/sumstats_matlab_sumstats_cache_0_1.mat']); "
-        "ok = ok && isequaln(s_cached.logpvec, s.logpvec) && isequaln(s_cached.zvec, s.zvec) && isequaln(s_cached.nvec, s.nvec); "
+        "assert(isequaln(s_cached.logpvec, s.logpvec), 'sumstats logpvec mismatch'); "
+        "assert(isequaln(s_cached.zvec, s.zvec), 'sumstats zvec mismatch'); "
+        "assert(isequaln(s_cached.nvec, s.nvec), 'sumstats nvec mismatch'); "
         "binary = statgen.load_annotations({[fixture_dir '/annotations/anno1.bed'], [fixture_dir '/annotations/anno2.bed']}, ref); "
         "continuous = statgen.load_annotation([fixture_dir '/annotations/continuous.annot'], ref, 'header', true, 'value_columns', {'score', 'weight'}, 'annotation_metadata_path', [fixture_dir '/annotations/continuous.meta']); "
         "a = binary.union_annotations(continuous); "
         "a_cached = statgen.load_annotations_cache([cache_dir '/annotations_matlab_annotations_cache_0_2.mat']); "
-        "ok = ok && isequal(a_cached.annonames, a.annonames) && isequal(a_cached.is_binary, a.is_binary) && isequal(a_cached.annotation_metadata, a.annotation_metadata); "
-        "ok = ok && isequal(full(a_cached.annomat), full(a.annomat)); "
+        "assert(isequal(a_cached.annonames, a.annonames), 'annotations 0.2 names mismatch'); "
+        "assert(isequal(a_cached.is_binary, a.is_binary), 'annotations 0.2 is_binary mismatch'); "
+        "assert(isequal(a_cached.annotation_metadata, a.annotation_metadata), 'annotations 0.2 metadata mismatch'); "
+        "assert(isequal(full(a_cached.annomat), full(a.annomat)), 'annotations 0.2 matrix mismatch'); "
         "a_old = statgen.load_annotations_cache([cache_dir '/annotations_matlab_annotations_cache_0_1.mat']); "
-        "ok = ok && isequal(a_old.annonames, binary.annonames) && isequal(a_old.is_binary, [true; true]) && isequal(a_old.annotation_metadata, {'', ''}'); "
-        "ok = ok && isequal(full(a_old.annomat), full(binary.annomat)); "
+        "assert(isequal(a_old.annonames, binary.annonames), 'annotations 0.1 names mismatch'); "
+        "assert(isequal(a_old.is_binary, [true; true]), 'annotations 0.1 is_binary migration mismatch'); "
+        "assert(isequal(a_old.annotation_metadata, {'', ''}'), 'annotations 0.1 metadata migration mismatch'); "
+        "assert(isequal(full(a_old.annomat), full(binary.annomat)), 'annotations 0.1 matrix mismatch'); "
         "g = statgen.load_genotype('tests/fixtures/genotype/sharded/@', ref); "
         "g_cached = statgen.load_genotype_cache([cache_dir '/genotype_matlab_genotype_cache_0_1.mat']); "
-        "ok = ok && isequal(g_cached.is_present, g.is_present) && isequaln(g_cached.ploidy_male, g.ploidy_male) && isequaln(g_cached.ploidy_female, g.ploidy_female); "
-        "ok = ok && isequal(g_cached.source_row0, g.source_row0) && isequal(g_cached.fid, g.fid) && isequal(g_cached.iid, g.iid); "
-        "ok = ok && isequal(g_cached.fetch_genotypes_int8([1 6 8]), g.fetch_genotypes_int8([1 6 8])); "
-        "fprintf('%d\\n', ok);"
+        "assert(isequal(g_cached.is_present, g.is_present), 'genotype is_present mismatch'); "
+        "assert(isequaln(g_cached.ploidy_male, g.ploidy_male), 'genotype ploidy_male mismatch'); "
+        "assert(isequaln(g_cached.ploidy_female, g.ploidy_female), 'genotype ploidy_female mismatch'); "
+        "assert(isequal(g_cached.source_row0, g.source_row0), 'genotype source_row0 mismatch'); "
+        "assert(isequal(g_cached.fid, g.fid), 'genotype fid mismatch'); "
+        "assert(isequal(g_cached.iid, g.iid), 'genotype iid mismatch'); "
+        "assert(isequal(g_cached.fetch_genotypes_int8([1 6 8]), g.fetch_genotypes_int8([1 6 8])), 'genotype fetch mismatch'); "
+        "fprintf('OK\\n');"
     )
     result = run_octave(script, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert matlab_data_lines(result.stdout) == ["1"]
+    assert matlab_data_lines(result.stdout) == ["OK"]
