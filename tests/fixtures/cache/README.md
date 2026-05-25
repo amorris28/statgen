@@ -36,3 +36,14 @@ Octave-written fixtures.
 Legacy schema generators may require old release artifacts or an old git tag.
 Do not regenerate legacy fixtures casually; those bytes are compatibility
 anchors for old public cache schemas.
+
+The `annotations_cache/0.1` fixtures were generated on a branch checked out at
+`v0.3.2`, using the official v0.3.2 Python, R, and MATLAB/Octave code. To
+regenerate them, check out `v0.3.2` or the dedicated legacy-generation branch
+and run:
+
+```sh
+python tests/fixtures/cache/generate_annotations_python_annotations_cache_0_1.py
+Rscript tests/fixtures/cache/generate_annotations_r_annotations_cache_0_1.R
+octave --no-gui --quiet tests/fixtures/cache/generate_annotations_matlab_annotations_cache_0_1.m
+```

@@ -38,6 +38,9 @@ EXPECTED_CACHE_FIXTURES = [
     ("annotations", "python", "annotations_cache_0_2", "npz", "py"),
     ("annotations", "matlab", "annotations_cache_0_2", "mat", "m"),
     ("annotations", "r", "annotations_cache_0_2", "rds", "R"),
+    ("annotations", "python", "annotations_cache_0_1", "npz", "py"),
+    ("annotations", "matlab", "annotations_cache_0_1", "mat", "m"),
+    ("annotations", "r", "annotations_cache_0_1", "rds", "R"),
     ("genotype", "python", "genotype_cache_0_1", "npz", "py"),
     ("genotype", "matlab", "genotype_cache_0_1", "mat", "m"),
     ("genotype", "r", "genotype_cache_0_1", "rds", "R"),
@@ -95,6 +98,13 @@ def test_python_cache_fixtures_load_and_match_sources():
     assert list(annotations_cached.annotation_metadata) == list(annotations.annotation_metadata)
     np.testing.assert_allclose(annotations_cached.annomat.toarray(), annotations.annomat.toarray())
 
+    binary_annotations = load_annotations(ANNOTATIONS_REL, ref)
+    annotations_old = load_annotations_cache(CACHE_DIR / "annotations_python_annotations_cache_0_1.npz")
+    assert list(annotations_old.annonames) == list(binary_annotations.annonames)
+    np.testing.assert_array_equal(annotations_old.is_binary, np.array([True, True]))
+    assert list(annotations_old.annotation_metadata) == ["", ""]
+    np.testing.assert_allclose(annotations_old.annomat.toarray(), binary_annotations.annomat.toarray())
+
     genotype = load_genotype(GENOTYPE, ref)
     genotype_cached = load_genotype_cache(CACHE_DIR / "genotype_python_genotype_cache_0_1.npz")
     np.testing.assert_array_equal(genotype_cached.is_present, genotype.is_present)
@@ -142,6 +152,12 @@ def test_r_cache_fixtures_load_and_match_sources():
             "stopifnot(identical(is_binary(a_cached), is_binary(a))); "
             "stopifnot(identical(annotation_metadata(a_cached), annotation_metadata(a))); "
             "stopifnot(isTRUE(all.equal(as.matrix(annomat(a_cached)), as.matrix(annomat(a)), check.attributes = FALSE))); "
+            f"a_old <- load_annotations_cache({json.dumps(str(CACHE_DIR / 'annotations_r_annotations_cache_0_1.rds'))}); "
+            f"a_binary <- load_annotations(c({json.dumps(str(ANNOTATIONS_REL[0]))}, {json.dumps(str(ANNOTATIONS_REL[1]))}), ref); "
+            "stopifnot(identical(annonames(a_old), annonames(a_binary))); "
+            "stopifnot(identical(is_binary(a_old), c(TRUE, TRUE))); "
+            "stopifnot(identical(annotation_metadata(a_old), c('', ''))); "
+            "stopifnot(isTRUE(all.equal(as.matrix(annomat(a_old)), as.matrix(annomat(a_binary)), check.attributes = FALSE))); "
             f"g <- load_genotype({json.dumps(GENOTYPE)}, ref); "
             f"g_cached <- load_genotype_cache({json.dumps(str(CACHE_DIR / 'genotype_r_genotype_cache_0_1.rds'))}); "
             "stopifnot(identical(is_present(g_cached), is_present(g))); "
@@ -177,6 +193,9 @@ def test_matlab_cache_fixtures_load_and_match_sources():
         "a_cached = statgen.load_annotations_cache([cache_dir '/annotations_matlab_annotations_cache_0_2.mat']); "
         "ok = ok && isequal(a_cached.annonames, a.annonames) && isequal(a_cached.is_binary, a.is_binary) && isequal(a_cached.annotation_metadata, a.annotation_metadata); "
         "ok = ok && isequal(full(a_cached.annomat), full(a.annomat)); "
+        "a_old = statgen.load_annotations_cache([cache_dir '/annotations_matlab_annotations_cache_0_1.mat']); "
+        "ok = ok && isequal(a_old.annonames, binary.annonames) && isequal(a_old.is_binary, [true; true]) && isequal(a_old.annotation_metadata, {'', ''}'); "
+        "ok = ok && isequal(full(a_old.annomat), full(binary.annomat)); "
         "g = statgen.load_genotype('tests/fixtures/genotype/sharded/@', ref); "
         "g_cached = statgen.load_genotype_cache([cache_dir '/genotype_matlab_genotype_cache_0_1.mat']); "
         "ok = ok && isequal(g_cached.is_present, g.is_present) && isequaln(g_cached.ploidy_male, g.ploidy_male) && isequaln(g_cached.ploidy_female, g.ploidy_female); "
