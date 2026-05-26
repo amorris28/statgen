@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-05-26
+
 ### Added
 - Added continuous numeric annotation support in Python, MATLAB/Octave, and R.
   New `load_annotation(...)` APIs load one BED-like source file, support
