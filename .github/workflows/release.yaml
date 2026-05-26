@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.vars.outputs.version }}
+      artifact_version: ${{ steps.vars.outputs.artifact_version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -46,13 +47,17 @@ jobs:
               exit 1
             fi
             release_version="$tag_version"
+            artifact_version="$tag_version"
           elif [ -n "${{ inputs.testpypi_release_label }}" ]; then
             release_version="${{ inputs.testpypi_release_label }}"
+            artifact_version="$(git rev-parse --short=12 HEAD)"
           else
             release_version="manual"
+            artifact_version="$(git rev-parse --short=12 HEAD)"
           fi
 
           echo "version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "artifact_version=$artifact_version" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test Release Build
@@ -296,6 +301,82 @@ jobs:
         with:
           packages-dir: dist
           repository-url: https://test.pypi.org/legacy/
+
+  build-release-assets-artifact:
+    name: Build Downloadable Release Assets Artifact
+    needs:
+      - verify-version
+      - r-package-check
+      - build-python-artifacts
+      - build-matlab-artifact
+      - build-tutorial-fixtures-artifact
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: release-assets
+
+      - name: Download R CRAN source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: r-cran-source
+          path: release-assets
+
+      - name: Download MATLAB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: matlab-release
+          path: release-assets
+
+      - name: Download tutorial fixtures artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tutorial-fixtures-release
+          path: release-assets
+
+      - name: Rename R CRAN source asset
+        run: |
+          set -euo pipefail
+          artifact_version="${{ needs.verify-version.outputs.artifact_version }}"
+          shopt -s nullglob
+          matches=(release-assets/statgen_*.tar.gz)
+          if [ "${#matches[@]}" -ne 1 ]; then
+            echo "Expected exactly one R source tarball, found ${#matches[@]}" >&2
+            printf '%s\n' "${matches[@]}" >&2
+            exit 1
+          fi
+          mv "${matches[0]}" "release-assets/statgen_${artifact_version}.RENAME_TO_CRAN_FILENAME.tar.gz"
+
+      - name: Rename manual zip assets
+        run: |
+          set -euo pipefail
+          artifact_version="${{ needs.verify-version.outputs.artifact_version }}"
+          shopt -s nullglob
+
+          matlab_matches=(release-assets/statgen-matlab-*.zip)
+          if [ "${#matlab_matches[@]}" -ne 1 ]; then
+            echo "Expected exactly one MATLAB zip, found ${#matlab_matches[@]}" >&2
+            printf '%s\n' "${matlab_matches[@]}" >&2
+            exit 1
+          fi
+          mv "${matlab_matches[0]}" "release-assets/statgen-matlab-${artifact_version}.zip"
+
+          tutorial_matches=(release-assets/statgen-tutorial-1-fixtures-*.zip)
+          if [ "${#tutorial_matches[@]}" -ne 1 ]; then
+            echo "Expected exactly one tutorial fixtures zip, found ${#tutorial_matches[@]}" >&2
+            printf '%s\n' "${tutorial_matches[@]}" >&2
+            exit 1
+          fi
+          mv "${tutorial_matches[0]}" "release-assets/statgen-tutorial-1-fixtures-${artifact_version}.zip"
+
+      - name: Upload downloadable release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/*
 
   publish-github-release:
     name: Publish GitHub Release
