@@ -28,7 +28,12 @@ function out = json_value_(value)
         if ~isscalar(value)
             error('statgen:annotations', 'metadata values must be scalar');
         end
-        out = sprintf('%g', double(value));
+        value = double(value);
+        if floor(value) == value
+            out = sprintf('%d', int64(value));
+        else
+            out = sprintf('%.17g', value);
+        end
     else
         out = ['"' json_escape_(value) '"'];
     end

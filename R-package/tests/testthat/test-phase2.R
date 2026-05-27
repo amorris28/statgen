@@ -178,6 +178,7 @@ test_that("load_annotation supports grouped binary annotations", {
   ref <- load_reference(.phase2_reference_template())
   grouped <- system.file("extdata", "grouped.annot", package = "statgen", mustWork = TRUE)
   ann <- load_annotation(grouped, ref, has_header = TRUE, group_column = "group")
+  indexed <- load_annotation(grouped, ref, has_header = TRUE, group_column = 4L)
 
   expect_equal(annonames(ann), c("coding", "regulatory"))
   expect_equal(is_binary(ann), c(TRUE, TRUE))
@@ -192,6 +193,40 @@ test_that("load_annotation supports grouped binary annotations", {
   meta <- lapply(annotation_metadata(ann), jsonlite::fromJSON)
   expect_equal(vapply(meta, function(x) x$group_value, character(1)), c("coding", "regulatory"))
   expect_equal(vapply(meta, function(x) x$num_source_intervals, integer(1)), c(2L, 2L))
+  indexed_meta <- lapply(annotation_metadata(indexed), jsonlite::fromJSON)
+  expect_equal(annonames(indexed), c("coding", "regulatory"))
+  expect_equal(vapply(indexed_meta, function(x) as.integer(x$group_column), integer(1)), c(4L, 4L))
+
+  overlap <- tempfile(fileext = ".annot")
+  writeLines(c(
+    "chrom\tstart0\tend0\tgroup",
+    "1\t99\t250\tcoding",
+    "1\t150\t401\tcoding",
+    "X\t99\t301\tregulatory"
+  ), overlap)
+  overlapped <- load_annotation(overlap, ref, has_header = TRUE, group_column = "group")
+  expect_equal(
+    unname(as.matrix(annomat(overlapped))),
+    matrix(
+      c(1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1),
+      nrow = 8L,
+      ncol = 2L
+    )
+  )
+  overlap_meta <- lapply(annotation_metadata(overlapped), jsonlite::fromJSON)
+  expect_equal(vapply(overlap_meta, function(x) x$num_source_intervals, integer(1)), c(2L, 1L))
+
+  conflicts <- tempfile(fileext = ".annot")
+  writeLines(c(
+    "chrom\tstart0\tend0\tgroup\tscore",
+    "1\t99\t200\tcoding\t1"
+  ), conflicts)
+  sidecar <- tempfile(fileext = ".meta")
+  .phase2_write_lf("meta\n", sidecar)
+  expect_error(load_annotation(conflicts, ref, has_header = TRUE, group_column = "group", value_columns = "score"), "mutually exclusive")
+  expect_error(load_annotation(conflicts, ref, has_header = TRUE, group_column = "group", annotation_names = "coding"), "annotation_names is invalid")
+  expect_error(load_annotation(conflicts, ref, has_header = TRUE, group_column = "group", annotation_metadata = "meta"), "annotation_metadata is invalid")
+  expect_error(load_annotation(conflicts, ref, has_header = TRUE, group_column = "group", annotation_metadata_path = sidecar), "annotation_metadata_path is invalid")
 })
 
 test_that("load_annotation supports binary sidecar, name override, and headerless 4-column default", {

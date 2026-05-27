@@ -274,13 +274,17 @@ def test_r_load_annotation_group_column_fixture():
         _source_phase2_script(
             f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
             f"a <- load_annotation({json.dumps(str(grouped))}, ref, has_header = TRUE, group_column = 'group'); "
+            f"b <- load_annotation({json.dumps(str(grouped))}, ref, has_header = TRUE, group_column = 4L); "
             "M <- as.matrix(annomat(a)); "
             "meta <- lapply(annotation_metadata(a), jsonlite::fromJSON); "
+            "meta_indexed <- lapply(annotation_metadata(b), jsonlite::fromJSON); "
             "cat(paste(annonames(a), collapse=','), '\\n'); "
             "cat(paste(as.integer(is_binary(a)), collapse=','), '\\n'); "
             "cat(paste(as.integer(as.vector(M)), collapse=','), '\\n'); "
             "cat(paste(vapply(meta, function(x) x$group_value, character(1)), collapse=','), '\\n'); "
-            "cat(paste(vapply(meta, function(x) x$num_source_intervals, integer(1)), collapse=','), '\\n')"
+            "cat(paste(vapply(meta, function(x) x$num_source_intervals, integer(1)), collapse=','), '\\n'); "
+            "cat(paste(annonames(b), collapse=','), '\\n'); "
+            "cat(paste(vapply(meta_indexed, function(x) as.integer(x$group_column), integer(1)), collapse=','), '\\n')"
         )
     )
     assert result.returncode == 0, result.stderr
@@ -290,6 +294,36 @@ def test_r_load_annotation_group_column_fixture():
     assert lines[2] == "1,1,1,1,0,0,0,0,0,1,1,0,0,1,1,1"
     assert lines[3] == "coding,regulatory"
     assert lines[4] == "2,2"
+    assert lines[5] == "coding,regulatory"
+    assert lines[6] == "4,4"
+
+
+@pytest.mark.r
+@skipif_no_rscript
+def test_r_load_annotation_group_column_overlap_union(tmp_path):
+    grouped = tmp_path / "grouped_overlap.annot"
+    grouped.write_text(
+        "chrom\tstart0\tend0\tgroup\n"
+        "1\t99\t250\tcoding\n"
+        "1\t150\t401\tcoding\n"
+        "X\t99\t301\tregulatory\n"
+    )
+    result = run_rscript(
+        _source_phase2_script(
+            f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
+            f"a <- load_annotation({json.dumps(str(grouped))}, ref, has_header = TRUE, group_column = 'group'); "
+            "M <- as.matrix(annomat(a)); "
+            "meta <- lapply(annotation_metadata(a), jsonlite::fromJSON); "
+            "cat(paste(annonames(a), collapse=','), '\\n'); "
+            "cat(paste(as.integer(as.vector(M)), collapse=','), '\\n'); "
+            "cat(paste(vapply(meta, function(x) x$num_source_intervals, integer(1)), collapse=','), '\\n')"
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.strip() for line in result.stdout.strip().splitlines()]
+    assert lines[0] == "coding,regulatory"
+    assert lines[1] == "1,1,1,1,0,0,0,0,0,0,0,0,0,1,1,1"
+    assert lines[2] == "2,1"
 
 
 @pytest.mark.r
@@ -353,7 +387,10 @@ def test_r_load_annotation_validation_and_old_cache_upgrade(tmp_path):
             f"grouped <- {json.dumps(str(tmp_path / 'grouped.annot'))}; "
             "writeLines(c('chrom\\tstart0\\tend0\\tgroup\\tscore', '1\\t99\\t200\\tcoding\\t1'), grouped); "
             "ok6 <- FALSE; tryCatch(load_annotation(grouped, ref, has_header = TRUE, group_column = 'group', value_columns = 'score'), error = function(e) ok6 <<- grepl('mutually exclusive', e$message)); "
-            "cat(as.character(ok1), as.character(ok2), as.character(ok3), as.character(ok4), as.character(ok5), as.character(ok6), '\\n'); "
+            "ok7 <- FALSE; tryCatch(load_annotation(grouped, ref, has_header = TRUE, group_column = 'group', annotation_names = 'coding'), error = function(e) ok7 <<- grepl('annotation_names is invalid', e$message)); "
+            "ok8 <- FALSE; tryCatch(load_annotation(grouped, ref, has_header = TRUE, group_column = 'group', annotation_metadata = 'meta'), error = function(e) ok8 <<- grepl('annotation_metadata is invalid', e$message)); "
+            "ok9 <- FALSE; tryCatch(load_annotation(grouped, ref, has_header = TRUE, group_column = 'group', annotation_metadata_path = grouped), error = function(e) ok9 <<- grepl('annotation_metadata_path is invalid', e$message)); "
+            "cat(as.character(ok1), as.character(ok2), as.character(ok3), as.character(ok4), as.character(ok5), as.character(ok6), as.character(ok7), as.character(ok8), as.character(ok9), '\\n'); "
             "cat(class(annomat(loaded))[[1]], '\\n'); "
             "cat(paste(as.integer(is_binary(loaded)), collapse=','), '\\n'); "
             "cat(paste(annotation_metadata(loaded), collapse=','), '\\n')"
@@ -361,7 +398,7 @@ def test_r_load_annotation_validation_and_old_cache_upgrade(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     lines = [line.strip() for line in result.stdout.strip().splitlines()]
-    assert lines == ["TRUE TRUE TRUE TRUE TRUE TRUE", "dgCMatrix", "1,1", ","]
+    assert lines == ["TRUE TRUE TRUE TRUE TRUE TRUE TRUE TRUE TRUE", "dgCMatrix", "1,1", ","]
 
 
 @pytest.mark.r

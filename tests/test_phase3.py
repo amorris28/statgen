@@ -371,6 +371,45 @@ def test_load_annotation_group_column_fixture():
     assert [m["source_file_has_header"] for m in metadata] == [1, 1]
 
 
+def test_load_annotation_group_column_integer_selector_and_overlap_union(tmp_path):
+    reference = load_reference(SHARDED_REF)
+
+    indexed = load_annotation(GROUPED, reference, has_header=True, group_column=3)
+    assert list(indexed.annonames) == ["coding", "regulatory"]
+    np.testing.assert_array_equal(indexed.annomat.toarray(), EXPECTED_GROUPED)
+    indexed_metadata = [json.loads(x) for x in indexed.annotation_metadata]
+    assert [m["group_column"] for m in indexed_metadata] == [3, 3]
+
+    grouped_overlap = tmp_path / "grouped_overlap.annot"
+    _write_text(
+        grouped_overlap,
+        "chrom\tstart0\tend0\tgroup\n"
+        "1\t99\t250\tcoding\n"
+        "1\t150\t401\tcoding\n"
+        "X\t99\t301\tregulatory\n",
+    )
+    a = load_annotation(grouped_overlap, reference, has_header=True, group_column="group")
+    assert list(a.annonames) == ["coding", "regulatory"]
+    np.testing.assert_array_equal(
+        a.annomat.toarray(),
+        np.array(
+            [
+                [1, 0],
+                [1, 0],
+                [1, 0],
+                [1, 0],
+                [0, 0],
+                [0, 1],
+                [0, 1],
+                [0, 1],
+            ],
+            dtype=np.uint8,
+        ),
+    )
+    metadata = [json.loads(x) for x in a.annotation_metadata]
+    assert [m["num_source_intervals"] for m in metadata] == [2, 1]
+
+
 def test_load_annotation_binary_sidecar_and_name_override(tmp_path):
     reference = load_reference(SHARDED_REF)
     bed = tmp_path / "raw.bed"
@@ -435,6 +474,10 @@ def test_load_annotation_validation_errors(tmp_path):
         load_annotation(grouped, reference, has_header=True, group_column="group", value_columns="score")
     with pytest.raises(ValueError, match="annotation_names is invalid"):
         load_annotation(grouped, reference, has_header=True, group_column="group", annotation_names=["coding"])
+    with pytest.raises(ValueError, match="annotation_metadata is invalid"):
+        load_annotation(grouped, reference, has_header=True, group_column="group", annotation_metadata=["meta"])
+    with pytest.raises(ValueError, match="annotation_metadata_path is invalid"):
+        load_annotation(grouped, reference, has_header=True, group_column="group", annotation_metadata_path=bad_sidecar)
 
 
 def test_select_annotations_preserves_order_and_rejects_unknown():
@@ -1079,6 +1122,59 @@ def test_octave_load_annotation_group_column_fixture():
 
 @pytest.mark.octave
 @skipif_no_octave
+def test_octave_load_annotation_group_column_integer_selector_and_overlap_union(tmp_path):
+    grouped_overlap = tmp_path / "grouped_overlap_octave.annot"
+    _write_text(
+        grouped_overlap,
+        "chrom\tstart0\tend0\tgroup\n"
+        "1\t99\t250\tcoding\n"
+        "1\t150\t401\tcoding\n"
+        "X\t99\t301\tregulatory\n",
+    )
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        "b = statgen.load_annotation([fixture_dir '/annotations/grouped.annot'], ref, 'has_header', true, 'group_column', 4); "
+        f"a = statgen.load_annotation('{grouped_overlap}', ref, 'has_header', true, 'group_column', 4); "
+        "M = full(a.annomat); "
+        "fprintf('%s,%s\\n', b.annonames{1}, b.annonames{2}); "
+        "fprintf('%d\\n', ~isempty(strfind(b.annotation_metadata{1}, '\"group_column\":4'))); "
+        "fprintf('%s,%s\\n', a.annonames{1}, a.annonames{2}); "
+        "fprintf('%d%d%d%d%d%d%d%d\\n', M(:,1)); "
+        "fprintf('%d%d%d%d%d%d%d%d\\n', M(:,2)); "
+        "fprintf('%d\\n', ~isempty(strfind(a.annotation_metadata{1}, '\"num_source_intervals\":2'))); "
+        "fprintf('%d\\n', ~isempty(strfind(a.annotation_metadata{2}, '\"num_source_intervals\":1')));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines == [
+        "coding,regulatory",
+        "1",
+        "coding,regulatory",
+        "11110000",
+        "00000111",
+        "1",
+        "1",
+    ]
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_generated_metadata_serializes_large_integers_as_decimal():
+    script = _octave_script(
+        "m = statgen.internal.annotation_generated_metadata('large.annot', true, 1000000, 'value_column', 1000000); "
+        "disp(m);"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    metadata = result.stdout.strip()
+    assert '"num_source_intervals":1000000' in metadata
+    assert '"value_column":1000000' in metadata
+    assert "1e+06" not in metadata
+
+
+@pytest.mark.octave
+@skipif_no_octave
 def test_octave_load_annotation_validation_errors(tmp_path):
     overlap = tmp_path / "overlap.annot"
     _write_text(overlap, "1\t99\t200\t1\n1\t150\t250\t2\n")
@@ -1086,6 +1182,10 @@ def test_octave_load_annotation_validation_errors(tmp_path):
     _write_text(nonfinite, "1\t99\t200\tNaN\n")
     wide = tmp_path / "wide.annot"
     _write_text(wide, "1\t99\t200\t1\t2\n")
+    grouped_empty = tmp_path / "grouped_empty.annot"
+    _write_text(grouped_empty, "chrom\tstart0\tend0\tgroup\n1\t99\t200\t\n")
+    grouped = tmp_path / "grouped.annot"
+    _write_text(grouped, "chrom\tstart0\tend0\tgroup\tscore\n1\t99\t200\tcoding\t1\n")
     sidecar = tmp_path / "bad.meta"
     sidecar.write_text("c1\nc2\nc3", encoding="utf-8")
     script = _octave_script(
@@ -1094,11 +1194,27 @@ def test_octave_load_annotation_validation_errors(tmp_path):
         f"try; statgen.load_annotation('{nonfinite}', ref); fprintf('NOFAIL2\\n'); catch; fprintf('FAIL2\\n'); end; "
         f"try; statgen.load_annotation('{wide}', ref); fprintf('NOFAIL3\\n'); catch; fprintf('FAIL3\\n'); end; "
         f"try; statgen.load_annotation('{wide}', ref, 'value_columns', 4); fprintf('NOFAIL4\\n'); catch; fprintf('FAIL4\\n'); end; "
-        f"try; statgen.load_annotation('{wide}', ref, 'annotation_metadata_path', '{sidecar}'); fprintf('NOFAIL5\\n'); catch; fprintf('FAIL5\\n'); end;"
+        f"try; statgen.load_annotation('{wide}', ref, 'annotation_metadata_path', '{sidecar}'); fprintf('NOFAIL5\\n'); catch; fprintf('FAIL5\\n'); end; "
+        f"try; statgen.load_annotation('{grouped_empty}', ref, 'has_header', true, 'group_column', 'group'); fprintf('NOFAIL6\\n'); catch; fprintf('FAIL6\\n'); end; "
+        f"try; statgen.load_annotation('{grouped}', ref, 'has_header', true, 'group_column', 'group', 'value_columns', 'score'); fprintf('NOFAIL7\\n'); catch; fprintf('FAIL7\\n'); end; "
+        f"try; statgen.load_annotation('{grouped}', ref, 'has_header', true, 'group_column', 'group', 'annotation_names', {{'coding'}}); fprintf('NOFAIL8\\n'); catch; fprintf('FAIL8\\n'); end; "
+        f"try; statgen.load_annotation('{grouped}', ref, 'has_header', true, 'group_column', 'group', 'annotation_metadata', {{'meta'}}); fprintf('NOFAIL9\\n'); catch; fprintf('FAIL9\\n'); end; "
+        f"try; statgen.load_annotation('{grouped}', ref, 'has_header', true, 'group_column', 'group', 'annotation_metadata_path', '{sidecar}'); fprintf('NOFAIL10\\n'); catch; fprintf('FAIL10\\n'); end;"
     )
     result = run_octave(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines() == ["FAIL1", "FAIL2", "FAIL3", "FAIL4", "FAIL5"]
+    assert result.stdout.strip().splitlines() == [
+        "FAIL1",
+        "FAIL2",
+        "FAIL3",
+        "FAIL4",
+        "FAIL5",
+        "FAIL6",
+        "FAIL7",
+        "FAIL8",
+        "FAIL9",
+        "FAIL10",
+    ]
 
 
 @pytest.mark.octave
