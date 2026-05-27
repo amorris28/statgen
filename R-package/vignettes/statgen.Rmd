@@ -60,7 +60,7 @@ writeLines(c(
 continuous_annotations <- load_annotation(
   continuous_path,
   reference,
-  header = TRUE,
+  has_header = TRUE,
   value_columns = "score"
 )
 annotations <- union_annotations(binary_annotations, continuous_annotations)

@@ -63,7 +63,7 @@ def _source_annotations(reference):
     continuous = load_annotation(
         CONTINUOUS_ANNOT_REL,
         reference,
-        header=True,
+        has_header=True,
         value_columns=["score", "weight"],
         annotation_metadata_path=CONTINUOUS_META_REL,
     )
@@ -228,7 +228,7 @@ def test_matlab_cache_fixtures_load_and_match_sources():
         "assert(same_numeric(s_cached.zvec, s.zvec), 'sumstats zvec mismatch'); "
         "assert(same_numeric(s_cached.nvec, s.nvec), 'sumstats nvec mismatch'); "
         "binary = statgen.load_annotations({[fixture_dir '/annotations/anno1.bed'], [fixture_dir '/annotations/anno2.bed']}, ref); "
-        "continuous = statgen.load_annotation([fixture_dir '/annotations/continuous.annot'], ref, 'header', true, 'value_columns', {'score', 'weight'}, 'annotation_metadata_path', [fixture_dir '/annotations/continuous.meta']); "
+        "continuous = statgen.load_annotation([fixture_dir '/annotations/continuous.annot'], ref, 'has_header', true, 'value_columns', {'score', 'weight'}, 'annotation_metadata_path', [fixture_dir '/annotations/continuous.meta']); "
         "a = binary.union_annotations(continuous); "
         "a_cached = statgen.load_annotations_cache([cache_dir '/annotations_matlab_annotations_cache_0_2.mat']); "
         "assert(isequal(a_cached.annonames, a.annonames), 'annotations 0.2 names mismatch'); "

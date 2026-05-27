@@ -33,7 +33,7 @@ def _annotations(reference):
     continuous = load_annotation(
         FIXTURES_REL / "annotations/continuous.annot",
         reference,
-        header=True,
+        has_header=True,
         value_columns=["score", "weight"],
         annotation_metadata_path=FIXTURES_REL / "annotations/continuous.meta",
     )

@@ -21,7 +21,7 @@ caches.
 \usage{
 load_annotations(bed_paths, reference, annotation_metadata = NULL,
   annotation_metadata_paths = NULL)
-load_annotation(path, reference, header = FALSE, value_columns = NULL,
+load_annotation(path, reference, has_header = FALSE, value_columns = NULL,
   annotation_names = NULL, annotation_metadata = NULL,
   annotation_metadata_path = NULL)
 create_annotations(reference, annotation_matrix, annotation_names,
@@ -43,7 +43,7 @@ union_annotations(x, other, mode = "by_name", ...)
 \item{bed_paths}{Character path or character vector of 3-column BED files.}
 \item{path}{Character scalar annotation source or cache path.}
 \item{reference}{A \code{ReferencePanel}.}
-\item{header}{Logical scalar; whether \code{path} has a header row.}
+\item{has_header}{Logical scalar; whether \code{path} has a header row.}
 \item{value_columns}{Optional value columns for \code{load_annotation()}; R uses
 one-based physical column indices or header names.}
 \item{annotation_matrix}{A finite numeric matrix with SNPs as rows and annotations as columns.}
@@ -82,7 +82,7 @@ produces one binary annotation. A 4-column input with
 Inputs with five or more columns require explicit \code{value_columns}; for
 headerless files they also require \code{annotation_names}. Integer
 \code{value_columns} are one-based physical file columns and must select
-columns 4 or later. Named selectors require \code{header = TRUE}.
+columns 4 or later. Named selectors require \code{has_header = TRUE}.
 
 \code{is_binary} marks columns that should be treated as binary membership
 annotations. When omitted in \code{create_annotations()}, it is inferred by
@@ -116,7 +116,7 @@ writeLines(c(
 continuous <- load_annotation(
   continuous_path,
   ref,
-  header = TRUE,
+  has_header = TRUE,
   value_columns = "score"
 )
 is_binary(continuous)

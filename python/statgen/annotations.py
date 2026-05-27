@@ -167,7 +167,7 @@ def _read_column_metadata_sidecar(path, num_columns: int) -> list[str]:
     return lines
 
 
-def _read_annotation_table(path: Path, header: bool) -> tuple[pd.DataFrame, list[str] | None, int]:
+def _read_annotation_table(path: Path, has_header: bool) -> tuple[pd.DataFrame, list[str] | None, int]:
     if not path.is_file():
         raise FileNotFoundError(f"annotation file not found: {path}")
 
@@ -175,7 +175,7 @@ def _read_annotation_table(path: Path, header: bool) -> tuple[pd.DataFrame, list
         df = pd.read_csv(
             path,
             sep="\t",
-            header=0 if header else None,
+            header=0 if has_header else None,
             dtype=str,
             keep_default_na=False,
             na_filter=False,
@@ -192,14 +192,14 @@ def _read_annotation_table(path: Path, header: bool) -> tuple[pd.DataFrame, list
 
     if df.shape[1] < 3:
         raise ValueError(f"{path}: BED must have at least 3 tab-separated columns")
-    header_fields = [str(x) for x in df.columns] if header else None
+    header_fields = [str(x) for x in df.columns] if has_header else None
     if header_fields is not None:
         if any(x == "" for x in header_fields):
             raise ValueError(f"{path}: header names must be non-empty")
         if len(set(header_fields)) != len(header_fields):
             raise ValueError(f"{path}: header names must be unique")
 
-    return df, header_fields, 1 if header else 0
+    return df, header_fields, 1 if has_header else 0
 
 
 def _validate_interval_columns(
@@ -252,7 +252,7 @@ def _validate_interval_columns(
 
 
 def _binary_intervals_by_chr(path: Path) -> dict[str, np.ndarray]:
-    df, _, row_base0 = _read_annotation_table(path, header=False)
+    df, _, row_base0 = _read_annotation_table(path, has_header=False)
     if df.shape[1] < 3:
         raise ValueError(f"{path}: BED must have at least 3 tab-separated columns")
     chr_values, starts, ends = _validate_interval_columns(df, path, row_base0=row_base0)
@@ -291,7 +291,7 @@ def _normalize_value_columns(value_columns, header_fields, num_columns: int, pat
     for selector in selectors:
         if isinstance(selector, str):
             if header_fields is None:
-                raise ValueError("named value_columns are invalid when header=False")
+                raise ValueError("named value_columns are invalid when has_header=False")
             if selector not in header_fields:
                 raise ValueError(f"{path}: unknown value column name {selector!r}")
             col0 = header_fields.index(selector)
@@ -644,7 +644,7 @@ def load_annotations(
 def load_annotation(
     path,
     reference,
-    header: bool = False,
+    has_header: bool = False,
     value_columns=None,
     annotation_names=None,
     annotation_metadata=None,
@@ -654,7 +654,7 @@ def load_annotation(
         raise ValueError("load_annotation accepts at most one of annotation_metadata and annotation_metadata_path")
 
     source_path = Path(path)
-    df, header_fields, row_base0 = _read_annotation_table(source_path, bool(header))
+    df, header_fields, row_base0 = _read_annotation_table(source_path, bool(has_header))
     num_columns = int(df.shape[1])
     if num_columns < 3:
         raise ValueError(f"{source_path}: annotation input must have at least 3 tab-separated columns")

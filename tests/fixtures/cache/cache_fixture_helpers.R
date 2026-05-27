@@ -23,7 +23,7 @@ statgen_cache_fixture_annotations <- function(repo_root, reference) {
   continuous <- load_annotation(
     file.path(fixture_dir, "annotations", "continuous.annot"),
     reference,
-    header = TRUE,
+    has_header = TRUE,
     value_columns = c("score", "weight"),
     annotation_metadata_path = file.path(fixture_dir, "annotations", "continuous.meta")
   )

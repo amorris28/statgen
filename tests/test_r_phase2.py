@@ -238,7 +238,7 @@ def test_r_load_annotation_continuous_headered_and_cache_metadata(tmp_path):
     result = run_rscript(
         _source_phase2_script(
             f"ref <- load_reference({json.dumps(str(SHARDED_REF))}); "
-            f"a <- load_annotation({json.dumps(str(annot))}, ref, header = TRUE, value_columns = c('weight', 'score'), annotation_metadata_path = {json.dumps(str(sidecar))}); "
+            f"a <- load_annotation({json.dumps(str(annot))}, ref, has_header = TRUE, value_columns = c('weight', 'score'), annotation_metadata_path = {json.dumps(str(sidecar))}); "
             f"save_annotations_cache(a, {json.dumps(str(cache))}); "
             f"b <- load_annotations_cache({json.dumps(str(cache))}); "
             "M <- as.matrix(annomat(b)); "

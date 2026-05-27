@@ -149,7 +149,7 @@ test_that("load_annotation paints continuous values and preserves metadata", {
   ann <- load_annotation(
     annot,
     ref,
-    header = TRUE,
+    has_header = TRUE,
     value_columns = c("weight", "score"),
     annotation_metadata_path = sidecar
   )

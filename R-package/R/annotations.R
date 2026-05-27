@@ -43,7 +43,7 @@ load_annotations <- function(bed_paths, reference,
   )
 }
 
-load_annotation <- function(path, reference, header = FALSE, value_columns = NULL,
+load_annotation <- function(path, reference, has_header = FALSE, value_columns = NULL,
                             annotation_names = NULL, annotation_metadata = NULL,
                             annotation_metadata_path = NULL) {
   if (!inherits(reference, "ReferencePanel")) {
@@ -57,7 +57,7 @@ load_annotation <- function(path, reference, header = FALSE, value_columns = NUL
     stop(sprintf("annotation file not found: %s", path), call. = FALSE)
   }
 
-  table <- .read_annotation_table(path, isTRUE(header), value_columns, infer_single_value = TRUE)
+  table <- .read_annotation_table(path, isTRUE(has_header), value_columns, infer_single_value = TRUE)
   df <- table$df
   n_cols <- ncol(df)
   value_columns1 <- table$value_columns
@@ -536,19 +536,19 @@ print.AnnotationPanel <- function(x, ...) {
 }
 
 .parse_binary_bed <- function(path) {
-  table <- .read_annotation_table(path, header = FALSE, value_columns = NULL, infer_single_value = FALSE)
+  table <- .read_annotation_table(path, has_header = FALSE, value_columns = NULL, infer_single_value = FALSE)
   interval <- .validate_annotation_intervals(table$df, path, table$row_base0)
   .annotation_binary_intervals_by_chr(interval$chr, interval$starts, interval$ends)
 }
 
-.read_annotation_table <- function(path, header, value_columns, infer_single_value) {
+.read_annotation_table <- function(path, has_header, value_columns, infer_single_value) {
   probe <- .probe_annotation_table(path)
   n_cols <- probe$n_cols
   if (n_cols < 3L) {
     stop(sprintf("%s: BED must have at least 3 tab-separated columns", path), call. = FALSE)
   }
   header_fields <- NULL
-  if (header) {
+  if (has_header) {
     header_fields <- strsplit(probe$first_line, "\t", fixed = TRUE)[[1L]]
     if (any(header_fields == "")) {
       stop(sprintf("%s: header names must be non-empty", path), call. = FALSE)
@@ -568,11 +568,11 @@ print.AnnotationPanel <- function(x, ...) {
     numeric_cols <- value_columns1
     char_cols <- setdiff(char_cols, numeric_cols)
   }
-  col_names <- if (header) header_fields else paste0("V", seq_len(n_cols))
+  col_names <- if (has_header) header_fields else paste0("V", seq_len(n_cols))
   fread_args <- list(
     input = path,
     sep = "\t",
-    header = header,
+    header = has_header,
     skip = probe$skip,
     fill = TRUE,
     blank.lines.skip = TRUE,
@@ -604,7 +604,7 @@ print.AnnotationPanel <- function(x, ...) {
   list(
     df = df,
     header_fields = header_fields,
-    row_base0 = if (header) 1L else 0L,
+    row_base0 = if (has_header) 1L else 0L,
     value_columns = value_columns1
   )
 }
@@ -648,7 +648,7 @@ print.AnnotationPanel <- function(x, ...) {
     selector <- selectors[[i]]
     if (is.character(selector)) {
       if (is.null(header_fields)) {
-        stop("named value_columns are invalid when header = FALSE", call. = FALSE)
+        stop("named value_columns are invalid when has_header = FALSE", call. = FALSE)
       }
       idx <- match(selector, header_fields)
       if (is.na(idx)) {

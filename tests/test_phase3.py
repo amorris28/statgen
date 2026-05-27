@@ -278,7 +278,7 @@ def test_load_annotation_headered_multi_column_selection_and_sidecar(tmp_path):
     a = load_annotation(
         path,
         reference,
-        header=True,
+        has_header=True,
         value_columns=["weight", "score"],
         annotation_metadata_path=sidecar,
     )
@@ -970,7 +970,7 @@ def test_octave_load_annotation_headered_multi_column_selection_and_sidecar(tmp_
     sidecar.write_text("chrom meta\nstart meta\nend meta\nscore meta\nweight meta", encoding="utf-8")
     script = _octave_script(
         f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
-        f"a = statgen.load_annotation('{path}', ref, 'header', true, 'value_columns', {{'weight','score'}}, 'annotation_metadata_path', '{sidecar}'); "
+        f"a = statgen.load_annotation('{path}', ref, 'has_header', true, 'value_columns', {{'weight','score'}}, 'annotation_metadata_path', '{sidecar}'); "
         "M = full(a.annomat); "
         "fprintf('%s,%s\\n', a.annonames{1}, a.annonames{2}); "
         "fprintf('%s,%s\\n', a.annotation_metadata{1}, a.annotation_metadata{2}); "

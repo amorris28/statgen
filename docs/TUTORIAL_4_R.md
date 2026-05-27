@@ -122,7 +122,7 @@ binary_annotations <- load_annotations(annotation_paths, reference)
 continuous_annotations <- load_annotation(
   "source/annotations/conservation.annot",
   reference,
-  header = TRUE,
+  has_header = TRUE,
   value_columns = c("conservation", "promoter_activity"),
   annotation_metadata_path = "source/annotations/conservation.meta"
 )

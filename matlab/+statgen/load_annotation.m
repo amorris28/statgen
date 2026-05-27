@@ -2,7 +2,7 @@ function panel = load_annotation(path, reference, varargin)
 %LOAD_ANNOTATION Load one BED-like annotation source aligned to a ReferencePanel.
 %
 %   annotations = statgen.load_annotation(path, reference)
-%   annotations = statgen.load_annotation(..., 'header', true, 'value_columns', columns)
+%   annotations = statgen.load_annotation(..., 'has_header', true, 'value_columns', columns)
 %   annotations = statgen.load_annotation(..., 'annotation_names', names)
 %   annotations = statgen.load_annotation(..., 'annotation_metadata', metadata)
 %   annotations = statgen.load_annotation(..., 'annotation_metadata_path', path)
@@ -27,7 +27,7 @@ function panel = load_annotation(path, reference, varargin)
         error('statgen:io', 'annotation file not found: %s', path);
     end
 
-    [cols, header_fields, row_base0, n_cols, value_columns] = read_annotation_table_(path, opts.header, opts.value_columns);
+    [cols, header_fields, row_base0, n_cols, value_columns] = read_annotation_table_(path, opts.has_header, opts.value_columns);
     if n_cols < 3
         error('statgen:annotations', '%s: annotation input must have at least 3 tab-separated columns', path);
     end
@@ -87,7 +87,7 @@ function panel = load_annotation(path, reference, varargin)
 end
 
 function opts = parse_options_(varargin)
-    opts.header = false;
+    opts.has_header = false;
     opts.value_columns = [];
     opts.annotation_names = [];
     opts.annotation_metadata = [];
@@ -101,8 +101,8 @@ function opts = parse_options_(varargin)
         end
         name = char(varargin{i});
         switch name
-            case 'header'
-                opts.header = logical_scalar_(varargin{i + 1}, 'header');
+            case 'has_header'
+                opts.has_header = logical_scalar_(varargin{i + 1}, 'has_header');
             case 'value_columns'
                 opts.value_columns = varargin{i + 1};
             case 'annotation_names'
@@ -127,7 +127,7 @@ function out = logical_scalar_(value, name)
     out = logical(value);
 end
 
-function [cols, header_fields, row_base0, n_cols, value_columns] = read_annotation_table_(path, header, value_columns_raw)
+function [cols, header_fields, row_base0, n_cols, value_columns] = read_annotation_table_(path, has_header, value_columns_raw)
     fid = fopen(path, 'r');
     if fid < 0
         error('statgen:io', 'Cannot open annotation file: %s', path);
@@ -155,7 +155,7 @@ function [cols, header_fields, row_base0, n_cols, value_columns] = read_annotati
         error('statgen:annotations', '%s: BED must have at least 3 tab-separated columns', path);
     end
 
-    if header
+    if has_header
         header_fields = strsplit(first_line, '\t');
         if any(cellfun('isempty', header_fields))
             error('statgen:annotations', '%s: header names must be non-empty', path);
@@ -217,7 +217,7 @@ function value_columns = normalize_value_columns_(value_columns_raw, header_fiel
         selector = selectors{i};
         if ischar(selector) || isstring(selector)
             if isempty(header_fields)
-                error('statgen:annotations', 'named value_columns are invalid when header=false');
+                error('statgen:annotations', 'named value_columns are invalid when has_header=false');
             end
             idx = find(strcmp(header_fields, char(selector)), 1, 'first');
             if isempty(idx)
