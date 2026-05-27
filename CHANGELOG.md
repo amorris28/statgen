@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-05-27
+
+### Added
+- Added grouped binary annotation loading in Python, MATLAB/Octave, and R.
+  `load_annotation(...)` now accepts `group_column` to create one binary
+  annotation per distinct group value in a BED-like source column.
+
 ## [0.3.3] - 2026-05-26
 
 ### Added
