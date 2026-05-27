@@ -30,10 +30,12 @@ load_annotations <- function(bed_paths, reference,
     stop("duplicate annotation names derived from BED basenames", call. = FALSE)
   }
 
-  columns <- lapply(paths, function(path) {
-    .annotation_paint_binary_column(.parse_binary_bed(path), reference)
+  parsed <- lapply(paths, .parse_binary_bed)
+  columns <- lapply(parsed, function(x) {
+    .annotation_paint_binary_column(x$intervals, reference)
   })
-  metadata <- .load_annotations_metadata(paths, annotation_metadata, annotation_metadata_paths)
+  source_counts <- vapply(parsed, function(x) x$num_source_intervals, integer(1))
+  metadata <- .load_annotations_metadata(paths, annotation_metadata, annotation_metadata_paths, source_counts)
   create_annotations(
     reference,
     annotation_matrix = do.call(cbind, columns),
@@ -44,6 +46,7 @@ load_annotations <- function(bed_paths, reference,
 }
 
 load_annotation <- function(path, reference, has_header = FALSE, value_columns = NULL,
+                            group_column = NULL,
                             annotation_names = NULL, annotation_metadata = NULL,
                             annotation_metadata_path = NULL) {
   if (!inherits(reference, "ReferencePanel")) {
@@ -52,21 +55,62 @@ load_annotation <- function(path, reference, has_header = FALSE, value_columns =
   if (!is.null(annotation_metadata) && !is.null(annotation_metadata_path)) {
     stop("load_annotation accepts at most one of annotation_metadata and annotation_metadata_path", call. = FALSE)
   }
+  if (!is.null(value_columns) && !is.null(group_column)) {
+    stop("group_column and value_columns are mutually exclusive", call. = FALSE)
+  }
+  if (!is.null(group_column) && !is.null(annotation_names)) {
+    stop("annotation_names is invalid with group_column", call. = FALSE)
+  }
+  if (!is.null(group_column) && !is.null(annotation_metadata)) {
+    stop("annotation_metadata is invalid with group_column", call. = FALSE)
+  }
+  if (!is.null(group_column) && !is.null(annotation_metadata_path)) {
+    stop("annotation_metadata_path is invalid with group_column", call. = FALSE)
+  }
   path <- .validate_path_scalar(path, "path")
   if (!file.exists(path)) {
     stop(sprintf("annotation file not found: %s", path), call. = FALSE)
   }
 
-  table <- .read_annotation_table(path, isTRUE(has_header), value_columns, infer_single_value = TRUE)
+  table <- .read_annotation_table(path, isTRUE(has_header), value_columns, group_column, infer_single_value = TRUE)
   df <- table$df
   n_cols <- ncol(df)
   value_columns1 <- table$value_columns
+  value_column_metadata <- table$value_column_metadata
+  group_column1 <- table$group_column
+  group_column_metadata <- if (is.null(table$group_column_metadata)) NULL else table$group_column_metadata[[1L]]
   interval <- .validate_annotation_intervals(df, path, table$row_base0)
   chr_values <- interval$chr
   starts <- interval$starts
   ends <- interval$ends
 
-  if (is.null(value_columns1) && n_cols == 3L) {
+  if (!is.null(group_column1)) {
+    group_values <- as.character(df[[group_column1]])
+    empty <- is.na(group_values) | group_values == ""
+    if (any(empty)) {
+      stop(sprintf("%s: row %d: group_column values must be non-empty", path, table$row_base0 + which(empty)[[1]]), call. = FALSE)
+    }
+    names <- unique(group_values)
+    columns <- vector("list", length(names))
+    metadata <- character(length(names))
+    # PERF: loop retained because grouped binary interval union is defined independently per group.
+    for (i in seq_along(names)) {
+      rows <- group_values == names[[i]]
+      columns[[i]] <- .annotation_paint_binary_column(
+        .annotation_binary_intervals_by_chr(chr_values[rows], starts[rows], ends[rows]),
+        reference
+      )
+      metadata[[i]] <- .annotation_generated_metadata(
+        path,
+        isTRUE(has_header),
+        sum(rows),
+        group_column = group_column_metadata,
+        group_value = names[[i]]
+      )
+    }
+    mat <- do.call(cbind, columns)
+    binary <- rep.int(TRUE, length(names))
+  } else if (is.null(value_columns1) && n_cols == 3L) {
     names <- if (is.null(annotation_names)) {
       .default_annotation_names(path, n_cols, table$header_fields, value_columns1)
     } else {
@@ -80,18 +124,18 @@ load_annotation <- function(path, reference, has_header = FALSE, value_columns =
       reference
     )
     binary <- TRUE
-    source_columns0 <- NA_integer_
-    source_column_names <- NA_character_
     metadata <- .load_annotation_metadata(
       path, annotation_metadata, annotation_metadata_path, 1L,
-      source_columns0, source_column_names, n_cols, binary = TRUE
+      NULL, NULL, n_cols, binary = TRUE,
+      has_header = isTRUE(has_header), num_source_intervals = nrow(df)
     )
   } else {
     if (is.null(value_columns1)) {
       if (n_cols == 4L) {
         value_columns1 <- 4L
+        value_column_metadata <- if (is.null(table$header_fields)) 4L else table$header_fields[[4L]]
       } else {
-        stop(sprintf("%s: input with five or more columns requires explicit value_columns", path), call. = FALSE)
+        stop(sprintf("%s: input with five or more columns requires explicit value_columns or group_column", path), call. = FALSE)
       }
     }
     names <- if (is.null(annotation_names)) {
@@ -110,15 +154,10 @@ load_annotation <- function(path, reference, has_header = FALSE, value_columns =
     values <- .annotation_numeric_values(df, value_columns1, path, table$row_base0)
     mat <- .annotation_paint_numeric(chr_values, starts, ends, values, reference)
     binary <- rep.int(FALSE, length(value_columns1))
-    source_columns0 <- as.integer(value_columns1 - 1L)
-    source_column_names <- if (is.null(table$header_fields)) {
-      rep.int(NA_character_, length(value_columns1))
-    } else {
-      table$header_fields[value_columns1]
-    }
     metadata <- .load_annotation_metadata(
       path, annotation_metadata, annotation_metadata_path, length(value_columns1),
-      source_columns0, source_column_names, n_cols, binary = FALSE
+      value_columns1, value_column_metadata, n_cols, binary = FALSE,
+      has_header = isTRUE(has_header), num_source_intervals = nrow(df)
     )
   }
 
@@ -536,12 +575,15 @@ print.AnnotationPanel <- function(x, ...) {
 }
 
 .parse_binary_bed <- function(path) {
-  table <- .read_annotation_table(path, has_header = FALSE, value_columns = NULL, infer_single_value = FALSE)
+  table <- .read_annotation_table(path, has_header = FALSE, value_columns = NULL, group_column = NULL, infer_single_value = FALSE)
   interval <- .validate_annotation_intervals(table$df, path, table$row_base0)
-  .annotation_binary_intervals_by_chr(interval$chr, interval$starts, interval$ends)
+  list(
+    intervals = .annotation_binary_intervals_by_chr(interval$chr, interval$starts, interval$ends),
+    num_source_intervals = nrow(table$df)
+  )
 }
 
-.read_annotation_table <- function(path, has_header, value_columns, infer_single_value) {
+.read_annotation_table <- function(path, has_header, value_columns, group_column, infer_single_value) {
   probe <- .probe_annotation_table(path)
   n_cols <- probe$n_cols
   if (n_cols < 3L) {
@@ -557,9 +599,21 @@ print.AnnotationPanel <- function(x, ...) {
       stop(sprintf("%s: header names must be unique", path), call. = FALSE)
     }
   }
-  value_columns1 <- .normalize_value_columns(value_columns, header_fields, n_cols, path)
-  if (isTRUE(infer_single_value) && is.null(value_columns1) && n_cols == 4L) {
+  value_normalized <- .normalize_column_selectors(value_columns, header_fields, n_cols, path, "value_columns")
+  group_normalized <- .normalize_column_selectors(group_column, header_fields, n_cols, path, "group_column")
+  value_columns1 <- value_normalized$columns
+  value_column_metadata <- value_normalized$metadata
+  group_column1 <- group_normalized$columns
+  group_column_metadata <- group_normalized$metadata
+  if (!is.null(value_columns1) && !is.null(group_column1)) {
+    stop("group_column and value_columns are mutually exclusive", call. = FALSE)
+  }
+  if (!is.null(group_column1) && length(group_column1) != 1L) {
+    stop("group_column must identify exactly one source column", call. = FALSE)
+  }
+  if (isTRUE(infer_single_value) && is.null(value_columns1) && is.null(group_column1) && n_cols == 4L) {
     value_columns1 <- 4L
+    value_column_metadata <- if (is.null(header_fields)) 4L else header_fields[[4L]]
   }
 
   char_cols <- seq_len(n_cols)
@@ -605,7 +659,10 @@ print.AnnotationPanel <- function(x, ...) {
     df = df,
     header_fields = header_fields,
     row_base0 = if (has_header) 1L else 0L,
-    value_columns = value_columns1
+    value_columns = value_columns1,
+    value_column_metadata = value_column_metadata,
+    group_column = group_column1,
+    group_column_metadata = group_column_metadata
   )
 }
 
@@ -635,40 +692,43 @@ print.AnnotationPanel <- function(x, ...) {
   }
 }
 
-.normalize_value_columns <- function(value_columns, header_fields, n_cols, path) {
-  if (is.null(value_columns)) {
-    return(NULL)
+.normalize_column_selectors <- function(selectors, header_fields, n_cols, path, name) {
+  if (is.null(selectors)) {
+    return(list(columns = NULL, metadata = NULL))
   }
-  selectors <- as.list(value_columns)
-  if (!length(selectors)) {
-    stop("value_columns must be a non-empty vector", call. = FALSE)
+  selector_list <- as.list(selectors)
+  if (!length(selector_list)) {
+    stop(sprintf("%s must be a non-empty vector", name), call. = FALSE)
   }
-  out <- integer(length(selectors))
-  for (i in seq_along(selectors)) {
-    selector <- selectors[[i]]
+  out <- integer(length(selector_list))
+  metadata <- vector("list", length(selector_list))
+  for (i in seq_along(selector_list)) {
+    selector <- selector_list[[i]]
     if (is.character(selector)) {
       if (is.null(header_fields)) {
-        stop("named value_columns are invalid when has_header = FALSE", call. = FALSE)
+        stop(sprintf("named %s are invalid when has_header = FALSE", name), call. = FALSE)
       }
       idx <- match(selector, header_fields)
       if (is.na(idx)) {
-        stop(sprintf("%s: unknown value column name %s", path, sQuote(selector)), call. = FALSE)
+        stop(sprintf("%s: unknown %s name %s", path, name, sQuote(selector)), call. = FALSE)
       }
       col <- idx
+      metadata[[i]] <- selector
     } else if (is.numeric(selector) && length(selector) == 1L && is.finite(selector) && selector == floor(selector)) {
       col <- as.integer(selector)
+      metadata[[i]] <- col
     } else {
-      stop("value_columns must contain column names or integer indices", call. = FALSE)
+      stop(sprintf("%s must contain column names or integer indices", name), call. = FALSE)
     }
     if (col < 4L || col > n_cols) {
-      stop(sprintf("%s: value column is out of range; selected columns must be physical columns 4 or later", path), call. = FALSE)
+      stop(sprintf("%s: %s is out of range; selected columns must be physical columns 4 or later", path, name), call. = FALSE)
     }
     out[[i]] <- col
   }
   if (anyDuplicated(out)) {
-    stop("value_columns must not contain duplicates", call. = FALSE)
+    stop(sprintf("%s must not contain duplicates", name), call. = FALSE)
   }
-  out
+  list(columns = out, metadata = metadata)
 }
 
 .validate_annotation_intervals <- function(df, path, row_base0) {
@@ -731,7 +791,7 @@ print.AnnotationPanel <- function(x, ...) {
       }
       return(header_fields[[4L]])
     }
-    stop(sprintf("%s: input with five or more columns requires explicit value_columns", path), call. = FALSE)
+    stop(sprintf("%s: input with five or more columns requires explicit value_columns or group_column", path), call. = FALSE)
   }
   if (is.null(header_fields) && n_cols >= 5L) {
     stop(sprintf("%s: headerless input with five or more columns requires annotation_names", path), call. = FALSE)
@@ -742,7 +802,7 @@ print.AnnotationPanel <- function(x, ...) {
   header_fields[value_columns1]
 }
 
-.load_annotations_metadata <- function(paths, metadata, metadata_paths) {
+.load_annotations_metadata <- function(paths, metadata, metadata_paths, source_counts) {
   if (!is.null(metadata)) {
     return(.coerce_annotation_metadata(metadata, length(paths), "annotation_metadata"))
   }
@@ -754,19 +814,22 @@ print.AnnotationPanel <- function(x, ...) {
     for (i in seq_along(paths)) {
       meta_path <- metadata_paths[[i]]
       if (is.na(meta_path) || identical(meta_path, "")) {
-        out[[i]] <- .annotation_generated_metadata(paths[[i]], NA_integer_, NA_character_)
+        out[[i]] <- .annotation_generated_metadata(paths[[i]], FALSE, source_counts[[i]])
       } else {
         out[[i]] <- .read_sidecar_exact(meta_path)
       }
     }
     return(out)
   }
-  vapply(paths, .annotation_generated_metadata, character(1), source_column0 = NA_integer_, source_column_name = NA_character_)
+  vapply(seq_along(paths), function(i) {
+    .annotation_generated_metadata(paths[[i]], FALSE, source_counts[[i]])
+  }, character(1))
 }
 
 .load_annotation_metadata <- function(path, metadata, metadata_path, expected_len,
-                                      source_columns0, source_column_names,
-                                      n_cols, binary) {
+                                      source_columns, source_column_metadata,
+                                      n_cols, binary, has_header,
+                                      num_source_intervals) {
   if (!is.null(metadata)) {
     return(.coerce_annotation_metadata(metadata, expected_len, "annotation_metadata"))
   }
@@ -776,28 +839,40 @@ print.AnnotationPanel <- function(x, ...) {
       return(.read_sidecar_exact(metadata_path))
     }
     lines <- .read_column_metadata_sidecar(metadata_path, n_cols)
-    return(lines[source_columns0 + 1L])
+    return(lines[source_columns])
   }
-  mapply(
-    .annotation_generated_metadata,
-    source_column0 = source_columns0,
-    source_column_name = source_column_names,
-    MoreArgs = list(path = path),
-    USE.NAMES = FALSE
-  )
+  if (binary) {
+    return(.annotation_generated_metadata(path, has_header, num_source_intervals))
+  }
+  vapply(seq_len(expected_len), function(i) {
+    .annotation_generated_metadata(
+      path,
+      has_header,
+      num_source_intervals,
+      value_column = source_column_metadata[[i]]
+    )
+  }, character(1))
 }
 
-.annotation_generated_metadata <- function(path, source_column0, source_column_name) {
-  jsonlite::toJSON(
-    list(
-      source_file = as.character(path),
-      source_column0 = if (is.na(source_column0)) NA_integer_ else as.integer(source_column0),
-      source_column_name = if (is.na(source_column_name)) NA_character_ else as.character(source_column_name)
-    ),
-    auto_unbox = TRUE,
-    null = "null",
-    na = "null"
+.annotation_generated_metadata <- function(path, has_header, num_source_intervals,
+                                           value_column = NULL,
+                                           group_column = NULL,
+                                           group_value = NULL) {
+  payload <- list(
+    source_file = as.character(path),
+    source_file_has_header = if (isTRUE(has_header)) 1L else 0L,
+    num_source_intervals = as.integer(num_source_intervals)
   )
+  if (!is.null(value_column)) {
+    payload$value_column <- value_column
+  }
+  if (!is.null(group_column)) {
+    payload$group_column <- group_column
+  }
+  if (!is.null(group_value)) {
+    payload$group_value <- group_value
+  }
+  jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null")
 }
 
 .read_sidecar_exact <- function(path) {

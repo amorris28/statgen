@@ -21,6 +21,7 @@ from tests.conftest import FIXTURES_DIR, MATLAB_DIR, run_octave, skipif_no_octav
 SHARDED_REF = FIXTURES_DIR / "reference/sharded/@.bim"
 ANNO1 = FIXTURES_DIR / "annotations/anno1.bed"
 ANNO2 = FIXTURES_DIR / "annotations/anno2.bed"
+GROUPED = FIXTURES_DIR / "annotations/grouped.annot"
 
 
 EXPECTED_MASK = np.array(
@@ -30,6 +31,20 @@ EXPECTED_MASK = np.array(
         [1, 0],
         [1, 0],
         [1, 0],
+        [0, 1],
+        [0, 1],
+        [0, 1],
+    ],
+    dtype=np.uint8,
+)
+
+EXPECTED_GROUPED = np.array(
+    [
+        [1, 0],
+        [1, 1],
+        [1, 1],
+        [1, 0],
+        [0, 0],
         [0, 1],
         [0, 1],
         [0, 1],
@@ -258,8 +273,9 @@ def test_load_annotation_numeric_headerless_single_column(tmp_path):
     dense = a.annomat.toarray().reshape(-1)
     np.testing.assert_allclose(dense, np.array([0.5, 0.5, -1.25, -1.25, 0.0, 2.0, 0.0, 0.0]))
     meta = json.loads(a.annotation_metadata[0])
-    assert meta["source_column0"] == 3
-    assert meta["source_column_name"] is None
+    assert meta["value_column"] == 3
+    assert meta["source_file_has_header"] == 0
+    assert meta["num_source_intervals"] == 3
 
 
 def test_load_annotation_headered_multi_column_selection_and_sidecar(tmp_path):
@@ -337,8 +353,22 @@ def test_load_annotation_integer_value_columns_python_zero_based(tmp_path):
             ]
         ),
     )
-    assert json.loads(a.annotation_metadata[0])["source_column0"] == 4
-    assert json.loads(a.annotation_metadata[1])["source_column0"] == 3
+    assert json.loads(a.annotation_metadata[0])["value_column"] == 4
+    assert json.loads(a.annotation_metadata[1])["value_column"] == 3
+
+
+def test_load_annotation_group_column_fixture():
+    reference = load_reference(SHARDED_REF)
+    a = load_annotation(GROUPED, reference, has_header=True, group_column="group")
+
+    assert list(a.annonames) == ["coding", "regulatory"]
+    np.testing.assert_array_equal(a.is_binary, np.array([True, True]))
+    np.testing.assert_array_equal(a.annomat.toarray(), EXPECTED_GROUPED)
+    metadata = [json.loads(x) for x in a.annotation_metadata]
+    assert [m["group_column"] for m in metadata] == ["group", "group"]
+    assert [m["group_value"] for m in metadata] == ["coding", "regulatory"]
+    assert [m["num_source_intervals"] for m in metadata] == [2, 2]
+    assert [m["source_file_has_header"] for m in metadata] == [1, 1]
 
 
 def test_load_annotation_binary_sidecar_and_name_override(tmp_path):
@@ -393,6 +423,18 @@ def test_load_annotation_validation_errors(tmp_path):
     bad_sidecar.write_text("c1\nc2\nc3", encoding="utf-8")
     with pytest.raises(ValueError, match="line count mismatch"):
         load_annotation(one, reference, annotation_metadata_path=bad_sidecar)
+
+    grouped_empty = tmp_path / "grouped_empty.annot"
+    _write_text(grouped_empty, "chrom\tstart0\tend0\tgroup\n1\t99\t200\t\n")
+    with pytest.raises(ValueError, match="group_column values must be non-empty"):
+        load_annotation(grouped_empty, reference, has_header=True, group_column="group")
+
+    grouped = tmp_path / "grouped.annot"
+    _write_text(grouped, "chrom\tstart0\tend0\tgroup\tscore\n1\t99\t200\tcoding\t1\n")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        load_annotation(grouped, reference, has_header=True, group_column="group", value_columns="score")
+    with pytest.raises(ValueError, match="annotation_names is invalid"):
+        load_annotation(grouped, reference, has_header=True, group_column="group", annotation_names=["coding"])
 
 
 def test_select_annotations_preserves_order_and_rejects_unknown():
@@ -697,7 +739,7 @@ def test_octave_annotations_cache_roundtrip_preserves_continuous_metadata(tmp_pa
         f"b = statgen.load_annotations_cache('{cache}'); "
         "M = full(b.annomat); "
         "fprintf('%d\\n', b.is_binary(1)); "
-        "fprintf('%d\\n', ~isempty(strfind(b.annotation_metadata{1}, 'source_column0'))); "
+        "fprintf('%d\\n', ~isempty(strfind(b.annotation_metadata{1}, 'value_column'))); "
         "fprintf('%d\\n', ~isempty(strfind(b.annotation_metadata{1}, 'score_cache.annot'))); "
         "fprintf('%.2f %.2f %.2f\\n', M(1,1), M(3,1), M(8,1));"
     )
@@ -1008,6 +1050,31 @@ def test_octave_load_annotation_matlab_one_based_value_columns(tmp_path):
     lines = result.stdout.strip().splitlines()
     assert lines[0] == "weight,score"
     assert lines[1] == "10.0 0.5 30.0 2.5"
+
+
+@pytest.mark.octave
+@skipif_no_octave
+def test_octave_load_annotation_group_column_fixture():
+    script = _octave_script(
+        f"ref = statgen.load_reference([fixture_dir '/reference/sharded/@.bim']); "
+        f"a = statgen.load_annotation([fixture_dir '/annotations/grouped.annot'], ref, 'has_header', true, 'group_column', 'group'); "
+        "M = full(a.annomat); "
+        "fprintf('%s,%s\\n', a.annonames{1}, a.annonames{2}); "
+        "fprintf('%d,%d\\n', a.is_binary(1), a.is_binary(2)); "
+        "fprintf('%d%d%d%d%d%d%d%d\\n', M(:,1)); "
+        "fprintf('%d%d%d%d%d%d%d%d\\n', M(:,2)); "
+        "fprintf('%d\\n', ~isempty(strfind(a.annotation_metadata{1}, '\"group_value\":\"coding\"'))); "
+        "fprintf('%d\\n', ~isempty(strfind(a.annotation_metadata{2}, '\"group_value\":\"regulatory\"')));"
+    )
+    result = run_octave(script)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "coding,regulatory"
+    assert lines[1] == "1,1"
+    assert lines[2] == "11110000"
+    assert lines[3] == "01100111"
+    assert lines[4] == "1"
+    assert lines[5] == "1"
 
 
 @pytest.mark.octave

@@ -119,6 +119,12 @@ annotation_paths <- file.path(
   )
 )
 binary_annotations <- load_annotations(annotation_paths, reference)
+grouped_annotations <- load_annotation(
+  "source/annotations/functional_groups.annot",
+  reference,
+  has_header = TRUE,
+  group_column = "group"
+)
 continuous_annotations <- load_annotation(
   "source/annotations/conservation.annot",
   reference,
@@ -126,7 +132,10 @@ continuous_annotations <- load_annotation(
   value_columns = c("conservation", "promoter_activity"),
   annotation_metadata_path = "source/annotations/conservation.meta"
 )
-annotations <- union_annotations(binary_annotations, continuous_annotations)
+annotations <- union_annotations(
+  union_annotations(binary_annotations, grouped_annotations),
+  continuous_annotations
+)
 
 genotype <- load_genotype("source/genotypes/chr@", reference)
 ```

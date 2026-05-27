@@ -19,6 +19,8 @@ Current copied fixtures:
 - `traits_complete.tsv.gz` is a byte-for-byte copy of
   `tests/fixtures/sumstats/traits_complete.tsv.gz`; it is the warning-free
   summary-statistics fixture used by examples and vignettes.
+- `anno1.bed`, `anno2.bed`, and `grouped.annot` are byte-for-byte copies of
+  tiny annotation fixtures under `tests/fixtures/annotations/`.
 - `ld/` is an R-ready copy of `tests/fixtures/ld/python/` with an added
   `reference_cache.rds` and manifest `r_reference_cache` fields. It is used by
   examples and vignettes so installed-package examples can call `load_ld()`

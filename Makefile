@@ -20,6 +20,7 @@ prepare-r-fixtures:
 	cp tests/fixtures/sumstats/traits_complete.tsv.gz R-package/inst/extdata/traits_complete.tsv.gz
 	cp tests/fixtures/annotations/anno1.bed R-package/inst/extdata/anno1.bed
 	cp tests/fixtures/annotations/anno2.bed R-package/inst/extdata/anno2.bed
+	cp tests/fixtures/annotations/grouped.annot R-package/inst/extdata/grouped.annot
 	cp tests/fixtures/genotype/sharded/1.bed R-package/inst/extdata/genotype_1.bed
 	cp tests/fixtures/genotype/sharded/1.bim R-package/inst/extdata/genotype_1.bim
 	cp tests/fixtures/genotype/sharded/1.fam R-package/inst/extdata/genotype_1.fam

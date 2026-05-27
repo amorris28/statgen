@@ -22,7 +22,7 @@ caches.
 load_annotations(bed_paths, reference, annotation_metadata = NULL,
   annotation_metadata_paths = NULL)
 load_annotation(path, reference, has_header = FALSE, value_columns = NULL,
-  annotation_names = NULL, annotation_metadata = NULL,
+  group_column = NULL, annotation_names = NULL, annotation_metadata = NULL,
   annotation_metadata_path = NULL)
 create_annotations(reference, annotation_matrix, annotation_names,
   is_binary = NULL, annotation_metadata = NULL)
@@ -46,6 +46,8 @@ union_annotations(x, other, mode = "by_name", ...)
 \item{has_header}{Logical scalar; whether \code{path} has a header row.}
 \item{value_columns}{Optional value columns for \code{load_annotation()}; R uses
 one-based physical column indices or header names.}
+\item{group_column}{Optional single grouping column for grouped binary
+annotations; R uses a one-based physical column index or a header name.}
 \item{annotation_matrix}{A finite numeric matrix with SNPs as rows and annotations as columns.}
 \item{annotation_names, names}{Character annotation names.}
 \item{annovec}{Finite numeric annotation vector aligned to \code{reference}.}
@@ -73,8 +75,8 @@ metadata.}
 BED intervals are interpreted as 0-based half-open intervals and are matched to
 reference chromosome labels exactly. \code{load_annotations()} treats each BED
 file as one binary annotation. \code{load_annotation()} loads one source file
-that may be a 3-column binary BED file or a BED-like file with numeric value
-columns.
+that may be a 3-column binary BED file, a grouped binary BED-like file, or a
+BED-like file with numeric value columns.
 
 For \code{load_annotation()}, a 3-column input with \code{value_columns = NULL}
 produces one binary annotation. A 4-column input with
@@ -83,6 +85,9 @@ Inputs with five or more columns require explicit \code{value_columns}; for
 headerless files they also require \code{annotation_names}. Integer
 \code{value_columns} are one-based physical file columns and must select
 columns 4 or later. Named selectors require \code{has_header = TRUE}.
+\code{group_column} is mutually exclusive with \code{value_columns}; each
+distinct non-empty group value becomes one binary annotation named exactly from
+that group value.
 
 \code{is_binary} marks columns that should be treated as binary membership
 annotations. When omitted in \code{create_annotations()}, it is inferred by
@@ -121,6 +126,20 @@ continuous <- load_annotation(
 )
 is_binary(continuous)
 annotation_metadata(continuous)
+
+grouped_path <- tempfile(fileext = ".annot")
+writeLines(c(
+  "chrom\tstart0\tend0\tgroup",
+  "1\t99\t200\tcoding",
+  "1\t299\t400\tcoding"
+), grouped_path)
+grouped <- load_annotation(
+  grouped_path,
+  ref,
+  has_header = TRUE,
+  group_column = "group"
+)
+annonames(grouped)
 
 cache <- tempfile(fileext = ".rds")
 save_annotations_cache(ann, cache)

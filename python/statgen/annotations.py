@@ -137,16 +137,27 @@ def _annotation_name_from_path(path: Path) -> str:
     return name
 
 
-def _generated_metadata(path: Path, source_column0, source_column_name) -> str:
-    return json.dumps(
-        {
-            "source_file": str(path),
-            "source_column0": source_column0,
-            "source_column_name": source_column_name,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+def _generated_metadata(
+    path: Path,
+    has_header: bool,
+    num_source_intervals: int,
+    *,
+    value_column=None,
+    group_column=None,
+    group_value=None,
+) -> str:
+    payload = {
+        "source_file": str(path),
+        "source_file_has_header": 1 if has_header else 0,
+        "num_source_intervals": int(num_source_intervals),
+    }
+    if value_column is not None:
+        payload["value_column"] = value_column
+    if group_column is not None:
+        payload["group_column"] = group_column
+    if group_value is not None:
+        payload["group_value"] = group_value
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def _read_sidecar_exact(path) -> str:
@@ -251,15 +262,17 @@ def _validate_interval_columns(
     return chr_values, start_int, end_int
 
 
-def _binary_intervals_by_chr(path: Path) -> dict[str, np.ndarray]:
+def _binary_intervals_by_chr(path: Path) -> tuple[dict[str, np.ndarray], int]:
     df, _, row_base0 = _read_annotation_table(path, has_header=False)
     if df.shape[1] < 3:
         raise ValueError(f"{path}: BED must have at least 3 tab-separated columns")
     chr_values, starts, ends = _validate_interval_columns(df, path, row_base0=row_base0)
-    return binary_intervals_by_chr_from_arrays(chr_values, starts, ends)
+    return binary_intervals_by_chr_from_arrays(chr_values, starts, ends), int(df.shape[0])
 
 
-def _paint_binary_annotations(bed_paths: list[Path], reference) -> tuple[sparse.csr_matrix, list[str]]:
+def _paint_binary_annotations(
+    bed_paths: list[Path], reference
+) -> tuple[sparse.csr_matrix, list[str], list[int]]:
     annonames = [_annotation_name_from_path(p) for p in bed_paths]
     if len(set(annonames)) != len(annonames):
         raise ValueError("duplicate annotation names derived from BED basenames")
@@ -267,47 +280,79 @@ def _paint_binary_annotations(bed_paths: list[Path], reference) -> tuple[sparse.
     n = int(reference.num_snp)
     k = len(bed_paths)
     if n == 0:
-        return sparse.csr_matrix((0, k), dtype=np.float64), annonames
+        counts = []
+        for bed_path in bed_paths:
+            _, count = _binary_intervals_by_chr(bed_path)
+            counts.append(count)
+        return sparse.csr_matrix((0, k), dtype=np.float64), annonames, counts
 
     columns = []
+    counts = []
     for bed_path in bed_paths:
-        intervals_by_chr = _binary_intervals_by_chr(bed_path)
+        intervals_by_chr, count = _binary_intervals_by_chr(bed_path)
         columns.append(paint_binary_column(intervals_by_chr, reference))
+        counts.append(count)
 
-    return sparse.hstack(columns, format="csr"), annonames
+    return sparse.hstack(columns, format="csr"), annonames, counts
 
 
-def _normalize_value_columns(value_columns, header_fields, num_columns: int, path: Path) -> list[int] | None:
-    if value_columns is None:
+def _selector_list(selectors, name: str) -> list | None:
+    if selectors is None:
         return None
-    if isinstance(value_columns, (str, int, np.integer)):
-        selectors = [value_columns]
+    if isinstance(selectors, (str, int, np.integer)):
+        values = [selectors]
     else:
-        selectors = list(value_columns)
-    if not selectors:
-        raise ValueError("value_columns must be a non-empty list")
+        values = list(selectors)
+    if not values:
+        raise ValueError(f"{name} must be a non-empty list")
+    return values
+
+
+def _normalize_column_selectors(selectors, header_fields, num_columns: int, path: Path, name: str) -> tuple[list[int], list] | None:
+    selector_values = _selector_list(selectors, name)
+    if selector_values is None:
+        return None
 
     out = []
-    for selector in selectors:
+    metadata_values = []
+    singular = name[:-1] if name.endswith("s") else name
+    for selector in selector_values:
         if isinstance(selector, str):
             if header_fields is None:
-                raise ValueError("named value_columns are invalid when has_header=False")
+                raise ValueError(f"named {name} are invalid when has_header=False")
             if selector not in header_fields:
-                raise ValueError(f"{path}: unknown value column name {selector!r}")
+                raise ValueError(f"{path}: unknown {singular} name {selector!r}")
             col0 = header_fields.index(selector)
+            metadata_value = selector
         elif isinstance(selector, (int, np.integer)) and not isinstance(selector, bool):
             col0 = int(selector)
+            metadata_value = int(selector)
         else:
-            raise ValueError("value_columns must contain column names or integer indices")
+            raise ValueError(f"{name} must contain column names or integer indices")
         if col0 < 3 or col0 >= num_columns:
             raise ValueError(
-                f"{path}: value column {selector!r} is out of range; selected columns must be physical columns 4 or later"
+                f"{path}: {singular} {selector!r} is out of range; selected columns must be physical columns 4 or later"
             )
         out.append(col0)
+        metadata_values.append(metadata_value)
 
     if len(set(out)) != len(out):
-        raise ValueError("value_columns must not contain duplicates")
-    return out
+        raise ValueError(f"{name} must not contain duplicates")
+    return out, metadata_values
+
+
+def _normalize_value_columns(value_columns, header_fields, num_columns: int, path: Path) -> tuple[list[int], list] | None:
+    return _normalize_column_selectors(value_columns, header_fields, num_columns, path, "value_columns")
+
+
+def _normalize_group_column(group_column, header_fields, num_columns: int, path: Path) -> tuple[int, object] | None:
+    normalized = _normalize_column_selectors(group_column, header_fields, num_columns, path, "group_column")
+    if normalized is None:
+        return None
+    columns, metadata_values = normalized
+    if len(columns) != 1:
+        raise ValueError("group_column must identify exactly one source column")
+    return columns[0], metadata_values[0]
 
 
 def _default_annotation_names(
@@ -323,7 +368,7 @@ def _default_annotation_names(
             if header_fields is None:
                 return [_annotation_name_from_path(path)]
             return [str(header_fields[3])]
-        raise ValueError(f"{path}: input with five or more columns requires explicit value_columns")
+        raise ValueError(f"{path}: input with five or more columns requires explicit value_columns or group_column")
 
     if header_fields is None and num_columns >= 5:
         raise ValueError(f"{path}: headerless input with five or more columns requires annotation_names")
@@ -613,7 +658,7 @@ def load_annotations(
         if not p.is_file():
             raise FileNotFoundError(f"BED file not found: {p}")
 
-    annomat, annonames = _paint_binary_annotations(paths, reference)
+    annomat, annonames, source_counts = _paint_binary_annotations(paths, reference)
     if annotation_metadata is not None:
         metadata = _coerce_string_vector(annotation_metadata, len(paths), "annotation_metadata")
     elif annotation_metadata_paths is not None:
@@ -623,14 +668,17 @@ def load_annotations(
                 f"annotation_metadata_paths length mismatch: expected {len(paths)}, got {len(meta_paths)}"
             )
         values = []
-        for bed_path, meta_path in zip(paths, meta_paths):
+        for bed_path, meta_path, count in zip(paths, meta_paths, source_counts):
             if meta_path is None or str(meta_path) == "":
-                values.append(_generated_metadata(bed_path, None, None))
+                values.append(_generated_metadata(bed_path, False, count))
             else:
                 values.append(_read_sidecar_exact(meta_path))
         metadata = np.asarray(values, dtype=object)
     else:
-        metadata = np.asarray([_generated_metadata(p, None, None) for p in paths], dtype=object)
+        metadata = np.asarray(
+            [_generated_metadata(p, False, count) for p, count in zip(paths, source_counts)],
+            dtype=object,
+        )
 
     return create_annotations(
         reference,
@@ -646,12 +694,21 @@ def load_annotation(
     reference,
     has_header: bool = False,
     value_columns=None,
+    group_column=None,
     annotation_names=None,
     annotation_metadata=None,
     annotation_metadata_path=None,
 ) -> AnnotationPanel:
     if annotation_metadata is not None and annotation_metadata_path is not None:
         raise ValueError("load_annotation accepts at most one of annotation_metadata and annotation_metadata_path")
+    if value_columns is not None and group_column is not None:
+        raise ValueError("group_column and value_columns are mutually exclusive")
+    if group_column is not None and annotation_names is not None:
+        raise ValueError("annotation_names is invalid with group_column")
+    if group_column is not None and annotation_metadata is not None:
+        raise ValueError("annotation_metadata is invalid with group_column")
+    if group_column is not None and annotation_metadata_path is not None:
+        raise ValueError("annotation_metadata_path is invalid with group_column")
 
     source_path = Path(path)
     df, header_fields, row_base0 = _read_annotation_table(source_path, bool(has_header))
@@ -659,11 +716,43 @@ def load_annotation(
     if num_columns < 3:
         raise ValueError(f"{source_path}: annotation input must have at least 3 tab-separated columns")
 
-    value_columns0 = _normalize_value_columns(value_columns, header_fields, num_columns, source_path)
+    value_normalized = _normalize_value_columns(value_columns, header_fields, num_columns, source_path)
+    value_columns0 = None if value_normalized is None else value_normalized[0]
+    value_column_metadata = None if value_normalized is None else value_normalized[1]
+    group_normalized = _normalize_group_column(group_column, header_fields, num_columns, source_path)
+    group_column0 = None if group_normalized is None else group_normalized[0]
+    group_column_metadata = None if group_normalized is None else group_normalized[1]
     chr_values, starts, ends = _validate_interval_columns(df, source_path, row_base0=row_base0)
     n = int(reference.num_snp)
+    num_source_intervals = int(df.shape[0])
 
-    if value_columns0 is None and num_columns == 3:
+    if group_column0 is not None:
+        group_values = df.iloc[:, group_column0].astype(str).to_numpy(dtype=object)
+        empty = group_values == ""
+        if empty.any():
+            idx = int(np.flatnonzero(empty)[0])
+            raise ValueError(f"{source_path}: row {row_base0 + idx + 1}: group_column values must be non-empty")
+        names = [str(x) for x in pd.unique(group_values)]
+        columns = []
+        metadata_values = []
+        # PERF: loop retained because grouped binary interval union is defined independently per group.
+        for group_value in names:
+            rows = group_values == group_value
+            intervals_by_chr = binary_intervals_by_chr_from_arrays(chr_values[rows], starts[rows], ends[rows])
+            columns.append(paint_binary_column(intervals_by_chr, reference))
+            metadata_values.append(
+                _generated_metadata(
+                    source_path,
+                    bool(has_header),
+                    int(np.count_nonzero(rows)),
+                    group_column=group_column_metadata,
+                    group_value=group_value,
+                )
+            )
+        annomat = sparse.hstack(columns, format="csr") if columns else sparse.csr_matrix((n, 0), dtype=np.float64)
+        is_binary = np.ones(len(names), dtype=bool)
+        metadata = np.asarray(metadata_values, dtype=object)
+    elif value_columns0 is None and num_columns == 3:
         names = (
             _default_annotation_names(source_path, num_columns, header_fields, value_columns0)
             if annotation_names is None
@@ -674,23 +763,22 @@ def load_annotation(
         intervals_by_chr = binary_intervals_by_chr_from_arrays(chr_values, starts, ends)
         annomat = paint_binary_column(intervals_by_chr, reference)
         is_binary = np.array([True], dtype=bool)
-        source_columns = [None]
-        source_column_names = [None]
         if annotation_metadata_path is not None:
             metadata = np.asarray([_read_sidecar_exact(annotation_metadata_path)], dtype=object)
         elif annotation_metadata is not None:
             metadata = _coerce_string_vector(annotation_metadata, 1, "annotation_metadata")
         else:
             metadata = np.asarray(
-                [_generated_metadata(source_path, source_columns[0], source_column_names[0])],
+                [_generated_metadata(source_path, bool(has_header), num_source_intervals)],
                 dtype=object,
             )
     else:
         if value_columns0 is None:
             if num_columns == 4:
                 value_columns0 = [3]
+                value_column_metadata = [str(header_fields[3])] if header_fields is not None else [3]
             else:
-                raise ValueError(f"{source_path}: input with five or more columns requires explicit value_columns")
+                raise ValueError(f"{source_path}: input with five or more columns requires explicit value_columns or group_column")
         names = (
             _default_annotation_names(source_path, num_columns, header_fields, value_columns0)
             if annotation_names is None
@@ -732,10 +820,6 @@ def load_annotation(
                 blocks[shard_idx] = paint_numeric_sparse(ref_shard.bp, intervals, value_block)
         annomat = sparse.vstack(blocks, format="csr")
         is_binary = np.zeros(len(value_columns0), dtype=bool)
-        source_columns = value_columns0
-        source_column_names = [
-            None if header_fields is None else str(header_fields[i]) for i in value_columns0
-        ]
 
         if annotation_metadata_path is not None:
             sidecar_lines = _read_column_metadata_sidecar(annotation_metadata_path, num_columns)
@@ -747,8 +831,13 @@ def load_annotation(
         else:
             metadata = np.asarray(
                 [
-                    _generated_metadata(source_path, col0, col_name)
-                    for col0, col_name in zip(source_columns, source_column_names)
+                    _generated_metadata(
+                        source_path,
+                        bool(has_header),
+                        num_source_intervals,
+                        value_column=value_column,
+                    )
+                    for value_column in value_column_metadata
                 ],
                 dtype=object,
             )

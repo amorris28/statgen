@@ -18,6 +18,7 @@ R_EXTDATA_COPIES = {
     "traits_complete.tsv.gz": "sumstats/traits_complete.tsv.gz",
     "anno1.bed": "annotations/anno1.bed",
     "anno2.bed": "annotations/anno2.bed",
+    "grouped.annot": "annotations/grouped.annot",
     "genotype_1.bed": "genotype/sharded/1.bed",
     "genotype_1.bim": "genotype/sharded/1.bim",
     "genotype_1.fam": "genotype/sharded/1.fam",

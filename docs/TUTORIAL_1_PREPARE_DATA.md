@@ -95,6 +95,7 @@ source/annotations/coding_exon.bed
 source/annotations/conservation.annot
 source/annotations/conservation.meta
 source/annotations/exon.bed
+source/annotations/functional_groups.annot
 source/annotations/intron.bed
 source/annotations/utr3.bed
 source/annotations/utr5.bed
@@ -127,10 +128,12 @@ must contain `chr`, `bp`, `a1`, `a2`, and `p` columns. `z` and `n` are optional;
 when present, missing values among variants with `p` values will produce
 warnings.
 
-Annotation examples include binary 3-column BED files and a headered BED-like
-continuous annotation file. `conservation.meta` is a column-aligned metadata
-sidecar for `conservation.annot`; headerless continuous files are also
-supported by `load_annotation`.
+Annotation examples include binary 3-column BED files, a grouped BED-like file,
+and a headered BED-like continuous annotation file. `functional_groups.annot`
+uses one group column to produce multiple binary annotation columns.
+`conservation.meta` is a column-aligned metadata sidecar for
+`conservation.annot`; headerless continuous files are also supported by
+`load_annotation`.
 
 ## Build the LD Distribution
 
@@ -222,6 +225,12 @@ binary_annotations = load_annotations(
     ],
     reference,
 )
+grouped_annotations = load_annotation(
+    annot_root / "functional_groups.annot",
+    reference,
+    has_header=True,
+    group_column="group",
+)
 continuous_annotations = load_annotation(
     annot_root / "conservation.annot",
     reference,
@@ -229,7 +238,7 @@ continuous_annotations = load_annotation(
     value_columns=["conservation", "promoter_activity"],
     annotation_metadata_path=annot_root / "conservation.meta",
 )
-annotations = binary_annotations.union_annotations(continuous_annotations)
+annotations = binary_annotations.union_annotations(grouped_annotations).union_annotations(continuous_annotations)
 
 genotype = load_genotype("source/genotypes/chr@", reference)
 
@@ -284,13 +293,18 @@ bed_paths = {
     fullfile(annot_root, 'whole_gene.bed')
 };
 binary_annotations = statgen.load_annotations(bed_paths, reference);
+grouped_annotations = statgen.load_annotation( ...
+    fullfile(annot_root, 'functional_groups.annot'), ...
+    reference, ...
+    'has_header', true, ...
+    'group_column', 'group');
 continuous_annotations = statgen.load_annotation( ...
     fullfile(annot_root, 'conservation.annot'), ...
     reference, ...
     'has_header', true, ...
     'value_columns', {'conservation', 'promoter_activity'}, ...
     'annotation_metadata_path', fullfile(annot_root, 'conservation.meta'));
-annotations = binary_annotations.union_annotations(continuous_annotations);
+annotations = binary_annotations.union_annotations(grouped_annotations).union_annotations(continuous_annotations);
 
 genotype = statgen.load_genotype( ...
     'source/genotypes/chr@', ...

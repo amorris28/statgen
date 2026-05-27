@@ -32,7 +32,8 @@ install.packages("statgen")
 
 `load_annotations()` loads one or more 3-column BED files as binary annotation
 columns. `load_annotation()` loads one BED-like source file and can paint
-selected numeric value columns as continuous annotations. Both return an
+selected numeric value columns as continuous annotations or expand one
+`group_column` into multiple binary annotations. Both return an
 `AnnotationPanel` whose `annomat()` accessor is a sparse numeric
 `Matrix::dgCMatrix`; `is_binary()` and `annotation_metadata()` expose per-column
 metadata.

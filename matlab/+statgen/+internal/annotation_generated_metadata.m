@@ -1,17 +1,37 @@
-function out = annotation_generated_metadata(path, source_column0, source_column_name)
+function out = annotation_generated_metadata(path, has_header, num_source_intervals, varargin)
 % Generate stable annotation provenance metadata.
-    if isempty(source_column0)
-        col = 'null';
-    else
-        col = sprintf('%d', source_column0);
+    fields = {
+        'source_file', ['"' json_escape_(path) '"']
+        'source_file_has_header', sprintf('%d', logical(has_header))
+        'num_source_intervals', sprintf('%d', num_source_intervals)
+    };
+    if mod(numel(varargin), 2) ~= 0
+        error('statgen:annotations', 'annotation_generated_metadata options must be name-value pairs');
     end
-    if isempty(source_column_name)
-        col_name = 'null';
-    else
-        col_name = ['"' json_escape_(source_column_name) '"'];
+    for i = 1:2:numel(varargin)
+        name = char(varargin{i});
+        value = varargin{i + 1};
+        if isempty(value)
+            continue
+        end
+        fields(end + 1, :) = {name, json_value_(value)}; %#ok<AGROW>
     end
-    out = sprintf('{"source_column0":%s,"source_column_name":%s,"source_file":"%s"}', ...
-        col, col_name, json_escape_(path));
+    parts = cell(size(fields, 1), 1);
+    for i = 1:size(fields, 1)
+        parts{i} = sprintf('"%s":%s', fields{i, 1}, fields{i, 2});
+    end
+    out = ['{' strjoin(parts, ',') '}'];
+end
+
+function out = json_value_(value)
+    if isnumeric(value) || islogical(value)
+        if ~isscalar(value)
+            error('statgen:annotations', 'metadata values must be scalar');
+        end
+        out = sprintf('%g', double(value));
+    else
+        out = ['"' json_escape_(value) '"'];
+    end
 end
 
 function out = json_escape_(value)

@@ -49,6 +49,12 @@ annotation_paths <- system.file(
   package = "statgen"
 )
 binary_annotations <- load_annotations(annotation_paths, reference)
+grouped_annotations <- load_annotation(
+  system.file("extdata", "grouped.annot", package = "statgen"),
+  reference,
+  has_header = TRUE,
+  group_column = "group"
+)
 
 continuous_path <- tempfile(fileext = ".annot")
 writeLines(c(
@@ -63,7 +69,10 @@ continuous_annotations <- load_annotation(
   has_header = TRUE,
   value_columns = "score"
 )
-annotations <- union_annotations(binary_annotations, continuous_annotations)
+annotations <- union_annotations(
+  union_annotations(binary_annotations, grouped_annotations),
+  continuous_annotations
+)
 
 num_snp(reference)
 head(logpvec(sumstats))

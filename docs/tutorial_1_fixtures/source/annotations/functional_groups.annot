@@ -1,0 +1,5 @@
+chrom	start0	end0	group
+21	5000000	5500000	coding
+21	5700000	6300000	regulatory
+22	10500000	11100000	coding
+X	2600000	3400000	regulatory

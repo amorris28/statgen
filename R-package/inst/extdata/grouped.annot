@@ -1,0 +1,5 @@
+chrom	start0	end0	group
+1	99	200	coding
+1	150	350	regulatory
+1	299	400	coding
+X	99	301	regulatory

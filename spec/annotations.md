@@ -8,11 +8,11 @@ definitions, or continuous numeric values aligned to SNPs.
 
 ## Disk representation
 
-Canonical binary annotation inputs are BED interval files, one file per
-annotation. Only BED columns 1–3 are used: chromosome, 0-based start, 0-based
-exclusive end. Additional BED columns are ignored by the binary batch loader.
-The set of binary annotations for an analysis may be one BED file per
-annotation:
+Canonical binary annotation inputs are BED interval files. A binary source may
+be one file per annotation. Only BED columns 1–3 are used by the binary batch
+loader: chromosome, 0-based start, and 0-based exclusive end. Additional BED
+columns are ignored by the binary batch loader. The set of binary annotations
+for an analysis may be one BED file per annotation:
 
 ```text
 annotations/
@@ -21,6 +21,17 @@ annotations/
   conserved.bed
   ...
 ```
+
+Alternatively, a binary source may be one grouped BED-like interval file loaded
+through `load_annotation`, where one selected column defines annotation groups:
+
+```text
+chrom<TAB>start0<TAB>end0<TAB>group
+```
+
+Each distinct group value in the selected `group_column` produces one binary
+annotation. Callers that need composite groups should create one grouping
+column upstream before loading annotations.
 
 Painted matrices are not canonical—they are derived from BED files and a
 specific reference and must be reproducible from them.
@@ -37,7 +48,7 @@ The first three columns are BED coordinates: chromosome, 0-based start, and
 Headerless files are the canonical default because common baselineLD-style
 continuous annotations are distributed as headerless BED-like files. Headered
 files are supported for wide external tables when the loader is told that the
-first row is a header and which value columns to use.
+first row is a header and which value columns or group column to use.
 
 The binary 3-column BED format is a special case of interval annotation input:
 inside each interval the value is implicitly `1`, and outside all intervals the
@@ -102,11 +113,12 @@ values.
 Painting maps an interval file onto a `ReferenceShard` or `ReferencePanel` to
 produce one or more columns in `annomat`. For 3-column BED input, the produced
 column is a 0/1 membership column. For numeric input, each selected value column
-produces one numeric annotation column. The binary procedure follows
-`annot/paint_bed_to_bim.py`, except that `statgen` does not normalize
-chromosome labels. Annotation chromosome labels and reference `chr` labels must
-already use the same upstream contig naming mode, normally `genomatch` NCBI
-naming.
+produces one numeric annotation column. For grouped binary input, each distinct
+value in the selected `group_column` produces one 0/1 membership column. The
+binary procedure follows `annot/paint_bed_to_bim.py`, except that `statgen`
+does not normalize chromosome labels. Annotation chromosome labels and reference
+`chr` labels must already use the same upstream contig naming mode, normally
+`genomatch` NCBI naming.
 
 1. **Exact chromosome matching**: compare the annotation chromosome field to the
    BIM `chr` column exactly as loaded. Do not strip `chr`, map `23` to `X`, or
@@ -118,12 +130,14 @@ naming.
    non-canonical labels such as `chr1`/`chrX` are errors.
 
 2. **Interval validation**: within each annotation column and chromosome, sort
-   intervals by start position. For binary 3-column BED input, overlapping and
-   adjacent intervals are allowed and are interpreted as a union of membership
-   intervals, matching the historical BED-painting behavior. For numeric input,
-   overlapping intervals are invalid and must fail with a clear error because
-   they would assign multiple numeric values to the same SNP. Adjacent numeric
-   intervals may be treated independently.
+   intervals by start position. For binary 3-column BED input and grouped binary
+   input, overlapping and adjacent intervals are allowed and are interpreted as
+   a union of membership intervals, matching the historical BED-painting
+   behavior. For grouped binary input this union is computed independently for
+   each group value. For numeric input, overlapping intervals are invalid and
+   must fail with a clear error because they would assign multiple numeric
+   values to the same SNP. Adjacent numeric intervals may be treated
+   independently.
 
 3. **Position conversion**: BIM `BP` values are 1-based. Convert to 0-based by
    subtracting 1 before testing interval membership.
@@ -131,9 +145,10 @@ naming.
 4. **Value assignment**: for each SNP, use binary search on the sorted start
    array to find the candidate interval. A SNP at 0-based position `p` is
    inside interval `[start, end)` when `start <= p < end`. SNPs on chromosomes
-   absent from the annotation file receive `0`. For 3-column BED input, SNPs
-   inside an interval receive `1`. For numeric input, SNPs inside an interval
-   receive the selected numeric value from that interval row.
+   absent from the annotation file receive `0`. For 3-column BED input and
+   grouped binary input, SNPs inside an interval receive `1` for the relevant
+   binary annotation. For numeric input, SNPs inside an interval receive the
+   selected numeric value from that interval row.
 
 Interval membership semantics are inherited from BED (`[start, end)`, 0-based
 start, 0-based exclusive end); `statgen` does not redefine BED coordinates.
@@ -143,9 +158,9 @@ Complement masks are a user-space operation on the returned `annomat`; the
 annotation loader does not provide a negation option.
 
 Numeric annotation values must be finite. Missing values, non-numeric values,
-`NaN`, `Inf`, and `-Inf` are invalid. Categorical interval fields are out of
-scope; callers should convert categorical inputs into numeric columns before
-loading.
+`NaN`, `Inf`, and `-Inf` are invalid. Categorical interval fields are supported
+only as a grouped binary `group_column`; other categorical interval values are
+out of scope.
 
 ## Representation
 
@@ -230,9 +245,9 @@ and returned once. The `annomat` type is a sparse numeric matrix.
 ```text
 load_annotations(bed_paths, reference, optional annotation_metadata,
                  optional annotation_metadata_paths) -> AnnotationPanel
-load_annotation(path, reference, optional header, optional value_columns,
-                optional annotation_names, optional annotation_metadata,
-                optional annotation_metadata_path)
+load_annotation(path, reference, optional has_header, optional value_columns,
+                optional group_column, optional annotation_names,
+                optional annotation_metadata, optional annotation_metadata_path)
     -> AnnotationPanel
 save_annotations_cache(panel, path)
 load_annotations_cache(path, optional shards) -> AnnotationPanel
@@ -266,29 +281,48 @@ Expected behavior:
   `is_binary = true`.
 - `load_annotation(path, reference, ...)` loads exactly one annotation source
   file. The file may produce one or more annotation columns. It supports
-  3-column binary BED input and BED-like numeric interval TSV input with one or
-  more selected value columns.
-- `header` defaults to false. When `header = false`, `value_columns` refers to
-  physical file column indices using the host language's ordinary indexing
-  convention: Python uses 0-based indices, while MATLAB/Octave and R use
-  1-based indices. Selected value columns must identify physical columns 4 or
-  later. Named `value_columns` are invalid without a header. When
-  `header = true`, `value_columns` may contain source column names or
+  3-column binary BED input, grouped binary BED-like input, and BED-like numeric
+  interval TSV input with one or more selected value columns.
+- `has_header` defaults to false. When `has_header = false`, `value_columns`
+  refers to physical file column indices using the host language's ordinary
+  indexing convention: Python uses 0-based indices, while MATLAB/Octave and R
+  use 1-based indices. Selected value columns must identify physical columns 4
+  or later. Named `value_columns` are invalid without a header. When
+  `has_header = true`, `value_columns` may contain source column names or
   host-language-indexed physical file column indices. Header names are the
   recommended cross-runtime selector for headered files.
-- For `load_annotation`, 3-column input with `value_columns` omitted produces
-  one binary annotation named from the file stem unless `annotation_names` is
-  supplied. Four-column input with `value_columns` omitted uses column 4 and
-  names the output from the file stem when `header = false`, or from the source
-  column name when `header = true`. Input with five or more columns requires
-  explicit `value_columns`; if `header = false`, it also requires
-  `annotation_names`. Three-column input produces `is_binary = true`.
-  Annotation columns loaded from columns 4 and later produce
-  `is_binary = false` by default, even if the observed values happen to be only
-  `0` and `1`.
-- If `annotation_names` is supplied to `load_annotation`, it overrides output
-  names inferred from source column headers or file stem. Its length must equal
-  the number of output annotation columns.
+- `group_column` follows the same selector rules as `value_columns`, but must
+  identify exactly one physical source column. A named `group_column` selector
+  is valid only when `has_header = true`. Integer selectors use the host
+  language's ordinary indexing convention. The selected group column must be
+  physical column 4 or later. `group_column` and `value_columns` are mutually
+  exclusive; supplying both is invalid. Multiple grouping columns are not
+  supported. Callers that need composite groups should create one grouping
+  column upstream before calling `load_annotation`.
+- When `group_column` is supplied, each distinct group value in the selected
+  column produces one binary annotation with `is_binary = true`. Empty group
+  values are invalid and must fail with a clear error; rows with empty group
+  values must not be silently skipped. Output annotation names are exactly the
+  observed group values, ordered by first physical occurrence in the source
+  file. `annotation_names`, `annotation_metadata`, and
+  `annotation_metadata_path` are invalid with `group_column`; metadata is
+  generated by the loader. `annotation_metadata_path` remains a column-aligned
+  sidecar format and cannot unambiguously provide metadata for the multiple
+  output annotations produced from one grouped source column.
+- For `load_annotation`, 3-column input with `value_columns` and `group_column`
+  omitted produces one binary annotation named from the file stem unless
+  `annotation_names` is supplied. Four-column input with `value_columns` and
+  `group_column` omitted uses column 4 and names the output from the file stem
+  when `has_header = false`, or from the source column name when
+  `has_header = true`. Input with five or more columns requires explicit
+  `value_columns` or `group_column`; if such an input is headerless and
+  `value_columns` is used, it also requires `annotation_names`. Three-column
+  input produces `is_binary = true`. Annotation columns loaded from columns 4
+  and later through `value_columns` produce `is_binary = false` by default, even
+  if the observed values happen to be only `0` and `1`.
+- If `annotation_names` is supplied to `load_annotation` without
+  `group_column`, it overrides output names inferred from source column headers
+  or file stem. Its length must equal the number of output annotation columns.
 - `load_annotation` accepts at most one of `annotation_metadata` and
   `annotation_metadata_path`. If `annotation_metadata` is supplied, it must be a
   string vector with one entry per output annotation; scalar string metadata is
@@ -301,8 +335,7 @@ Expected behavior:
   numbers. If `annotation_metadata_path` is supplied for 3-column binary input,
   the full sidecar content is used as the single output metadata string. If
   neither argument is supplied, the loader must generate stable provenance
-  strings, recommended as compact JSON object strings containing at
-  least `source_file`, `source_column0`, and `source_column_name`.
+  strings, specified below.
 - `load_annotations` accepts at most one of `annotation_metadata` and
   `annotation_metadata_paths`. If `annotation_metadata` is supplied, it must be
   a string vector with one entry per BED path. If `annotation_metadata_paths` is
@@ -312,9 +345,27 @@ Expected behavior:
   entry is file-level metadata and the full sidecar content is used as the
   metadata string for the corresponding binary BED annotation. A missing/empty
   entry requests generated provenance for that BED file. If neither argument is
-  supplied, the loader must generate stable provenance strings, recommended as
-  compact JSON object strings containing at least `source_file`,
-  `source_column0`, and `source_column_name`.
+  supplied, the loader must generate stable provenance strings, specified
+  below.
+- Generated annotation metadata must be compact JSON object strings. Generated
+  metadata always includes `source_file`, `source_file_has_header`, and
+  `num_source_intervals`. `source_file_has_header` is `0` or `1`; generated
+  metadata from the `load_annotations` batch BED loader uses
+  `source_file_has_header = 0`. `num_source_intervals` is the number of parsed
+  physical interval data rows contributing to the output annotation before
+  painting to the reference. It is not a count of merged intervals or painted
+  SNPs. For grouped binary input, `num_source_intervals` is counted per group
+  value: if group A has 50 source rows and group B has 200 source rows in a
+  250-row file, their generated metadata reports 50 and 200 respectively.
+  Metadata for annotations loaded from `value_columns` also includes
+  `value_column`, using the selected name or inferred header name when the
+  column is selected or inferred by name, and the host-language-indexed physical
+  column integer when the column is selected by integer. Metadata for grouped
+  binary annotations also includes
+  `group_column` and `group_value`; `group_column` follows the same selector
+  representation as `value_column`, and `group_value` is the exact observed
+  group value from the source file. Non-applicable fields are omitted rather
+  than emitted as null values.
 - Empty annotation source files are invalid input and must fail with a clear
   error. A file that becomes empty after skipping BED comment lines is also
   invalid and must fail with a clear error.

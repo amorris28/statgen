@@ -9,6 +9,7 @@ Writes all source files that Tutorial 1 reads as inputs:
     source/sumstats/trait_a.tsv.gz
     source/sumstats/trait_b.tsv.gz
     source/annotations/{coding_exon,exon,intron,utr3,utr5,whole_gene}.bed
+    source/annotations/functional_groups.annot
     source/annotations/conservation.annot
     source/annotations/conservation.meta
 
@@ -35,8 +36,10 @@ LD reference and annotation are always reference-complete (full N SNPs,
 
 Each annotation has a different number of genomic block intervals and a
   different fraction of reference variants covered.
-The conservation annotation is a headered BED-like file with two continuous
-  numeric value columns and a column-aligned metadata sidecar.
+The functional_groups annotation is a grouped BED-like file where one selected
+  column expands to multiple binary annotations. The conservation annotation is
+  a headered BED-like file with two continuous numeric value columns and a
+  column-aligned metadata sidecar.
 
 PLINK bfiles are generated directly in Python; no external tools are needed
 for this step. plink2 is required later for the Tutorial 1 LD build step.
@@ -307,6 +310,19 @@ def _write_continuous_annotation(annot_dir: Path) -> None:
         )
 
 
+def _write_grouped_annotation(annot_dir: Path) -> None:
+    rows = [
+        ("21", 5_000_000, 5_500_000, "coding"),
+        ("21", 5_700_000, 6_300_000, "regulatory"),
+        ("22", 10_500_000, 11_100_000, "coding"),
+        ("X", 2_600_000, 3_400_000, "regulatory"),
+    ]
+    with open(annot_dir / "functional_groups.annot", "w") as f:
+        f.write("chrom\tstart0\tend0\tgroup\n")
+        for chrom, start0, end0, group in rows:
+            f.write(f"{chrom}\t{start0}\t{end0}\t{group}\n")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -402,6 +418,7 @@ def main(argv=None) -> int:
 
     print()
     _write_annotation_beds(annot_dir, ref_variants_by_chr)
+    _write_grouped_annotation(annot_dir)
     _write_continuous_annotation(annot_dir)
 
     print(f"\nFixtures written to: {src}")

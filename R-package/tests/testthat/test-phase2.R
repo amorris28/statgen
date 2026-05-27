@@ -174,6 +174,26 @@ test_that("load_annotation paints continuous values and preserves metadata", {
   expect_equal(as.matrix(annomat(loaded)), as.matrix(annomat(ann)))
 })
 
+test_that("load_annotation supports grouped binary annotations", {
+  ref <- load_reference(.phase2_reference_template())
+  grouped <- system.file("extdata", "grouped.annot", package = "statgen", mustWork = TRUE)
+  ann <- load_annotation(grouped, ref, has_header = TRUE, group_column = "group")
+
+  expect_equal(annonames(ann), c("coding", "regulatory"))
+  expect_equal(is_binary(ann), c(TRUE, TRUE))
+  expect_equal(
+    unname(as.matrix(annomat(ann))),
+    matrix(
+      c(1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1),
+      nrow = 8L,
+      ncol = 2L
+    )
+  )
+  meta <- lapply(annotation_metadata(ann), jsonlite::fromJSON)
+  expect_equal(vapply(meta, function(x) x$group_value, character(1)), c("coding", "regulatory"))
+  expect_equal(vapply(meta, function(x) x$num_source_intervals, integer(1)), c(2L, 2L))
+})
+
 test_that("load_annotation supports binary sidecar, name override, and headerless 4-column default", {
   ref <- load_reference(.phase2_reference_template(), shards = "1")
   bed <- tempfile(fileext = ".bed")

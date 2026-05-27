@@ -457,6 +457,14 @@ score metadata
 weight metadata
 """
 
+GROUPED_ANNOTATION_ROWS = """\
+chrom\tstart0\tend0\tgroup
+1\t99\t200\tcoding
+1\t150\t350\tregulatory
+1\t299\t400\tcoding
+X\t99\t301\tregulatory
+"""
+
 # Sumstats: chr, bp, a1, a2, z, n, p
 # Row notes:
 #   1:200  z=NA  (missing z)
@@ -503,6 +511,7 @@ def main() -> None:
     write_bed_annotation(ROOT / "annotations/anno2.bed", ANNO2_BED)
     write_text(ROOT / "annotations/continuous.annot", CONTINUOUS_ANNOTATION_ROWS)
     write_text(ROOT / "annotations/continuous.meta", CONTINUOUS_ANNOTATION_META)
+    write_text(ROOT / "annotations/grouped.annot", GROUPED_ANNOTATION_ROWS)
 
     # --- sumstats ---
     for name, rows in [

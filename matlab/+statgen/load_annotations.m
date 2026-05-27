@@ -40,14 +40,20 @@ function panel = load_annotations(bed_paths, reference, varargin)
 
     n = reference.num_snp;
     k = numel(paths);
+    interval_maps = cell(k, 1);
+    source_counts = zeros(k, 1);
+    for j = 1:k
+        interval_maps{j} = parse_bed_intervals_(paths{j});
+        source_counts(j) = interval_maps{j}.num_source_intervals;
+    end
     if n == 0
-        panel = statgen.create_annotations(reference, sparse([], [], [], 0, k), annonames, true(k, 1), metadata_for_paths_(paths, opts));
+        panel = statgen.create_annotations(reference, sparse([], [], [], 0, k), annonames, true(k, 1), metadata_for_paths_(paths, opts, source_counts));
         return
     end
 
     A = sparse(n, k);
     for j = 1:k
-        intervals_map = parse_bed_intervals_(paths{j});
+        intervals_map = interval_maps{j};
         for s = 1:numel(reference.shards)
             ref_shard = reference.shards{s};
             off = reference.shard_offsets(s);
@@ -64,7 +70,7 @@ function panel = load_annotations(bed_paths, reference, varargin)
         end
     end
 
-    panel = statgen.create_annotations(reference, A, annonames, true(k, 1), metadata_for_paths_(paths, opts));
+    panel = statgen.create_annotations(reference, A, annonames, true(k, 1), metadata_for_paths_(paths, opts, source_counts));
 end
 
 function opts = parse_options_(varargin)
@@ -92,7 +98,7 @@ function opts = parse_options_(varargin)
     end
 end
 
-function metadata = metadata_for_paths_(paths, opts)
+function metadata = metadata_for_paths_(paths, opts, source_counts)
     n = numel(paths);
     if ~isempty(opts.annotation_metadata)
         metadata = statgen.internal.annotation_coerce_metadata_vector(opts.annotation_metadata, n, 'annotation_metadata');
@@ -101,7 +107,7 @@ function metadata = metadata_for_paths_(paths, opts)
         metadata = cell(n, 1);
         for i = 1:n
             if isempty(meta_paths{i})
-                metadata{i} = statgen.internal.annotation_generated_metadata(paths{i}, [], []);
+                metadata{i} = statgen.internal.annotation_generated_metadata(paths{i}, false, source_counts(i));
             else
                 metadata{i} = statgen.internal.annotation_read_sidecar_exact(meta_paths{i});
             end
@@ -109,7 +115,7 @@ function metadata = metadata_for_paths_(paths, opts)
     else
         metadata = cell(n, 1);
         for i = 1:n
-            metadata{i} = statgen.internal.annotation_generated_metadata(paths{i}, [], []);
+            metadata{i} = statgen.internal.annotation_generated_metadata(paths{i}, false, source_counts(i));
         end
     end
 end
@@ -180,7 +186,7 @@ function intervals_map = parse_bed_intervals_(path)
         error('statgen:annotations', '%s: row %d: BED interval end must be >= start', path, i);
     end
 
-    intervals_map = struct('labels', {{}}, 'intervals', {{}});
+    intervals_map = struct('labels', {{}}, 'intervals', {{}}, 'num_source_intervals', n_rows);
 
     chr_unique = {};
     for i = 1:numel(chr_col)
